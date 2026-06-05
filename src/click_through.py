@@ -1,0 +1,59 @@
+# src/click_through.py
+import ctypes
+import ctypes.wintypes
+import logging
+from typing import Callable
+from PyQt6.QtCore import QTimer, QRect
+from PyQt6.QtGui import QCursor
+from src.constants import CLICK_THROUGH_POLL_MS
+
+logger = logging.getLogger(__name__)
+
+GWL_EXSTYLE          = -20
+WS_EX_TRANSPARENT    = 0x00000020
+WS_EX_LAYERED        = 0x00080000
+
+
+class ClickThroughManager:
+    def __init__(self, hwnd: int, get_geometry_fn: Callable[[], QRect]) -> None:
+        self._hwnd = hwnd
+        self._get_geometry = get_geometry_fn   # callable -> QRect
+        self._transparent = False
+
+        self._timer = QTimer()
+        self._timer.setInterval(CLICK_THROUGH_POLL_MS)
+        self._timer.timeout.connect(self._poll)
+        self._timer.start()
+
+        self.enable_click_through()
+
+    def enable_click_through(self) -> None:
+        style = ctypes.windll.user32.GetWindowLongW(self._hwnd, GWL_EXSTYLE)
+        ctypes.windll.user32.SetWindowLongW(
+            self._hwnd, GWL_EXSTYLE,
+            style | WS_EX_LAYERED | WS_EX_TRANSPARENT
+        )
+        self._transparent = True
+        logger.debug("Click-through enabled for HWND %d", self._hwnd)
+
+    def disable_click_through(self) -> None:
+        style = ctypes.windll.user32.GetWindowLongW(self._hwnd, GWL_EXSTYLE)
+        ctypes.windll.user32.SetWindowLongW(
+            self._hwnd, GWL_EXSTYLE,
+            style & ~WS_EX_TRANSPARENT
+        )
+        self._transparent = False
+        logger.debug("Click-through disabled for HWND %d", self._hwnd)
+
+    def stop(self) -> None:
+        self._timer.stop()
+
+    def _poll(self) -> None:
+        cursor = QCursor.pos()
+        geom: QRect = self._get_geometry()
+        cursor_over = geom.contains(cursor)
+
+        if cursor_over and self._transparent:
+            self.disable_click_through()
+        elif not cursor_over and not self._transparent:
+            self.enable_click_through()

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+
+# pytest
+.pytest_cache/
+
+# Pip artifacts (=1.0.0 etc.)
+=*
+
+# Runtime / scratch files
+*.tmp
+*_response.json
+
+# Credentials
+assets/firebase-credentials.json
+
+# Log files
+logs/
+
+# Local storage (memory, history, diary, config, lock, cache, thoughts)
+data/

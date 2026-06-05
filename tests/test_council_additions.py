@@ -1,0 +1,215 @@
+import pytest
+from unittest.mock import MagicMock, patch
+from pathlib import Path
+import random
+from PyQt6.QtCore import QTimer
+from src.pet_window import PetWindow
+from src.pet_fsm import PetState
+
+@pytest.fixture
+def app():
+    from PyQt6.QtWidgets import QApplication
+    _app = QApplication.instance()
+    if _app is None:
+        _app = QApplication([])
+    return _app
+
+def test_onboarding_bubbles(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=True, skill_ready=True, initial_state={"first_run_done": False})
+        
+        assert len(window._bubble_queue) == 3
+        assert window._bubble_queue[0] == "I'm Daemon."
+        assert window._bubble_queue[1] == "Double-click me to ask opencode anything."
+        assert window._bubble_queue[2] == "Right-click for options."
+
+def test_bubble_queue_shows_immediately_when_idle(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
+        window._bubble_queue.clear()
+        window._show_bubble("hello")
+        assert window._bubble_text == "hello"
+        assert window._bubble_timer_ms > 0
+
+def test_bubble_queue_appends_when_active(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
+        window._bubble_queue.clear()
+        window._show_bubble("first")
+        assert window._bubble_text == "first"
+        window._show_bubble("second")
+        assert window._bubble_text == "first"  # still showing
+        assert window._bubble_queue == ["second"]
+
+def test_bubble_queue_drops_when_full(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
+        window._bubble_queue.clear()
+        window._show_bubble("first")
+        window._show_bubble("second")
+        window._show_bubble("third")
+        window._show_bubble("fourth")
+        assert window._bubble_queue == ["second", "third", "fourth"]
+        window._show_bubble("fifth")  # should be dropped
+        assert window._bubble_queue == ["second", "third", "fourth"]
+
+def test_bubble_queue_immediate_replaces_current(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
+        window._bubble_queue = ["queued"]
+        window._show_bubble("first")
+        assert window._bubble_text == "first"
+        # Queue stays intact for after this bubble
+        assert window._bubble_queue == ["queued"]
+
+def test_bubble_tick_dequeues_next(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
+        window._bubble_queue.clear()
+        window._show_bubble("first")
+        window._show_bubble("second")
+        assert window._bubble_queue == ["second"]
+        # Simulate bubble expiry
+        window._bubble_timer_ms = 1
+        window._tick()
+        assert window._bubble_text == "second"
+        assert window._bubble_queue == []
+
+def test_bubble_short_text_gets_shorter_duration(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
+        window._bubble_queue.clear()
+        window._show_bubble("hi")
+        assert window._bubble_timer_ms == 4000
+
+def test_bubble_long_text_gets_full_duration(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
+        window._bubble_queue.clear()
+        window._show_bubble("x" * 41)
+        assert window._bubble_timer_ms == 8000
+
+def test_clear_bubble_queue_clears_current_and_pending(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
+        window._bubble_queue.clear()
+        window._show_bubble("first")
+        window._show_bubble("second")
+        window._show_bubble("third")
+        assert window._bubble_text == "first"
+        assert len(window._bubble_queue) == 2
+        window._clear_bubble_queue()
+        assert window._bubble_text == ""
+        assert window._bubble_timer_ms == 0
+        assert window._bubble_queue == []
+
+def test_input_submission_clears_queue(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
+        window._bubble_queue.clear()
+        window._show_bubble("first")
+        window._show_bubble("queued")
+        window._input_field.setText("!memories")
+        window._on_input_submitted()
+        assert window._bubble_queue == []
+
+def test_mouse_press_on_pet_clears_queue(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
+        window._bubble_queue.clear()
+        window._show_bubble("first")
+        window._show_bubble("queued")
+        from PyQt6.QtCore import QPointF, Qt, QEvent
+        from PyQt6.QtGui import QMouseEvent
+        local = QPointF(window._pet_x + 10, window._pet_y + 10)
+        event = QMouseEvent(QEvent.Type.MouseButtonPress, local, local,
+                            Qt.MouseButton.LeftButton,
+                            Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+        window.mousePressEvent(event)
+        assert window._bubble_text == ""
+        assert window._bubble_queue == []
+
+def test_onboarding_bubbles_skipped_if_first_run_done(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=True, skill_ready=True, initial_state={"first_run_done": True})
+        assert len(window._bubble_queue) == 0
+
+def test_global_hotkey_action(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=True)
+        window.show = MagicMock()
+        window.raise_ = MagicMock()
+        window.activateWindow = MagicMock()
+        window._show_input_field = MagicMock()
+        
+        window._on_global_hotkey()
+        
+        window.show.assert_called_once()
+        window.raise_.assert_called_once()
+        window.activateWindow.assert_called_once()
+        window._show_input_field.assert_called_once()
+
+def test_pin_behavior(app):
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False)
+        window._pinned = True
+        
+        # Wander should not be due
+        ctx = window._build_fsm_context()
+        assert ctx.wander_due is False
+        
+        # Apply physics should return early for states other than DRAGGED/FALLING
+        old_x = window._pet_x
+        window._wander_target_x = 500
+        window._apply_physics(PetState.PERIMETER, 33)
+        assert window._pet_x == old_x  # No change
+
+def test_recall_memory(app, tmp_path):
+    mock_firebase = MagicMock()
+    mock_firebase.load_current_brain.return_value = {}
+    mock_firebase.read_local_diary.return_value = None
+    mock_firebase.fetch_all_diary_entries.return_value = []
+    mock_firebase.write_local_diary = MagicMock()
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager", return_value=mock_firebase):
+        mem_path = str(tmp_path / "test_memory.json")
+        hist_path = str(tmp_path / "test_history.json")
+        window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+        
+        window._memory.remember("name", "TestUser")
+        window._memory.remember("lang", "Python")
+        window._on_recall_memory()
+        assert "TestUser" in window._bubble_text
+        assert "Python" in window._bubble_text
+
+
