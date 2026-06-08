@@ -10,6 +10,7 @@ class FSMActionBridge(QObject):
     """
 
     request = pyqtSignal(str, object, object)  # action, target_x, target_y
+    toast_request = pyqtSignal(str, str)  # title, message
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -18,3 +19,6 @@ class FSMActionBridge(QObject):
     def emit_request(self, action: str, target_x=None, target_y=None):
         self._last_action = action
         self.request.emit(action, target_x, target_y)
+
+    def emit_toast(self, title: str, message: str):
+        self.toast_request.emit(title, message)

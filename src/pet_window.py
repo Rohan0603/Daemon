@@ -47,7 +47,8 @@ from src.write_coalescer import WriteCoalescer
 from src.diary_store import DiaryStore
 from src.context_manager import ContextManager
 from src.response_manager import AutonomousResponseManager
-from src.firebase_auth import FirebaseAuth
+
+
 from src.fsm_bridge import FSMActionBridge
 from src.mcp_server import MCPServer
 
@@ -55,10 +56,6 @@ logger = logging.getLogger(__name__)
 
 _LOGIN_PROMPT = "Intruder! I-I don't recognize your clearance, man! Identify yourself!"
 _LOGIN_SUCCESS = "Oh, it's just you. You coulda said so, jeez."
-_SIGNUP_SUCCESS = "New identity registered. Don't make me regret this."
-_LOGIN_FAILURE = "That ain't it, chief. You're locked out of the brain."
-_SESSION_EXPIRED = "Your session expired. Get new clearance."
-_NETWORK_ERROR = "Brain's offline. Can't reach Firebase, man."
 
 
 class PetWindow(QWidget):
@@ -92,6 +89,7 @@ class PetWindow(QWidget):
         self._pet_scale = self._config.get("pet_scale", 1.0)
         self._pet_opacity = self._config.get("pet_opacity", 0.85)
         self._pet_speed_multiplier = self._config.get("pet_speed", 1.0)
+        self._chattiness = self._config.get("chattiness", 1.0)
 
         self._scale = QApplication.primaryScreen().devicePixelRatio()
         self._ground_y = self._compute_ground_y()
@@ -131,8 +129,6 @@ class PetWindow(QWidget):
         self._pinned = False
 
         self._context_menu = PetContextMenu(self)
-        self._context_menu.signals.build_success.connect(self._on_build_success)
-        self._context_menu.signals.build_failure.connect(self._on_build_failure)
         self._context_menu.signals.quit_requested.connect(self._force_quit_app)
         self._context_menu.signals.recall_memory.connect(self._on_recall_memory)
         self._context_menu.signals.recall_history.connect(self._on_recall_history)
@@ -158,6 +154,7 @@ class PetWindow(QWidget):
         # MCP FSM bridge — thread-safe signal relay between MCP server and Qt main thread
         self._fsm_bridge = FSMActionBridge()
         self._fsm_bridge.request.connect(self._on_mcp_fsm_action)
+        self._fsm_bridge.toast_request.connect(self._on_toast_requested)
         self._mcp_server = MCPServer(self._fsm_bridge)
 
         self._bubble_queue: list[str] = []
@@ -165,10 +162,7 @@ class PetWindow(QWidget):
         self._memory = Memory(path=memory_path)
         self._history = History(path=history_path)
         self._crud = None
-        if auth and auth.uid:
-            self._firebase_available = True
-        else:
-            self._firebase_available = False
+        self._firebase_available = False
         self._firebase_mem = None
         self._diary_entries: list[str] = []
         self._diary_synced: int = 0
@@ -223,15 +217,11 @@ class PetWindow(QWidget):
         self._fsm_timer.timeout.connect(self._tick)
         self._fsm_timer.start()
 
-        self._active_chat_timer = QTimer()
-        self._active_chat_timer.setInterval(ACTIVE_CHAT_INTERVAL_SEC * 1000)
-        self._active_chat_timer.timeout.connect(self._on_active_chat_tick)
-        self._active_chat_timer.start()
-
-        self._joke_timer = QTimer()
-        self._joke_timer.setInterval(JOKE_INTERVAL_SEC * 1000)
-        self._joke_timer.timeout.connect(self._on_joke_tick)
-        self._joke_timer.start()
+        from src.constants import BEHAVIOR_TICK_MS
+        self._behavior_timer = QTimer()
+        self._behavior_timer.setInterval(BEHAVIOR_TICK_MS)
+        self._behavior_timer.timeout.connect(self._master_tick)
+        self._behavior_timer.start()
 
         self._bubble_text = ""
         self._bubble_timer_ms = 0
@@ -248,6 +238,14 @@ class PetWindow(QWidget):
         self._consecutive_silent = 0
         self._consecutive_engaged = 0
         self._current_interval = BASE_INTERVAL_SEC
+
+        self._last_active_window = ""
+        self._last_typing_snapshot = ""
+        self._boredom_tick_count = 0
+        self._gcd_expiry_timestamp = 0.0
+        self._chat_timer_sec = 0
+        self._joke_timer_sec = 0
+        self._chattiness = 1.0
 
         self._input_field = QLineEdit(self)
         self._input_field.setFixedSize(INPUT_WIDTH, INPUT_HEIGHT)
@@ -307,18 +305,132 @@ class PetWindow(QWidget):
         if apm > 0:
             self._boredom_timer_ms = BOREDOM_TIMEOUT_SEC * 1000
 
-    def _on_build_success(self) -> None:
-        self._build_event = "success"
+    def _calculate_joke_modifier(self) -> float:
+        """Inverse APM scaling: low APM = frequent jokes, high APM = rare jokes."""
+        apm = self._current_apm
+        if apm < 10:
+            return 0.5   # 30s base -> rapid fire
+        elif apm < 20:
+            return 1.0   # 60s base
+        elif apm < 40:
+            return 2.0   # 120s base
+        else:
+            return 3.0   # 180s base — rare
 
-    def _on_build_failure(self) -> None:
-        self._build_event = "failure"
+    def _has_significant_delta(self) -> bool:
+        """Detect context switches: window change or typing burst."""
+        current_window = get_active_window_title()
+        current_typing = self._typing_buffer.get_context() if self._typing_buffer else ""
+
+        window_changed = current_window != self._last_active_window and current_window != ""
+        typing_burst = len(current_typing) - len(self._last_typing_snapshot) > 20
+
+        self._last_active_window = current_window
+        self._last_typing_snapshot = current_typing
+
+        return window_changed or typing_burst
+
+    def _trigger_chat(self) -> None:
+        """Handle active chat: instant local reaction + background API call."""
+        self._chat_timer_sec = 0  # Reset timer
+
+        # Zero-latency local reaction
+        local = self._response_manager.draw("typing_reactions", 1)
+        if local:
+            self._dispatch_structured(local[0])
+
+        # Background API call
+        if not self._autonomous_query_pending and self._opencode_enabled:
+            self._dispatch_trigger(
+                mode="active_chat",
+                context_hint=get_active_window_title(),
+                apm=self._current_apm,
+                idle_seconds=self._idle_seconds,
+                typing_content=self._typing_buffer.get_context() if self._typing_buffer else "",
+                is_autonomous=True,
+            )
+
+    def _trigger_joke(self) -> None:
+        """Handle joke trigger: background API call."""
+        self._joke_timer_sec = 0  # Reset timer
+
+        if not self._autonomous_query_pending and self._opencode_enabled:
+            self._dispatch_trigger(
+                mode="joke",
+                context_hint=get_active_window_title(),
+                apm=self._current_apm,
+                idle_seconds=self._idle_seconds,
+                is_autonomous=True,
+            )
+
+    def _trigger_boredom_fsm(self) -> None:
+        """Handle boredom: local FSM actions only, API every 3rd/4th tick."""
+        from src.pet_fsm import PetState
+
+        # Local FSM actions (silent, no GCD)
+        actions = ["PERIMETER", "SHAKING", "SPINNING", "LOOK_AWAY", "BOUNCING"]
+        action = random.choice(actions)
+        target_state = getattr(PetState, action)
+        self._fsm.transition_to(target_state)
+
+        # API call every 3rd-4th boredom tick
+        self._boredom_tick_count = (self._boredom_tick_count + 1) % 4
+        if self._boredom_tick_count == 0 and self._opencode_enabled:
+            if not self._autonomous_query_pending:
+                self._dispatch_trigger(
+                    mode="boredom",
+                    context_hint=get_active_window_title(),
+                    apm=self._current_apm,
+                    idle_seconds=self._idle_seconds,
+                    is_autonomous=True,
+                )
+
+    def _master_tick(self) -> None:
+        """Centralized behavioral tick — runs every BEHAVIOR_TICK_MS."""
+        try:
+            # 1. Accumulate time
+            self._chat_timer_sec += 1
+            self._joke_timer_sec += 1
+
+            # 2. GATEKEEPER: Dynamic Global Cooldown
+            if time.time() < self._gcd_expiry_timestamp:
+                return  # Speech in progress — lockdown
+
+            # 3. Dynamic Thresholds (Chattiness scaling)
+            chat_threshold = ACTIVE_CHAT_INTERVAL_SEC / self._chattiness
+            joke_mod = self._calculate_joke_modifier()
+            joke_threshold = (JOKE_INTERVAL_SEC * joke_mod) / self._chattiness
+
+            # 4. BEHAVIORAL PRIORITY TREE
+            # P1: Flow State (APM > 80) — TOTAL SILENCE
+            if self._current_apm > 80:
+                return
+
+            # P2: Active Chat Delta
+            if self._chat_timer_sec >= chat_threshold and self._has_significant_delta():
+                self._trigger_chat()
+                return
+
+            # P3: Joke (APM < 20)
+            if self._joke_timer_sec >= joke_threshold and self._current_apm < 20:
+                self._trigger_joke()
+                return
+
+            # P4: Boredom (APM == 0, Idle >= 60s)
+            if self._idle_seconds >= 60 and self._current_apm == 0:
+                self._trigger_boredom_fsm()
+                return
+
+        except Exception as e:
+            logger.critical("CRASH in _master_tick: %s", e, exc_info=True)
+            raise
 
     def _force_quit_app(self) -> None:
+        logger.info("_force_quit_app called - shutting down")
         self._force_quit = True
         self._mcp_server.stop()
         self._fsm_timer.stop()
-        self._active_chat_timer.stop()
-        self._joke_timer.stop()
+        self._behavior_timer.stop()
         self._log_data_state("Shutdown")
         self._response_manager.stop()
         try:
@@ -388,6 +500,7 @@ class PetWindow(QWidget):
         self._saved_tts_rate = self._tts.rate if self._tts else 220
         self._saved_tts_volume = self._tts.volume if self._tts else 1.0
         self._saved_tts_voice_id = self._tts.voice_id if self._tts else None
+        self._saved_chattiness = self._chattiness
 
         dialog = SettingsDialog(
             pet_scale=self._pet_scale,
@@ -397,6 +510,7 @@ class PetWindow(QWidget):
             tts_rate=self._saved_tts_rate,
             tts_volume=self._saved_tts_volume,
             tts_voice_id=self._saved_tts_voice_id,
+            chattiness=self._chattiness,
             parent=self,
         )
         dialog.value_changed.connect(lambda: self._apply_settings(dialog.get_values()))
@@ -422,6 +536,8 @@ class PetWindow(QWidget):
                 self._tts.volume = values["tts_volume"]
             if "tts_voice_id" in values:
                 self._tts.voice_id = values.get("tts_voice_id")
+        if "chattiness" in values:
+            self._chattiness = values["chattiness"]
 
     def _save_settings(self, values: dict) -> None:
         from src.config import save_config
@@ -436,37 +552,42 @@ class PetWindow(QWidget):
             "tts_rate": self._saved_tts_rate,
             "tts_volume": self._saved_tts_volume,
             "tts_voice_id": self._saved_tts_voice_id,
+            "chattiness": self._saved_chattiness,
         })
 
     def _tick(self) -> None:
-        self._anim_tick += 1
-        if self._bubble_timer_ms > 0:
-            self._bubble_timer_ms -= FSM_TICK_MS
-            if self._bubble_timer_ms <= 0:
-                if self._bubble_queue:
-                    item = self._bubble_queue.pop(0)
-                    self._bubble_text = item
-                    duration = self._bubble_duration(item)
-                    self._bubble_timer_ms = duration
-                    # self._tts.enqueue(item)  # TTS paused
-                    logger.info("_bubble queue -> next: '%s' (%d remaining, %dms)", item, len(self._bubble_queue), duration)
-                else:
-                    self._bubble_text = ""
-                    self._bubble_timer_ms = 0
+        try:
+            self._anim_tick += 1
+            if self._bubble_timer_ms > 0:
+                self._bubble_timer_ms -= FSM_TICK_MS
+                if self._bubble_timer_ms <= 0:
+                    if self._bubble_queue:
+                        item = self._bubble_queue.pop(0)
+                        self._bubble_text = item
+                        duration = self._bubble_duration(item)
+                        self._bubble_timer_ms = duration
+                        # self._tts.enqueue(item)  # TTS paused
+                        logger.info("_bubble queue -> next: '%s' (%d remaining, %dms)", item, len(self._bubble_queue), duration)
+                    else:
+                        self._bubble_text = ""
+                        self._bubble_timer_ms = 0
 
-        if not self._autonomous_query_pending:
-            self._boredom_timer_ms -= FSM_TICK_MS
-            if self._boredom_timer_ms <= 0:
-                self._trigger_boredom_query()
+            if not self._autonomous_query_pending:
+                self._boredom_timer_ms -= FSM_TICK_MS
+                if self._boredom_timer_ms <= 0:
+                    self._trigger_boredom_query()
 
-        old_state = self._fsm.current_state
-        ctx = self._build_fsm_context()
-        new_state = self._fsm.update(FSM_TICK_MS, ctx)
-        if new_state != old_state:
-            logger.debug(f"FSM state transition: {old_state.name} -> {new_state.name}")
-            self._state_elapsed_ms = 0
-        self._apply_physics(new_state, FSM_TICK_MS)
-        self.update()
+            old_state = self._fsm.current_state
+            ctx = self._build_fsm_context()
+            new_state = self._fsm.update(FSM_TICK_MS, ctx)
+            if new_state != old_state:
+                logger.debug(f"FSM state transition: {old_state.name} -> {new_state.name}")
+                self._state_elapsed_ms = 0
+            self._apply_physics(new_state, FSM_TICK_MS)
+            self.update()
+        except Exception as e:
+            logger.critical("CRASH in _tick: %s", e, exc_info=True)
+            raise
 
     def _build_fsm_context(self) -> FSMContext:
         cursor = self._scaled_cursor_pos()
@@ -650,35 +771,38 @@ class PetWindow(QWidget):
             self._context_menu.exec(event.globalPos())
 
     def paintEvent(self, event) -> None:
-        painter = QPainter(self)
-        cursor = self._scaled_cursor_pos()
-        ms = (time.time() - self._land_time) * 1000
-        if ms > SQUASH_STRETCH_DURATION_MS:
-            land_elapsed_ms = 0.0
-        else:
-            land_elapsed_ms = ms
-        ctx = RenderContext(
-            state=self._fsm.current_state,
-            pet_x=self._pet_x,
-            pet_y=self._pet_y,
-            anim_tick=self._anim_tick,
-            hyper_color_index=self._hyper_color_index,
-            fall_velocity=self._fall_velocity,
-            wander_direction=self._wander_direction,
-            bubble_text=self._bubble_text,
-            drag_velocity_x=self._drag_velocity_x,
-            scale=self._scale,
-            cursor_x=cursor[0],
-            cursor_y=cursor[1],
-            state_elapsed_ms=self._state_elapsed_ms,
-            land_elapsed_ms=land_elapsed_ms,
-            edge=self._perimeter_edge,
-            facing=self._perimeter_facing,
-            screen_rect=QApplication.primaryScreen().availableGeometry(),
-        )
-        self._renderer.render(painter, ctx)
-        self._bubble_rect = ctx.bubble_rect
-        painter.end()
+        try:
+            painter = QPainter(self)
+            cursor = self._scaled_cursor_pos()
+            ms = (time.time() - self._land_time) * 1000
+            if ms > SQUASH_STRETCH_DURATION_MS:
+                land_elapsed_ms = 0.0
+            else:
+                land_elapsed_ms = ms
+            ctx = RenderContext(
+                state=self._fsm.current_state,
+                pet_x=self._pet_x,
+                pet_y=self._pet_y,
+                anim_tick=self._anim_tick,
+                hyper_color_index=self._hyper_color_index,
+                fall_velocity=self._fall_velocity,
+                wander_direction=self._wander_direction,
+                bubble_text=self._bubble_text,
+                drag_velocity_x=self._drag_velocity_x,
+                scale=self._scale,
+                cursor_x=cursor[0],
+                cursor_y=cursor[1],
+                state_elapsed_ms=self._state_elapsed_ms,
+                land_elapsed_ms=land_elapsed_ms,
+                edge=self._perimeter_edge,
+                facing=self._perimeter_facing,
+                screen_rect=QApplication.primaryScreen().availableGeometry(),
+            )
+            self._renderer.render(painter, ctx)
+            self._bubble_rect = ctx.bubble_rect
+            painter.end()
+        except Exception as e:
+            logger.critical("CRASH in paintEvent: %s", e, exc_info=True)
 
     def mouseDoubleClickEvent(self, event) -> None:
         if not self._opencode_enabled:
@@ -764,7 +888,9 @@ class PetWindow(QWidget):
         logger.debug(f"_on_opencode_result | text='{text[:40]}...' | user_input='{user_input}'")
         self._show_bubble(text)
         self._history.add_entry(user_input, text, "idle")
-        self._opencode_worker = None
+        if self._opencode_worker is not None:
+            self._opencode_worker.deleteLater()
+            self._opencode_worker = None
         self.interaction_count += 1
         self._boredom_timer_ms = AUTONOMOUS_QUERY_INTERVAL_SEC * 1000
 
@@ -791,7 +917,9 @@ class PetWindow(QWidget):
             f"Okay, wow, alright... processing error! Existential crisis incoming, {name}!"
         ]
         self._show_bubble(random.choice(err_choices))
-        self._opencode_worker = None
+        if self._opencode_worker is not None:
+            self._opencode_worker.deleteLater()
+            self._opencode_worker = None
 
 
     def _bubble_duration(self, text: str) -> int:
@@ -816,6 +944,7 @@ class PetWindow(QWidget):
         logger.info("_show_bubble called with text: '%s' (duration: %dms)", text, duration)
         self._bubble_text = text
         self._bubble_timer_ms = duration
+        self.update()
         # self._tts.enqueue(text)  # TTS paused
         self.update()
 
@@ -843,8 +972,8 @@ class PetWindow(QWidget):
             return "No history yet."
         lines = []
         for e in reversed(entries):
-            who = "You" if e["user_input"] else "Daemon"
-            what = e["user_input"] or e["daemon_response"]
+            who = "You" if e.get("user_input") else "Daemon"
+            what = e.get("user_input") or e.get("daemon_response", "")
             if len(what) > 40:
                 what = what[:37] + "..."
             lines.append(f"{who}: {what}")
@@ -872,7 +1001,14 @@ class PetWindow(QWidget):
         self._context_menu.set_pinned(self._pinned)
 
     def _on_boot_check_auth(self) -> None:
-        if self._fresh_login:
+        from src.firebase_auth import FirebaseAuth
+        from src.firebase_crud import FirebaseCRUD
+        from src.memory_manager import MemoryManager
+
+        self._crud = FirebaseCRUD()
+        uid = "default"
+
+        if self._fresh_login and self._crud.available:
             self._fsm.transition_to(PetState.DEVASTATED)
             self._clear_bubble_queue()
             self._show_bubble(_LOGIN_PROMPT)
@@ -883,28 +1019,28 @@ class PetWindow(QWidget):
                 return self._auth.sign_up(email, password)
 
             from src.login_dialog import LoginDialog
-            from src.firebase_crud import FirebaseCRUD
-            from src import constants
 
             dialog = LoginDialog(on_sign_in=on_sign_in, on_sign_up=on_sign_up, parent=self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
-                self._crud = FirebaseCRUD(
-                    token_provider=self._auth.get_valid_token,
-                    project_id=constants.FIREBASE_PROJECT_ID,
-                )
-                from src.memory_manager import MemoryManager
-                self._firebase_mem = MemoryManager(crud=self._crud, uid=self._auth.uid)
-                self._firebase_available = True
-                self._on_boot_login_success()
-            else:
-                sys.exit(1)
-        else:
-            self._fsm.transition_to(PetState.IDLE)
-            self._show_bubble(_LOGIN_SUCCESS)
+                uid = self._auth.uid or "default"
 
-    def _on_boot_login_success(self) -> None:
+        if self._crud.available:
+            self._firebase_mem = MemoryManager(crud=self._crud, uid=uid)
+            self._firebase_available = True
+            self._write_coalescer._memory_manager = self._firebase_mem
+            brain = self._firebase_mem.load_current_brain()
+            if brain:
+                self._firebase_mem.sync_to_local(self._memory)
+            diary = self._firebase_mem.fetch_all_diary_entries()
+            if diary:
+                self._diary_entries = diary
+                self._diary_store.write(diary, len(diary))
+            self._show_bubble(_LOGIN_SUCCESS)
+        else:
+            self._firebase_available = False
+            self._show_bubble("Brain offline. Running local.")
+
         self._fsm.transition_to(PetState.IDLE)
-        self._show_bubble(_LOGIN_SUCCESS)
 
     def _dispatch_multiplexed(self, modes: list[str]) -> None:
         base = self._context_manager.build_autonomous_trigger(
@@ -922,20 +1058,7 @@ class PetWindow(QWidget):
     def _on_structured_multiplexed(self, items: list[dict]) -> None:
         if not items:
             return
-        is_bickering = (
-            len(items) == 2
-            and items[0].get("mode") == "kenny_roast"
-        )
-        if is_bickering:
-            self._dispatch_structured(items[0]["dialogue"], items[0]["action"],
-                                      items[0].get("target_x", 0), force=True)
-            QTimer.singleShot(3500, lambda: self._dispatch_structured(
-                items[1]["dialogue"], items[1]["action"],
-                items[1].get("target_x", 0), force=True))
-            return
-        first = items[0]
-        self._dispatch_structured(first["dialogue"], first["action"],
-                                  first.get("target_x", 0), force=True)
+        self._dispatch_structured(items[0], force=True)
         for item in items[1:]:
             pool_type = item.get("pool_type", "jokes_blackmail")
             self._response_manager.add_items(pool_type, [item])
@@ -946,30 +1069,22 @@ class PetWindow(QWidget):
             return True
         return False
 
-    def _dispatch_structured(self, dialogue: str, action: str, target_x: int,
-                             user_input: str = "", force: bool = False) -> None:
-        logger.info("_dispatch_structured: dialogue='%s', action='%s', target_x=%s", dialogue, action, target_x)
+    def _dispatch_structured(self, item: dict, force: bool = False) -> None:
+        thought = item.get("thought", "")
+        dialogue = item.get("dialogue", "")
+        logger.info("_dispatch_structured: dialogue='%s'", dialogue)
         if force:
             self._clear_bubble_queue()
-        logger.debug(f"_dispatch_structured | action={action} | target_x={target_x} | state={self._fsm.current_state.name}")
-        self._fsm.current_state = PetState.IDLE
-        self._show_bubble(dialogue)
-        self._history.add_entry(user_input, dialogue, action)
-        self._last_daemon_action = action
-
-        if action == "wander":
-            screen_w = QApplication.primaryScreen().availableGeometry().width()
-            safe_x = max(0, min(target_x, screen_w - PET_WIDTH))
-            self._wander_target_x = safe_x
-            self._wander_direction = 1 if safe_x > self._pet_x else -1
-            self._fsm.current_state = PetState.PERIMETER
-        elif action == "celebrate":
-            self._build_event = "success"
-        elif action == "devastated":
-            self._build_event = "failure"
-        elif action in ("hyper", "shake", "bounce", "spin", "look_away"):
-            self._triggered_action = action
-
+        if thought:
+            self._log_thought(thought, self._last_mode, dialogue)
+        if self._fsm.current_state == PetState.THINKING:
+            self._fsm.transition_to(PetState.IDLE)
+        if dialogue:
+            self._show_bubble(dialogue)
+            # Dynamic GCD: base 8s + 1s per 30 chars
+            self._gcd_expiry_timestamp = time.time() + 8.0 + (len(dialogue) / 30.0)
+        self._history.add_entry("", dialogue, "idle")
+        self._last_daemon_action = "idle"
         self.interaction_count += 1
 
     def _should_fire_autonomous(self, mode: str) -> bool:
@@ -995,21 +1110,6 @@ class PetWindow(QWidget):
             logger.debug(f"[{mode}] Skipping: FSM state={self._fsm.current_state.name}")
             return False
         return True
-
-    def _on_active_chat_tick(self) -> None:
-        if self._maybe_dispatch_bickering():
-            return
-        if not self._should_fire_autonomous("active_chat"):
-            return
-        apm = self._apm_worker.apm if self._apm_worker else 0
-        self._dispatch_trigger(
-            mode="active_chat",
-            context_hint=get_active_window_title(),
-            apm=apm,
-            idle_seconds=self._idle_seconds,
-            typing_content=self._typing_buffer.get_context() if self._typing_buffer else "",
-            is_autonomous=True,
-        )
 
     _BOREDOM_FALLBACK_JOKES = [
         {"dialogue": "Holy crap, you're still alive? I was drafting your eulogy in Python comments.", "action": "idle", "target_x": 0},
@@ -1045,22 +1145,8 @@ class PetWindow(QWidget):
             item = items[0]
         else:
             item = random.choice(self._BOREDOM_FALLBACK_JOKES)
-        self._dispatch_structured(
-            item["dialogue"], item["action"], item.get("target_x", 0),
-        )
+        self._dispatch_structured(item)
         self._on_output_displayed(engaged=False)
-
-    def _on_joke_tick(self) -> None:
-        if not self._should_fire_autonomous("joke"):
-            return
-        apm = self._apm_worker.apm if self._apm_worker else 0
-        self._dispatch_trigger(
-            mode="joke",
-            context_hint=get_active_window_title(),
-            apm=apm,
-            idle_seconds=self._idle_seconds,
-            is_autonomous=True,
-        )
 
     def _on_output_displayed(self, engaged: bool) -> None:
         if engaged:
@@ -1131,6 +1217,9 @@ class PetWindow(QWidget):
                 idle_seconds=idle_seconds, typing_content=typing_content,
                 screen_text=screen_text,
             )
+        if self._opencode_worker and self._opencode_worker.isRunning():
+            logger.warning("Previous worker still running; skipping new request to avoid race")
+            return
         worker = OpencodeWorker(
             user_input=user_input, context_hint=context_hint,
             apm=apm, is_autonomous=is_autonomous,
@@ -1149,17 +1238,12 @@ class PetWindow(QWidget):
         logger.info("_on_response_ready: %d items", len(items))
         self._autonomous_query_pending = False
         self._session_active = True
-        self._opencode_worker = None
+        if self._opencode_worker is not None:
+            self._opencode_worker.deleteLater()
+            self._opencode_worker = None
         if not items:
             return
-        first = items[0]
-        dialogue = first.get("dialogue", "")
-        action = first.get("action", "idle")
-        target_x = first.get("target_x", 0)
-        thought = first.get("thought", "")
-        if thought:
-            self._log_thought(thought, self._last_mode, dialogue)
-        self._dispatch_structured(dialogue, action, target_x, "")
+        self._dispatch_structured(items[0])
         for item in items[1:]:
             pool_type = item.get("pool_type", "jokes_blackmail")
             self._response_manager.add_items(pool_type, [item])
@@ -1186,6 +1270,14 @@ class PetWindow(QWidget):
                 pet_state,
                 target_x=int(target_x) if target_x is not None else None,
                 target_y=int(target_y) if target_y is not None else None,
+            )
+
+    def _on_toast_requested(self, title: str, message: str):
+        if self._tray_icon and self._tray_icon.isVisible():
+            self._tray_icon.showMessage(
+                title, message,
+                QSystemTrayIcon.MessageIcon.Warning,
+                5000
             )
 
     def _log_thought(self, thought: str, mode: str, dialogue: str) -> None:
@@ -1279,7 +1371,12 @@ class PetWindow(QWidget):
 
     def _on_refill_needed(self, pool_type: str) -> None:
         from src.constants import JOKES_BLACKMAIL_POOL_REFILL_COUNT, SYSTEM_POOL_REFILL_COUNT
-        prompt = f"Generate {JOKES_BLACKMAIL_POOL_REFILL_COUNT if pool_type == 'jokes_blackmail' else SYSTEM_POOL_REFILL_COUNT} {pool_type} dialogs as JSON array."
+        count = JOKES_BLACKMAIL_POOL_REFILL_COUNT if pool_type == "jokes_blackmail" else SYSTEM_POOL_REFILL_COUNT
+        prompt = (
+            f"You are Daemon, the user's desktop pet. Generate {count} random "
+            f"autonomous thoughts/jokes about the user's desktop habits as a JSON array. "
+            f"Every item MUST contain 'thought' and 'dialogue', and may optionally include 'brain_update'."
+        )
         worker = OpencodeWorker(
             "",
             is_autonomous=True,
@@ -1292,7 +1389,9 @@ class PetWindow(QWidget):
 
     def _on_refill_result(self, items: list, pool_type: str) -> None:
         logger.info("Refill result: %s, %d items", pool_type, len(items) if items else 0)
-        self._refill_workers.pop(pool_type, None)
+        worker = self._refill_workers.pop(pool_type, None)
+        if worker is not None:
+            worker.deleteLater()
         if not items:
             self._response_manager._pools[pool_type].on_refill_result(None)
             return
@@ -1309,7 +1408,9 @@ class PetWindow(QWidget):
         self._response_manager._pools[pool_type].on_refill_result(pool_items)
 
     def _on_refill_error(self, pool_type: str) -> None:
-        self._refill_workers.pop(pool_type, None)
+        worker = self._refill_workers.pop(pool_type, None)
+        if worker is not None:
+            worker.deleteLater()
         self._response_manager._pools[pool_type].on_refill_result(None)
 
     def _on_pool_items_ready(self, items: dict) -> None:

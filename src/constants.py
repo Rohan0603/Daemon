@@ -26,6 +26,14 @@ BOREDOM_TIMEOUT_SEC        = 30
 AUTONOMOUS_QUERY_INTERVAL_SEC = 20
 ACTIVE_CHAT_INTERVAL_SEC   = 25
 JOKE_INTERVAL_SEC          = 60
+AUTONOMOUS_COOLDOWN_SEC    = 45   # minimum gap between ANY autonomous queries
+
+# --- Behavioral Settings (Phase 37) ---
+BEHAVIOR_TICK_MS = 1000              # Master Tick interval (default 1 second)
+CHATTINESS_DEFAULT = 1.0             # Default chattiness multiplier
+CHATTINESS_MIN = 0.5                 # Slider minimum (quiet)
+CHATTINESS_MAX = 3.0                 # Slider maximum (hyperactive)
+
 WRITE_COALESCE_FLUSH_SEC   = 8      # batched local-storage flush interval
 SHAKE_DURATION_MS          = 2000
 BOUNCE_DURATION_MS         = 3000
@@ -111,9 +119,12 @@ SETTINGS_OPACITY_MAX: float = 1.0
 SETTINGS_SPEED_MIN: float = 0.5
 SETTINGS_SPEED_MAX: float = 2.0
 
-# --- Firebase Auth ---
-FIREBASE_API_KEY: str = ""
-FIREBASE_PROJECT_ID: str = ""
+# --- Firebase Admin SDK ---
+FIREBASE_CREDENTIALS_PATH: Path = STORAGE_DIR / "firebase-credentials.json"
+FIREBASE_PROJECT_ID: str = "daemon-87f81"
+
+# --- Firebase Auth REST API (user identity) ---
+FIREBASE_API_KEY: str = "AIzaSyAX0n85NY4F7WycIYfVwEjfM25hSkDt33U"
 AUTH_TOKEN_PATH: Path = STORAGE_DIR / ".daemon_auth.json"
 
 RISKY_KEYWORDS: Final[dict[str, list[dict]]] = {
@@ -147,7 +158,7 @@ RISKY_KEYWORDS: Final[dict[str, list[dict]]] = {
 MCP_HOST = "127.0.0.1"
 MCP_PORT = 4097
 
-# Structured Output Schema
+# Structured Output Schema — only thought + dialogue are required
 STRUCTURED_SCHEMA = {
     "type": "array",
     "items": {
@@ -155,10 +166,6 @@ STRUCTURED_SCHEMA = {
         "properties": {
             "thought":      {"type": "string", "maxLength": 200},
             "dialogue":     {"type": "string", "maxLength": 150},
-            "action":       {"type": "string", "enum": ["idle", "wander", "shake", "spin", "hyper", "bounce", "look_away", "celebrate", "devastated", "fall", "chase"]},
-            "mode":         {"type": "string", "enum": ["active_chat", "joke", "boredom", "curiosity", "kenny_roast", "morty_panic"]},
-            "target_x":     {"type": ["integer", "null"]},
-            "target_y":     {"type": ["integer", "null"]},
             "brain_update": {
                 "type": "object",
                 "description": "Optional dict to update user memory facts.",
@@ -168,7 +175,7 @@ STRUCTURED_SCHEMA = {
                 }
             }
         },
-        "required": ["thought", "dialogue", "action"],
+        "required": ["thought", "dialogue"],
         "additionalProperties": False,
     },
     "minItems": 1,

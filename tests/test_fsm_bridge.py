@@ -54,3 +54,16 @@ def test_noop_when_bridge_not_connected():
     """emit_request should not crash when nothing is connected."""
     bridge = FSMActionBridge()
     bridge.emit_request("idle")  # should not raise
+
+
+def test_emit_toast(qtbot):
+    bridge = FSMActionBridge()
+    received = []
+
+    def slot(title, message):
+        received.append((title, message))
+
+    bridge.toast_request.connect(slot)
+    bridge.emit_toast("System Alert", "Your APM is 0")
+    assert len(received) == 1
+    assert received[0] == ("System Alert", "Your APM is 0")

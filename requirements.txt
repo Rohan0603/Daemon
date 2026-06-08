@@ -16,5 +16,9 @@ openai>=1.0.0
 # --- Windows UI Automation (screen reader) ---
 comtypes>=1.4.8
 
+# --- Firebase Admin SDK (service account for Firestore) ---
+firebase-admin>=6.0.0
+Pillow>=10.0.0           # ImageGrab.grab() for capture_blackmail_evidence
+
 # --- External CLI dependency (not pip-installable) ---
 # opencode CLI must be installed separately and on PATH

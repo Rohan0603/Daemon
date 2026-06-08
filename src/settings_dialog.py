@@ -9,6 +9,7 @@ from src.constants import (
     SETTINGS_SCALE_MIN, SETTINGS_SCALE_MAX,
     SETTINGS_OPACITY_MIN, SETTINGS_OPACITY_MAX,
     SETTINGS_SPEED_MIN, SETTINGS_SPEED_MAX,
+    CHATTINESS_DEFAULT, CHATTINESS_MIN, CHATTINESS_MAX,
 )
 
 
@@ -18,10 +19,11 @@ class SettingsDialog(QDialog):
     def __init__(self, pet_scale: float = 1.0, pet_opacity: float = 0.85,
                  pet_speed: float = 1.0, tts_enabled: bool = True,
                  tts_rate: int = 220, tts_volume: float = 1.0,
-                 tts_voice_id: str | None = None, parent=None):
+                 tts_voice_id: str | None = None, chattiness: float = 1.0,
+                 parent=None):
         super().__init__(parent)
         self.setWindowTitle("Daemon Settings")
-        self.setFixedSize(360, 360)
+        self.setFixedSize(360, 400)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
@@ -42,6 +44,8 @@ class SettingsDialog(QDialog):
             layout, "Speed", int(pet_speed * 100),
             int(SETTINGS_SPEED_MIN * 100), int(SETTINGS_SPEED_MAX * 100),
         )
+
+        self._chattiness_slider = self._make_chattiness_row(layout, chattiness)
 
         label2 = QLabel("Voice")
         label2.setStyleSheet("font-weight: bold; color: #5B8DEF;")
@@ -136,6 +140,31 @@ class SettingsDialog(QDialog):
         layout.addLayout(row)
         return slider
 
+    def _make_chattiness_row(self, layout, chattiness: float):
+        row = QHBoxLayout()
+        label = QLabel("Chattiness")
+        label.setFixedWidth(50)
+        row.addWidget(label)
+
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(int(CHATTINESS_MIN * 10), int(CHATTINESS_MAX * 10))
+        slider.setValue(int(chattiness * 10))
+        slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        slider.setTickInterval(5)
+        slider.valueChanged.connect(self.value_changed.emit)
+        row.addWidget(slider)
+
+        value_label = QLabel(f"{chattiness:.1f}")
+        value_label.setFixedWidth(40)
+        row.addWidget(value_label)
+
+        def update_label(v, lbl=value_label):
+            lbl.setText(f"{v / 10.0:.1f}")
+        slider.valueChanged.connect(update_label)
+
+        layout.addLayout(row)
+        return slider
+
     def get_values(self) -> dict:
         voice_data = self._voice_combo.currentData()
         return {
@@ -146,4 +175,5 @@ class SettingsDialog(QDialog):
             "tts_rate": self._rate_slider.value(),
             "tts_volume": self._volume_slider.value() / 100.0,
             "tts_voice_id": voice_data if voice_data else None,
+            "chattiness": self._chattiness_slider.value() / 10.0,
         }
