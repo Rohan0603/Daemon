@@ -75,7 +75,7 @@ Never commit directly to master. Never include AI assistant names in commit mess
 | `daemon.py` | Entry point — argparse, QApplication, PID lock, clean shutdown |
 | `seed_brain.py` | Standalone Firestore seeder — view/merge/seed core_brain document |
 | `opencode-query.ps1` | PowerShell script (legacy CLI path, preserved but not called by PetWindow) |
-| `assets/daemon-skill.md` | Daemon personality + strict JSON schema — loaded by OpencodeWorker at runtime |
+| `.opencode/skills/kenny/SKILL.md` | Kenny persona + action matrix + output contract — loaded natively by OpenCode |
 | `tests/` | **432 tests** across 23 test files |
 
 ---

@@ -95,7 +95,7 @@ Daemon ──POST /session──────────────────
 ```
 
 The injection payload contains:
-- **Full skill file** (`assets/daemon-skill.md` — personality, voices, action matrix, JSON format spec)
+- **Native Agent Skill** (`.opencode/skills/kenny/SKILL.md` — Kenny persona, action matrix, output contract)
 - **Memory context** (all 50+ facts from `Memory` → factual grounding)
 - **Diary entries** (last 5 entries → emotional history)
 - **Role instruction** (sleeper agent owned by wife)
@@ -290,7 +290,7 @@ When wander timer fires from IDLE, the pet enters PERIMETER state (not random wa
 | `src/logging_setup.py` | Unified stdlib logging with `RotatingFileHandler` |
 | `seed_brain.py` | Standalone Firestore brain seeder — view/merge/seed core_brain document |
 | `opencode-query.ps1` | PowerShell script (legacy CLI path, preserved but not used by PetWindow) |
-| `assets/daemon-skill.md` | Full personality + JSON output contract (350 lines, loaded at runtime) |
+| `.opencode/skills/kenny/SKILL.md` | Full Kenny persona + action matrix + output contract (loaded natively by OpenCode) |
 
 ---
 

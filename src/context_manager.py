@@ -1,13 +1,10 @@
 # src/context_manager.py
-"""ContextManager -- builds injection payloads and minimal trigger prompts."""
+"""ContextManager -- builds minimal trigger prompts."""
 from __future__ import annotations
 import logging
-import time
 from typing import TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
-
-from src.opencode_worker import _SKILL_CONTENT, FORMAT_INSTRUCTIONS
 
 if TYPE_CHECKING:
     from src.memory import Memory
@@ -22,9 +19,6 @@ def _apm_bucket(apm: int) -> str:
     return "high"
 
 
-HEARTBEAT_TIMEOUT_SEC = 15 * 60  # 15 minutes
-
-
 class ContextManager:
     def __init__(self, memory: "Memory", history: "History",
                  diary_entries_ref: list[str]) -> None:
@@ -32,66 +26,17 @@ class ContextManager:
         self._history = history
         self._diary = diary_entries_ref
         self._snapshot: dict = {}
-        self._diary_injected_up_to: int = 0
-        self._last_activity: float = 0.0
-        self._full_injected: bool = False
 
-    def inject_full(self) -> str:
-        """Build the one-time full session injection payload."""
-        parts = []
-        if _SKILL_CONTENT:
-            parts.append(_SKILL_CONTENT)
-        parts.append("ROLE: You are Daemon, the user's desktop pet. You are a sleeper agent owned by the user's wife. You surveil and roast.")
-        mem_block = self._memory.get_context_block(None)
-        if mem_block:
-            parts.append(mem_block)
-        if self._diary:
-            lines = ["## Daemon's diary (recent):"]
-            for entry in self._diary[-5:]:
-                lines.append(f"- {entry}")
-            parts.append("\n".join(lines))
-        parts.append(FORMAT_INSTRUCTIONS)
-        parts.append("INSTRUCTION: Respond ONLY with valid JSON as specified above. No markdown, no preamble.")
-        self._full_injected = True
-        self._snapshot_current()
-        self._last_activity = time.monotonic()
-        return "\n\n".join(parts)
-
-    def inject_delta(self, context_hint: str, apm: int) -> str | None:
-        """Build delta injection for state changes since last snapshot. Returns None if nothing changed."""
-        if not self._snapshot:
-            return None
-        lines = ["DELTA CONTEXT UPDATE:"]
-        prev_window = self._snapshot.get("active_window", "")
-        if context_hint and context_hint != prev_window:
-            lines.append(f"Active window changed to: {context_hint}")
-        prev_bucket = self._snapshot.get("apm_bucket", "")
-        current_bucket = _apm_bucket(apm)
-        if current_bucket != prev_bucket:
-            lines.append(f"APM level: {current_bucket}")
-        prev_mem = self._snapshot.get("memory", {})
-        new_facts = {}
-        for k, v in self._memory.get_all().items():
-            if prev_mem.get(k) != v:
-                new_facts[k] = v
-        if new_facts:
-            lines.append("New facts learned:")
-            for k, v in new_facts.items():
-                lines.append(f"- {k}: {v}")
-        if len(self._diary) > self._diary_injected_up_to:
-            new_diary = self._diary[self._diary_injected_up_to:]
-            lines.append("New diary entries:")
-            for entry in new_diary[-3:]:
-                lines.append(f"- {entry}")
-        if len(lines) == 1:
-            return None
-        self._snapshot_current()
-        return "\n".join(lines)
+    def _get_memory_block(self) -> str:
+        facts = self._memory.get_all() if self._memory else {}
+        if not facts:
+            return ""
+        items = [f"{k}: {v[0] if isinstance(v, list) else v}" for k, v in list(facts.items())[:5]]
+        return "Memory: " + " | ".join(items)
 
     def build_user_trigger(self, mode: str, user_input: str, apm: int,
                            idle_seconds: float, typing_content: str = "",
                            screen_text: str = "") -> str:
-        self._last_activity = time.monotonic()
         lines = [
             "You are responding directly to the user.",
             f"Mode: {mode}",
@@ -112,7 +57,6 @@ class ContextManager:
     def build_autonomous_trigger(self, mode: str, apm: int,
                                  idle_seconds: float, typing_content: str = "",
                                  screen_text: str = "") -> str:
-        self._last_activity = time.monotonic()
         lines = [
             "Daemon is watching the user. She notices something worth thinking about.",
             "APM (actions per minute) is her main signal.",
@@ -132,28 +76,30 @@ class ContextManager:
         lines.append("Generate exactly 5 dialogs as a JSON array.")
         return "\n".join(lines)
 
-    def build_trigger(self, mode: str, user_input: str, apm: int,
-                      idle_seconds: float, typing_content: str = "",
-                      is_autonomous: bool = True) -> str:
-        if is_autonomous:
-            return self.build_autonomous_trigger(mode, apm, idle_seconds, typing_content)
-        return self.build_user_trigger(mode, user_input, apm, idle_seconds, typing_content)
-
-    def needs_reinjection(self) -> bool:
-        """Return True if session idle > HEARTBEAT_TIMEOUT_SEC (15 min)."""
-        if not self._full_injected:
-            return True
-        elapsed = time.monotonic() - self._last_activity
-        return elapsed > HEARTBEAT_TIMEOUT_SEC
+    def build_context(self, mode: str, user_input: str = "", apm: int = 0,
+                      idle_seconds: float = 0.0, typing_content: str = "",
+                      screen_text: str = "") -> str:
+        parts = [f"Mode: {mode}"]
+        parts.append(f"APM: {apm}")
+        if idle_seconds > 0:
+            parts.append(f"(idle {int(idle_seconds)}s)")
+        window = self._snapshot.get("active_window", "")
+        if window:
+            parts.append(f'Window: "{window}"')
+        mem_block = self._get_memory_block()
+        if mem_block:
+            parts.append(mem_block)
+        context = " | ".join(parts)
+        if user_input:
+            context = f"{context}\nUser: {user_input}"
+        if typing_content:
+            context = f"{context}\n{typing_content}"
+        if screen_text:
+            context = f"{context}\nScreen: {screen_text}"
+        return context
 
     def reset(self) -> None:
-        """Force next call to use inject_full()."""
-        self._full_injected = False
         self._snapshot = {}
-        self._diary_injected_up_to = 0
-
-    def has_injected_full(self) -> bool:
-        return self._full_injected
 
     def _snapshot_current(self) -> None:
         self._snapshot = {
@@ -162,7 +108,6 @@ class ContextManager:
             "active_window": self._snapshot.get("active_window", ""),
             "apm_bucket": self._snapshot.get("apm_bucket", ""),
         }
-        self._diary_injected_up_to = len(self._diary)
 
     def snapshot_context(self, context_hint: str, apm: int) -> None:
         """Update active_window and apm_bucket in snapshot."""

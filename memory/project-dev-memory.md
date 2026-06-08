@@ -432,13 +432,31 @@ All local JSON: atomic tmp+replace writes, .bak fallback on read failure. Single
 
 ---
 
+## Phase 36 — Agentic Architecture ✅ COMPLETE
+
+**Commits:** `7739044` → `d037a66` (7 commits, squash-merged to master)
+
+**What was built:**
+1. **Native Agent Skills** — Created `.opencode/skills/kenny/SKILL.md` (169 lines, YAML frontmatter, full Kenny persona). Deleted `assets/daemon-skill.md`. Deleted noReply injection logic from ContextManager/OpencodeWorker/PetWindow (~280 lines removed).
+2. **JSON Schema Structured Output** — Added `STRUCTURED_SCHEMA` to constants. Rewrote `OpencodeWorker.send()` to pass schema in API POST. Deleted `_parse_json_batch`/`_parse_json_response`/`_normalize_parsed` (~100 lines of regex parsing). Added `_handle_schema_error()` fallback.
+3. **MCP FSM Bridge** — Created `src/fsm_bridge.py` (FSMActionBridge with pyqtSignal, no mutex). Created `src/mcp_server.py` (in-process http.server on port 4097, JSON-RPC 2.0, SSE init, single `change_visual_state` tool). 14 tests across both modules.
+4. **Telemetry preserved** — `ContextManager.build_context()` retained, produces ~150-token APM/window/memory context. `build_user_trigger`/`build_autonomous_trigger` retained for trigger coalescer.
+5. **MCP lifecycle in PetWindow** — FSMActionBridge + MCPServer started on boot, stopped on shutdown. `_on_mcp_fsm_action` dispatches all 11 visual states.
+6. **E2E verified** — MCP `tools/list` returns single tool. `tools/call` with valid action returns ok. Invalid action returns -32602 error.
+
+### Key Decisions
+- No mutex on FSMActionBridge — PyQt6 QueuedConnection handles cross-thread safety
+- Single `change_visual_state` tool (not 11 separate tools) — saves MCP token overhead
+- JSON `action` field is informational only — MCP tool call is sole state change path
+- Memory kept as text injection (not MCP tool) — prevents LLM from corrupting local facts
+- Node.js plugin deferred — session management stays in Python
+- `parse_raw` static method retained for stateless JSON-RPC testing without server startup
+
 ## What To Do Next
 
-- **Set FIREBASE_API_KEY and FIREBASE_PROJECT_ID** in `src/constants.py` from Firebase Console before first run.
-- **Deploy Security Rules** from the spec to enforce per-user Firestore isolation.
-- **Test screen reader with real windows** — verify `ScreenReader.get_foreground_text()` returns real text from actual foreground windows (terminal, VS Code, browser).
-- **Test PyInstaller build** — run `pyinstaller daemon.spec --clean` to produce `dist/Daemon.exe`.
-- **470 tests across 25 test files (2 pre-existing logging failures).** Baseline is clean.
+- **Phase 36 complete** — 7 commits, MCP E2E verified, SKILL.md active, daemon-skill.md deleted
+- **Test PyInstaller build** — `pyinstaller daemon.spec --clean` to produce `dist/Daemon.exe`
+- **Full test baseline:** 88+ core tests pass, 2 pre-existing logging failures
 - **Future ideas:** multi-monitor screen reading, screen text delta detection, thought log viewer in settings dialog, opencode serve health monitoring, Linux/macOS compatibility layer.
 
 

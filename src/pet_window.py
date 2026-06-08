@@ -48,6 +48,8 @@ from src.diary_store import DiaryStore
 from src.context_manager import ContextManager
 from src.response_manager import AutonomousResponseManager
 from src.firebase_auth import FirebaseAuth
+from src.fsm_bridge import FSMActionBridge
+from src.mcp_server import MCPServer
 
 logger = logging.getLogger(__name__)
 
@@ -153,6 +155,11 @@ class PetWindow(QWidget):
         if not self._config.get("tts_enabled", True):
             self._tts.set_enabled(False)
 
+        # MCP FSM bridge — thread-safe signal relay between MCP server and Qt main thread
+        self._fsm_bridge = FSMActionBridge()
+        self._fsm_bridge.request.connect(self._on_mcp_fsm_action)
+        self._mcp_server = MCPServer(self._fsm_bridge)
+
         self._bubble_queue: list[str] = []
 
         self._memory = Memory(path=memory_path)
@@ -182,8 +189,6 @@ class PetWindow(QWidget):
             memory=self._memory, history=self._history,
             diary_entries_ref=self._diary_entries,
         )
-        self._injection_cooldown: bool = False
-        self._deferred_triggers: list[dict] = []
         self._response_manager = AutonomousResponseManager(
             cache_path=RESPONSE_CACHE_PATH,
             write_coalescer=self._write_coalescer,
@@ -262,6 +267,7 @@ class PetWindow(QWidget):
             self._show_bubble("dae: memory active.")
 
         QTimer.singleShot(500, self._on_boot_check_auth)
+        self._mcp_server.start()
 
     def _setup_window(self) -> None:
         self.setWindowFlags(
@@ -309,6 +315,7 @@ class PetWindow(QWidget):
 
     def _force_quit_app(self) -> None:
         self._force_quit = True
+        self._mcp_server.stop()
         self._fsm_timer.stop()
         self._active_chat_timer.stop()
         self._joke_timer.stop()
@@ -908,7 +915,7 @@ class PetWindow(QWidget):
             user_input="", prompt=prompt, is_autonomous=True,
             session_id=self._opencode_session_id,
         )
-        worker.trigger_ready.connect(self._on_structured_multiplexed)
+        worker.response_ready.connect(self._on_structured_multiplexed)
         worker.error_occurred.connect(self._on_opencode_error)
         worker.start()
 
@@ -1104,69 +1111,33 @@ class PetWindow(QWidget):
             self._diary_store.write(self._diary_entries, 0)
             logger.info("Diary seeded (%d entries)", len(_seed_diary_entries))
 
-    def _on_context_injected(self) -> None:
-        logger.info("Context injected, starting 100ms cooldown")
-        QTimer.singleShot(100, self._on_injection_cooldown_done)
-
-    def _on_injection_failed(self, error: str) -> None:
-        logger.warning("Context injection failed: %s", error)
-        self._injection_cooldown = False
-        self._opencode_session_id = None
-        self._context_manager.reset()
-        for trigger in self._deferred_triggers:
-            self._dispatch_trigger(**trigger)
-        self._deferred_triggers.clear()
-
-    def _on_injection_cooldown_done(self) -> None:
-        self._injection_cooldown = False
-        deferred = list(self._deferred_triggers)
-        self._deferred_triggers.clear()
-        for trigger in deferred:
-            self._dispatch_trigger(**trigger)
-
     def _dispatch_trigger(self, mode: str, user_input: str = "",
                           context_hint: str = "", apm: int = 0,
                           idle_seconds: float = 0.0,
                           typing_content: str = "",
                           is_autonomous: bool = True) -> None:
         self._last_mode = mode
-        if is_autonomous and self._context_manager.needs_reinjection():
-            logger.info("Session stale, re-injecting full context")
-            self._context_manager.reset()
-            self._on_session_created(self._opencode_session_id or "")
-            self._deferred_triggers.append({
-                "mode": mode, "user_input": user_input,
-                "context_hint": context_hint, "apm": apm,
-                "idle_seconds": idle_seconds, "typing_content": typing_content,
-                "is_autonomous": is_autonomous,
-            })
-            return
-        if self._injection_cooldown:
-            self._deferred_triggers.append({
-                "mode": mode, "user_input": user_input,
-                "context_hint": context_hint, "apm": apm,
-                "idle_seconds": idle_seconds, "typing_content": typing_content,
-                "is_autonomous": is_autonomous,
-            })
-            return
         if is_autonomous:
             self._autonomous_query_pending = True
         screen_text = ScreenReader.get_foreground_text()
-        prompt = self._context_manager.build_trigger(
-            mode=mode, user_input=user_input, apm=apm,
-            idle_seconds=idle_seconds, typing_content=typing_content,
-            is_autonomous=is_autonomous,
-        )
-        delta = self._context_manager.inject_delta(context_hint, apm)
-        if delta:
-            prompt = delta + "\n\n" + prompt
+        if is_autonomous:
+            prompt = self._context_manager.build_autonomous_trigger(
+                mode=mode, apm=apm, idle_seconds=idle_seconds,
+                typing_content=typing_content, screen_text=screen_text,
+            )
+        else:
+            prompt = self._context_manager.build_user_trigger(
+                mode=mode, user_input=user_input, apm=apm,
+                idle_seconds=idle_seconds, typing_content=typing_content,
+                screen_text=screen_text,
+            )
         worker = OpencodeWorker(
             user_input=user_input, context_hint=context_hint,
             apm=apm, is_autonomous=is_autonomous,
             session_id=self._opencode_session_id,
             prompt=prompt, typing_content=typing_content,
         )
-        worker.trigger_ready.connect(self._on_trigger_ready)
+        worker.response_ready.connect(self._on_response_ready)
         worker.error_occurred.connect(self._on_opencode_error)
         worker.session_created.connect(self._on_session_created)
         worker.brain_update_ready.connect(self._on_brain_update)
@@ -1174,8 +1145,8 @@ class PetWindow(QWidget):
         worker.start()
         self._opencode_worker = worker
 
-    def _on_trigger_ready(self, items: list[dict]) -> None:
-        logger.info("_on_trigger_ready: %d items", len(items))
+    def _on_response_ready(self, items: list[dict]) -> None:
+        logger.info("_on_response_ready: %d items", len(items))
         self._autonomous_query_pending = False
         self._session_active = True
         self._opencode_worker = None
@@ -1193,6 +1164,29 @@ class PetWindow(QWidget):
             pool_type = item.get("pool_type", "jokes_blackmail")
             self._response_manager.add_items(pool_type, [item])
         self._boredom_timer_ms = AUTONOMOUS_QUERY_INTERVAL_SEC * 1000
+
+    def _on_mcp_fsm_action(self, action: str, target_x, target_y) -> None:
+        """Slot for MCP FSM action requests from background thread."""
+        state_map = {
+            "idle": PetState.IDLE,
+            "wander": PetState.PERIMETER,
+            "shake": PetState.SHAKING,
+            "spin": PetState.SPINNING,
+            "hyper": PetState.HYPER,
+            "bounce": PetState.BOUNCING,
+            "look_away": PetState.LOOK_AWAY,
+            "celebrate": PetState.CELEBRATE,
+            "devastated": PetState.DEVASTATED,
+            "fall": PetState.FALLING,
+            "chase": PetState.CHASE,
+        }
+        pet_state = state_map.get(action)
+        if pet_state is not None:
+            self._fsm.transition_to(
+                pet_state,
+                target_x=int(target_x) if target_x is not None else None,
+                target_y=int(target_y) if target_y is not None else None,
+            )
 
     def _log_thought(self, thought: str, mode: str, dialogue: str) -> None:
         if not DEBUG:
@@ -1291,7 +1285,7 @@ class PetWindow(QWidget):
             is_autonomous=True,
             prompt=prompt,
         )
-        worker.trigger_ready.connect(lambda items, pt=pool_type: self._on_refill_result(items, pt))
+        worker.response_ready.connect(lambda items, pt=pool_type: self._on_refill_result(items, pt))
         worker.error_occurred.connect(lambda err, pt=pool_type: self._on_refill_error(pt))
         self._refill_workers[pool_type] = worker
         worker.start()
@@ -1326,15 +1320,6 @@ class PetWindow(QWidget):
 
     def _on_session_created(self, session_id: str) -> None:
         self._opencode_session_id = session_id
-        if self._injection_cooldown:
-            return
-        self._injection_cooldown = True
-        prompt = self._context_manager.inject_full()
-        worker = OpencodeWorker("", session_id=session_id)
-        worker.context_injected.connect(self._on_context_injected)
-        worker.injection_failed.connect(self._on_injection_failed)
-        worker.session_created.connect(self._on_session_created)
-        worker.inject_context(prompt)
 
 
     def _on_brain_update(self, update: dict) -> None:

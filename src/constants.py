@@ -143,3 +143,35 @@ RISKY_KEYWORDS: Final[dict[str, list[dict]]] = {
     ],
 }
 
+# MCP Server
+MCP_HOST = "127.0.0.1"
+MCP_PORT = 4097
+
+# Structured Output Schema
+STRUCTURED_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "thought":      {"type": "string", "maxLength": 200},
+            "dialogue":     {"type": "string", "maxLength": 150},
+            "action":       {"type": "string", "enum": ["idle", "wander", "shake", "spin", "hyper", "bounce", "look_away", "celebrate", "devastated", "fall", "chase"]},
+            "mode":         {"type": "string", "enum": ["active_chat", "joke", "boredom", "curiosity", "kenny_roast", "morty_panic"]},
+            "target_x":     {"type": ["integer", "null"]},
+            "target_y":     {"type": ["integer", "null"]},
+            "brain_update": {
+                "type": "object",
+                "description": "Optional dict to update user memory facts.",
+                "additionalProperties": {
+                    "type": "array",
+                    "items": {"type": "string"}
+                }
+            }
+        },
+        "required": ["thought", "dialogue", "action"],
+        "additionalProperties": False,
+    },
+    "minItems": 1,
+    "maxItems": 5,
+}
+

@@ -409,7 +409,7 @@ def test_add_diary_entry_uses_write_coalescer(app, tmp_path):
         window._firebase_mem.write_local_diary.assert_not_called()
 
 
-def test_session_created_triggers_injection(app, tmp_path):
+def test_session_created_saves_session_id(app, tmp_path):
     from src.pet_window import PetWindow
     mem_path = str(tmp_path / "mem.json")
     hist_path = str(tmp_path / "hist.json")
@@ -417,14 +417,10 @@ def test_session_created_triggers_injection(app, tmp_path):
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
          patch("src.pet_window.APMWorker"), \
          patch("src.pet_window.MemoryManager"), \
-         patch("src.pet_window.OpencodeWorker") as mock_worker_cls:
-        mock_worker = MagicMock()
-        mock_worker_cls.return_value = mock_worker
+         patch("src.pet_window.OpencodeWorker"):
         window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
         window._on_session_created("sess-123")
-        mock_worker_cls.assert_called_once_with("", session_id="sess-123")
-        mock_worker.inject_context.assert_called_once()
-        assert window._injection_cooldown is True
+        assert window._opencode_session_id == "sess-123"
 
 
 def test_crash_recovery_hook_flushes_on_exception(app, tmp_path):
@@ -569,8 +565,6 @@ def test_active_chat_tick_dispatches_trigger(app, tmp_path):
         mock_worker = MagicMock()
         mock_worker_cls.return_value = mock_worker
         pw = PetWindow(opencode_enabled=True, memory_path=mem_path, history_path=hist_path)
-        pw._context_manager._full_injected = True
-        pw._context_manager._last_activity = 9999999999.0
         pw._on_active_chat_tick()
         mock_worker_cls.assert_called_once()
         mock_worker.start.assert_called_once()
@@ -588,8 +582,6 @@ def test_joke_tick_dispatches_trigger(app, tmp_path):
         mock_worker = MagicMock()
         mock_worker_cls.return_value = mock_worker
         pw = PetWindow(opencode_enabled=True, memory_path=mem_path, history_path=hist_path)
-        pw._context_manager._full_injected = True
-        pw._context_manager._last_activity = 9999999999.0
         pw._on_joke_tick()
         mock_worker_cls.assert_called_once()
         mock_worker.start.assert_called_once()
@@ -689,7 +681,7 @@ def test_dispatch_multiplexed_creates_worker(qtbot):
         window._dispatch_multiplexed(["kenny_roast", "morty_panic"])
         assert mock_worker_cls.called
         assert mock_worker.start.called
-        assert mock_worker.trigger_ready.connect.called
+        assert mock_worker.response_ready.connect.called
 
 
 def test_structured_multiplexed_bickering_pair(qtbot):
