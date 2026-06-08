@@ -17,6 +17,7 @@ _OVERRIDABLE = {
     "OPENCODE_SERVER_URL", "OPENCODE_API_MODEL_ID",
     "pet_scale", "pet_opacity", "pet_speed", "tts_enabled", "FIREBASE_API_KEY",
     "tts_rate", "tts_volume", "tts_voice_id",
+    "chattiness",
 }
 
 def load_config() -> dict:
@@ -29,6 +30,7 @@ def load_config() -> dict:
     defaults["tts_rate"] = 220
     defaults["tts_volume"] = 1.0
     defaults["tts_voice_id"] = "en-US-GuyNeural"
+    defaults["chattiness"] = 1.0
     try:
         data = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
         defaults.update({k: v for k, v in data.items() if k in _OVERRIDABLE})

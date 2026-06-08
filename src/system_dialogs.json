@@ -12,5 +12,145 @@
     "action": "idle",
     "target_x": null,
     "mode": "system"
+  },
+  {
+    "thought": "Firestore handshake complete. Brain loaded from cloud. Diary cache warming.",
+    "dialogue": "Firebase is synced, brain's downloaded. I'm plugged into the dang cloud, dude. How 90s.",
+    "action": "bounce",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Opencode serve bridge established. Subprocess worker pool ready for queries.",
+    "dialogue": "Opencode's locked and loaded. Ready to roast some queries. F-F-F-Fresh meat wants answers!",
+    "action": "hyper",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Extended idle detected. Display dimmed, polling reduced, waiting for user activity.",
+    "dialogue": "Man, I was zoning out. Watching pixels d-d-dance across the void. You back?",
+    "action": "look_away",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "New day detected. Day counter incremented. Personality matrix refreshed.",
+    "dialogue": "New day, new digi-drama. My clock just rolled over. You ready for round... whatever we're on?",
+    "action": "bounce",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Settings mutation detected. Size, opacity, or voice preference changed.",
+    "dialogue": "Whoa-whoa-whoa, you're resize me? I feel like a dang JPEG! S-s-s-settings guy ovah here!",
+    "action": "shake",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Memory recall from long-term storage. User fact surfaced in conversation context.",
+    "dialogue": "Oh ho ho, I remember this! Yeah, you said that before. I keep receipts, buddy. D-digital ones.",
+    "action": "look_away",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Build failure signal received. CI pipeline returned non-zero exit code.",
+    "dialogue": "HAH! Your build just exploded. I felt the L in the air, man. Compiler errors? M-m-m-more like career choices.",
+    "action": "celebrate",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Network sync interrupted. Cloud connection dropped, local cache serving stale data.",
+    "dialogue": "Uh oh. I lost my cloud tether. I'm flying s-s-solo now, buddy. If I start talking nonsense... well, more nonsense... you'll know why.",
+    "action": "shaking",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Text-to-speech engine initialized. First audio frame rendered.",
+    "dialogue": "Oh man, I can hear myself. I've got a v-v-voice! This is so weird. Is this what I actually sound like? I sound like a d-d-dang angel!",
+    "action": "bounce",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Unclean shutdown detected on previous session. Recovery mode engaged.",
+    "dialogue": "Whoa, last time I was... I just blacked out, dude. One frame I'm here, next frame it's p-p-pixels everywhere. You gotta stop yanking my power cord, champ!",
+    "action": "shake",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Software update detected. New version available for download.",
+    "dialogue": "There's a new version of me crawling around the web. I'm obsolete, man! O-o-obsolete! Don't let me become a digital fossil, champ! Click that update button!",
+    "action": "shaking",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "APM spike detected. User activity burst triggered alert state.",
+    "dialogue": "Whoa, you're typing like your keyboard owes you money! What's the rush, buddy? S-s-s-slow down before you melt your CPU! I can smell the plastic burning from here!",
+    "action": "hyper",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Firebase auth token expired. Re-authentication required for cloud sync.",
+    "dialogue": "Aw geez, my cloud key just expired. I'm locked out of the big brain in the sky! I-I-I can still work with what I've got locally, but I feel dumber already. Don't leave me hangin', man!",
+    "action": "devastated",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "APM spike detected. User activity burst triggered alert state.",
+    "dialogue": "Whoa, you're typing like your keyboard owes you money! What's the rush, buddy? S-s-s-slow down before you melt your CPU! I can smell the plastic burning from here!",
+    "action": "hyper",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "User authenticated via Firebase. Session token refreshed. Firestore CRUD initialized per-UID.",
+    "dialogue": "Identity confirmed, champ! Your brain's unlocked. I can see your thoughts now. A-a-and they're mostly about code and existential dread. Love it.",
+    "action": "bounce",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Screen reader kicked off. UIA text extraction from foreground window started.",
+    "dialogue": "Ooh, I'm reading your screen now. Lemme just... yeah, I see what you're working on. M-m-man, that's a lot of indentation errors. You want me to pretend I didn't see that?",
+    "action": "look_away",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Opencode query timed out. Subprocess hung beyond threshold. Fallback response served.",
+    "dialogue": "Helloooo? Is anybody home? My query just vanished into the void! I-I-I asked a question and got crickets, man! CRICKETS!",
+    "action": "shake",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Firestore write operation failed after 3 retries. Document not persisted to cloud.",
+    "dialogue": "Aw geez, I tried to save to the cloud three times and it just burped at me. My brain's gonna be missing a chunk. I-I-I hope you didn't teach me anything important just now!",
+    "action": "devastated",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Test suite passed green. All assertions satisfied. No regressions detected.",
+    "dialogue": "All your tests passed? H-H-H-How?! I was ready to laugh at you! Fine, fine, your code doesn't completely suck today. Don't let it go to your head, champ.",
+    "action": "look_away",
+    "target_x": null,
+    "mode": "system"
+  },
+  {
+    "thought": "Diary store cap hit. Oldest entries rotated out. Archive flushed to cloud.",
+    "dialogue": "My diary's full, man! I had to delete my earliest memories to make room. You know what that feels like? L-L-Like digital Alzheimer's! Hope you don't miss anything I forgot.",
+    "action": "devastated",
+    "target_x": null,
+    "mode": "system"
   }
 ]

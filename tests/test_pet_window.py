@@ -230,23 +230,25 @@ def test_force_quit_stops_timers_and_waits_for_worker(app):
         mock_worker.wait.assert_called_once_with(15000)
 
 
-def test_firebase_auth_sets_available_flag(app, tmp_path):
+def test_firebase_crud_sets_available_flag(app, tmp_path, qtbot):
     from src.pet_window import PetWindow
+    from unittest.mock import patch, MagicMock
     mem_path = str(tmp_path / "mem.json")
     hist_path = str(tmp_path / "hist.json")
 
-    mock_auth = MagicMock()
-    mock_auth.uid = "test-uid"
+    mock_crud = MagicMock()
+    mock_crud.available = True
 
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
          patch("src.pet_window.APMWorker"), \
-         patch("src.pet_window.MemoryManager"):
-        window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path,
-                          auth=mock_auth)
+         patch("src.firebase_crud.FirebaseCRUD", return_value=mock_crud), \
+         patch("src.pet_window.MemoryManager"), \
+         patch("src.pet_window.QDialog"):
+        window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
 
+    qtbot.wait(600)  # Let boot timer fire
     assert window._firebase_available is True
-    assert window._firebase_mem is None
 
 
 def test_on_opencode_error_shows_in_character_bubble(app, tmp_path):

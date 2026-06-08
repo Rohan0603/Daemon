@@ -101,8 +101,8 @@ def main() -> None:
         fresh_login = not auth.load()
 
         if not fresh_login and not auth.get_valid_token():
-            print("Session expired.", file=sys.stderr)
-            sys.exit(1)
+            logger.warning("Token refresh failed — showing login dialog")
+            fresh_login = True  # Will show login dialog on boot
     else:
         auth = None
         fresh_login = False

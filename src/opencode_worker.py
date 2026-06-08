@@ -97,19 +97,24 @@ class OpencodeWorker(QThread):
                 "providerID": OPENCODE_API_MODEL_PROVIDER,
                 "modelID": OPENCODE_API_MODEL_ID,
             },
-            "message": prompt,
+            "parts": [{"type": "text", "text": prompt}],
             "structured": STRUCTURED_SCHEMA,
         }
+        logger.debug("SEND payload prompt (first 500): %s", prompt[:500])
+        logger.debug("SEND payload full: %s", json.dumps(payload, indent=2)[:2000])
         raw = self._post_message(payload)
         if raw:
+            logger.debug("RECV raw (first 1000): %s", raw[:1000])
             self._used_api = True
             self.path_used.emit("api")
             try:
                 items = json.loads(raw)
                 if isinstance(items, list):
+                    logger.debug("RECV parsed: %d items, first: %s", len(items), json.dumps(items[0] if items else {}))
                     self.response_ready.emit(items)
                     return
             except json.JSONDecodeError:
+                logger.debug("RECV json parse failed, raw: %s", raw[:500])
                 pass
             items = self._handle_schema_error(raw)
             self.response_ready.emit(items)

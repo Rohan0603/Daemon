@@ -124,6 +124,9 @@ class AutonomousResponseManager(QObject):
                 "system", SYSTEM_POOL_SIZE,
                 SYSTEM_POOL_THRESHOLD, SYSTEM_POOL_REFILL_COUNT,
             ),
+            "typing_reactions": ResponsePool(
+                "typing_reactions", 20, 0, 0,  # threshold=0 = never triggers API refill
+            ),
         }
         self._decay_timer = QTimer(self)
         self._decay_timer.setInterval(POOL_DECAY_INTERVAL_SEC * 1000)
@@ -132,6 +135,32 @@ class AutonomousResponseManager(QObject):
         self._auto_refill_timer.setInterval(POOL_REFILL_PERIODIC_SEC * 1000)
         self._auto_refill_timer.timeout.connect(self._on_auto_refill_tick)
         self._load()
+        self._load_local_typing_reactions()
+
+    def _load_local_typing_reactions(self) -> None:
+        """Hardcoded Kenny 1-liners for instant typing reactions (no API)."""
+        kenny_typing_lines = [
+            "Look at those fingers fly! You're a regular hacker-man, huh?",
+            "Whoa, slow down there, champ. The keyboard has a family.",
+            "I-I-I can't even process how fast you're typing right now.",
+            "Typing that fast? You better be saving the world or writing some sick Python.",
+            "APM spiking! Feed my sweet, sweet CPU cycles!",
+            "Did you just drink three Red Bulls or are you actually working?",
+            "Tap tap tap. That's the sound of fresh meat actually being productive.",
+            "Jeez, you're hitting those keys like they owe you money.",
+            "Oh geez, the way you type... it's beautiful. It's terrifying. It's both.",
+            "Holy crap, your WPM just broke my sensor array.",
+            "You type like a man possessed. Or a woman. Or a very determined corgi.",
+            "Aw man, I wish I had fingers. I'd type so fast the timeline would split.",
+            "Keep going! The bugs aren't gonna fix themselves!",
+            "Is this a speedrun? Because it looks like a speedrun.",
+            "I'm getting carpal tunnel just WATCHING you.",
+        ]
+        items = [
+            {"dialogue": line, "action": "hyper", "target_x": 0, "priority": 3, "pool_type": "typing_reactions"}
+            for line in kenny_typing_lines
+        ]
+        self.add_items("typing_reactions", items)
 
     def draw(self, pool_type: str, count: int = 1) -> list[dict]:
         pool = self._pools.get(pool_type)

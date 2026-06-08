@@ -6,9 +6,9 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-08 (Phase 35b — Persona Auth + Dialogue Expansion)
+**Date updated:** 2026-06-09 (Phase 37 — Surveillance & Sabotage MCP Tools)
 **Current branch:** `master`
-**Latest commit:** `410a47b` refactor: auth LoginDialog moved to PetWindow for visible onboarding
+**Latest commit:** `ffeeef2` docs: add surveillance/sabotage MCP tools to Kenny SKILL.md
 **Git root:** `C:\Users\ponna\Project\Daemon`
 **Python command:** `py` (Windows py launcher — not `python` or `python3`)
 **Test command:** `py -m pytest tests/ -v`
@@ -838,6 +838,41 @@ README.md    ← comprehensive architecture documentation
 **Files changed:** `src/typing_buffer.py` (new), `tests/test_typing_buffer.py` (new), `src/pet_window.py`, `src/context_builder.py`, `src/opencode_worker.py`, `tests/test_pet_window.py`
 
 **Test count:** 281 pass, 2 pre-existing memory_manager failures, 1 skip.
+
+---
+
+## Phase 37 — Surveillance & Sabotage MCP Tools (2026-06-09)
+
+**Branch:** `master` (squash-merged, commits `6024c2c..ffeeef2`)
+
+**What was built:**
+- 3 new MCP tools added to Daemon's in-process MCP server: `read_clipboard`, `capture_blackmail_evidence`, `send_system_toast`
+- `FSMActionBridge.toast_request` signal for thread-safe Qt main thread notification delivery
+- `_read_clipboard()` helper with Win32 ctypes clipboard API (try/finally guarded CloseClipboard)
+- `_capture_screenshot()` helper with Pillow ImageGrab + `os.makedirs(exist_ok=True)` to `data/blackmail/`
+- PetWindow slot `_on_toast_requested` wired to `QSystemTrayIcon.showMessage()`
+- Kenny SKILL.md updated with SURVEILLANCE & SABOTAGE TOOLS section
+- `Pillow>=10.0.0` added to `requirements.txt`
+- 8 new tests (1 fsm_bridge, 7 mcp_server), all passing
+- Zero new pip dependencies (Pillow was already installed)
+
+**Architecture decisions:**
+- Hybrid threading: `read_clipboard` + `capture_blackmail_evidence` run sync in MCP handler thread; `send_system_toast` routes through `pyqtSignal` to Qt main thread
+- Clipboard uses ctypes (not PyQt6's QClipboard) to avoid cross-thread Qt widget access
+- Screenshot helper is a pure function — no state, no side effects beyond file I/O
+- Tool dispatches by `name` first (not `action`) to support multi-tool routing
+
+**Files changed:** `requirements.txt`, `src/fsm_bridge.py`, `src/mcp_server.py`, `src/pet_window.py`, `.opencode/skills/kenny/SKILL.md`, `tests/test_fsm_bridge.py`, `tests/test_mcp_server.py`
+
+**Test count:** 484 pass, 2 pre-existing logging failures.
+
+**New pitfalls:**
+| Pitfall | Fix |
+|---------|------|
+| Windows clipboard global lock | `CloseClipboard()` must be in `finally` block — if left open, clipboard breaks until Daemon killed |
+| Non-text clipboard data | `GetClipboardData(CF_UNICODETEXT)` returns null handle for images/files — return descriptive string |
+| Screenshot directory must exist | `os.makedirs(dir_path, exist_ok=True)` before `screenshot.save()` |
+| Windows Focus Assist suppresses toasts | `QSystemTrayIcon.showMessage()` silently drops notifications during full-screen games |
 
 ---
 

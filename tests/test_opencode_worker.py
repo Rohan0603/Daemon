@@ -232,7 +232,7 @@ def test_send_includes_structured_schema(qapp):
     sent_json = mock_req.call_args.kwargs.get("json") or mock_req.call_args.args[1]
     assert "structured" in sent_json
     assert sent_json["structured"] == STRUCTURED_SCHEMA
-    assert sent_json["message"] == "test prompt"
+    assert sent_json["parts"][0]["text"] == "test prompt"
 
 
 def test_send_emits_schema_error_on_garbage(qapp):
