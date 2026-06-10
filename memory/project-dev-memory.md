@@ -6,10 +6,10 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-11 (Phase 39 — Multi-Pet Refactor)
+**Date updated:** 2026-06-11 (Phase 39.5 — Two-Step Agentic Refill)
 **Current branch:** `master`
-**Latest commit:** `8ebe9f1` feat: Phase 39 - Multi-Pet Refactor (squashed)
-**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39
+**Latest commit:** `83039f6` fix: two-step agentic loop for autonomous background tool usage
+**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40
 **Git root:** `C:\Users\ponna\Project\Daemon`
 **Python command:** `py` (Windows py launcher — not `python` or `python3`)
 **Test command:** `py -m pytest tests/ -v --ignore=tests/test_output.txt --ignore=tests/test_firebase_crud.py`
@@ -452,6 +452,68 @@ All local JSON: atomic tmp+replace writes, .bak fallback on read failure. Single
 - Memory kept as text injection (not MCP tool) — prevents LLM from corrupting local facts
 - Node.js plugin deferred — session management stays in Python
 - `parse_raw` static method retained for stateless JSON-RPC testing without server startup
+
+---
+
+---
+
+### Phase 40 — The Sentinel Update (2026-06-11)
+**Branch:** `master` (squashed, commit `abce769`)
+
+**What was built:**
+
+**Task 1 — The Guardian (Health Monitoring):**
+- `check_health(port=4096, timeout=1.0) -> bool` added to `src/opencode_serve_manager.py` — uses `socket.create_connection` to check if the opencode serve port is accepting TCP connections
+- Heartbeat QTimer (10s interval) in `PetWindow.__init__` with `_brain_disconnected` flag tracking
+- `_on_health_check()` — transitions to DEVASTATED + shows "brain disconnected" bubble on failure; transitions to IDLE + shows "back online" bubble on recovery
+- `_on_restart_brain()` — calls `ensure_opencode_serve_running()` then rechecks health
+- "Restart Brain" context menu action with `restart_brain` signal
+- 7 new tests (3 health check + 4 PetWindow health monitor), all pass
+
+**Task 2 — The Critic (Thought Log UI):**
+- `src/thought_log_dialog.py` (NEW) — `ThoughtLogDialog(QDialog)` with Matrix-style green-on-black QTextEdit, 1s auto-refresh timer, reads `data/.daemon_thoughts.log`, handles missing file gracefully ("No thoughts recorded yet...")
+- Removed `if not DEBUG: return` guard from `_log_thought` in `pet_window.py` — thoughts now always written to log, not just in verbose mode
+- "View Brain Scan" context menu action with `thought_log` signal
+- `_open_thought_log()` creates/show dialog (lazy singleton)
+- Cleanup in `_force_quit_app` to close dialog on shutdown
+- 5 new tests, all pass
+
+**Task 3 — The Observer (Screen Text Delta):**
+- `get_foreground_text_delta() -> str` — SHA-256 delta hashing, returns `"[Screen unchanged]"` when content matches last call, returns `""` for empty/no-window (never caches empty)
+- `clear_screen_cache()` — resets hash to force fresh read
+- `ScreenReader.get_foreground_text()` delegates to `get_foreground_text_delta()` internally (backward compatible)
+- `_has_significant_delta()` in `pet_window.py` calls `clear_screen_cache()` on window change
+- 6 new tests (5 delta + 1 window change), all 11 screen reader tests pass
+
+**Files changed:** 9 files, +352/-6 lines
+
+**Key adjustments from original spec:**
+- Used socket-based `_is_port_bound` pattern instead of HTTP health endpoint (opencode serve has no documented `/global/health`)
+- Removed DEBUG guard from `_log_thought` — otherwise thought log dialog has no content
+- `get_foreground_text_delta()` returns `""` for empty text (avoids caching "no window" state)
+- All existing callers (like `_get_context_signature()`) automatically get delta-aware results
+
+---
+
+### Phase 39.5 — Two-Step Agentic Refill (2026-06-11)
+
+**Commit:** `83039f6`
+
+**What was built:**
+- Fixed the "Fake Agency" bug: LLM was hallucinating MCP tool usage because the `structured` JSON schema in the payload prevented emitting tool-call tokens
+- Added `two_stage_prompts` parameter to `OpencodeWorker.__init__`
+- Added `_send_two_stage()` method that sends two messages: Turn 1 (no schema, tools available) → LLM calls MCP tools; Turn 2 (with schema, enriched with Turn 1 results) → LLM generates structured JSON
+- Updated `run()` to dispatch to `_send_two_stage()` when `two_stage_prompts` is set
+- Wired `_on_refill_needed()` in `PetWindow` to pass investigation + generation prompts via `two_stage_prompts`
+- Stage 1 prompt: "INVESTIGATION — DO NOT generate JSON yet. Investigate user context (active window, APM, refill type) using MCP tools"
+- Stage 2 prompt: Existing refill prompt (typing_reactions/jokes_blackmail/system), enriched with investigation results
+- Zero changes to `ResponsePool`, `AutonomousResponseManager`, or MCP server
+- 32/32 tests pass (new `test_two_stage_worker_sends_two_messages` test)
+
+**Key decisions:**
+- `send_two_stage()` lives on `OpencodeWorker` as `_send_two_stage()` — no new class needed
+- JSON parsing fallback chain matches existing `send()` (main parse → regex extraction → `_handle_schema_error`)
+- Investigation prompt is generic (active window + APM + pool type), not pool-type-specific — LLM's MCP tools handle the specifics
 
 ---
 
@@ -934,7 +996,7 @@ README.md                ← Comprehensive architecture documentation
 
 ### Phase 39 — Multi-Pet Refactor (2026-06-11)
 
-**Branch:** `master` (squash-merged, commit `8ebe9f1`)
+**Branch:** `master` (squash-merged, commit `88e7473`)
 
 **What was built:**
 
