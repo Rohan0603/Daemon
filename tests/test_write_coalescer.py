@@ -49,7 +49,6 @@ def _make_coalescer(
         memory=memory,
         history=history,
         memory_manager=memory_manager,
-        diary_entries_ref=diary_entries,
         diary_store=diary_store,
         flush_sec=flush_sec,
     )
@@ -101,9 +100,13 @@ def test_flush_writes_dirty_history(qapp, tmp_path):
 
 
 def test_flush_writes_dirty_diary(qapp, tmp_path):
-    diary_entries = ["first entry", "second entry"]
+    diary_entries = [
+        {"content": "first entry", "timestamp": 1000, "hash": "abc"},
+        {"content": "second entry", "timestamp": 2000, "hash": "def"},
+    ]
     diary_store = MagicMock()
     diary_store.read.return_value = None
+    diary_store.get_entries.return_value = diary_entries
     c = _make_coalescer(
         tmp_path, diary_entries=diary_entries, diary_store=diary_store
     )
@@ -186,6 +189,7 @@ class TestWriteCoalescerEdgeCases:
         mgr = MagicMock()
         diary_store = MagicMock()
         diary_store.read.return_value = None
+        diary_store.get_entries.return_value = []
         c = _make_coalescer(tmp_path, memory=mem, history=hist,
                             memory_manager=mgr, diary_store=diary_store)
         for flag in ("memory", "history", "diary", "brain"):
@@ -214,9 +218,7 @@ class TestWriteCoalescerEdgeCases:
             memory=MagicMock(), history=MagicMock(),
             memory_manager=MagicMock(),
             diary_store=None,
-            diary_entries_ref=None,
         )
-        assert c._diary_entries_ref == []
         assert c._diary_store is None
 
     def test_start_stop_multiple(self, qapp, tmp_path):
@@ -236,11 +238,11 @@ class TestWriteCoalescerEdgeCases:
         from src.write_coalescer import WriteCoalescer
         diary_store = MagicMock()
         diary_store.read.return_value = None
+        diary_store.get_entries.return_value = []
         c = WriteCoalescer(
             memory=MagicMock(), history=MagicMock(),
             memory_manager=MagicMock(),
             diary_store=diary_store,
-            diary_entries_ref=[],
         )
         c.mark_dirty("diary")
         c.flush()
@@ -250,13 +252,12 @@ class TestWriteCoalescerEdgeCases:
         from src.write_coalescer import WriteCoalescer
         diary_store = MagicMock()
         diary_store.read.return_value = None
+        diary_store.get_entries.return_value = []
         c = WriteCoalescer(
             memory=MagicMock(), history=MagicMock(),
             memory_manager=MagicMock(),
             diary_store=diary_store,
-            diary_entries_ref=None,
         )
-        assert c._diary_entries_ref == []
         c.mark_dirty("diary")
         c.flush()
         diary_store.write.assert_called_once_with([], 0)

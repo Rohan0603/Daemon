@@ -249,7 +249,7 @@ def test_load_drops_old_items(tmp_path):
 
 class TestResponseManagerEdgeCases:
     def test_add_items_empty_list(self, qapp):
-        from src.response_manager import ResponsePool
+        from src.response_pool import ResponsePool
         pool = ResponsePool("test", max_size=10, threshold=7, refill_count=5)
         pool.add_items([])
         assert pool.remaining() == 0
@@ -261,7 +261,7 @@ class TestResponseManagerEdgeCases:
         assert m.remaining("system") == 0
 
     def test_draw_with_n_gt_available(self, qapp):
-        from src.response_manager import ResponsePool
+        from src.response_pool import ResponsePool
         pool = ResponsePool("test", max_size=10, threshold=7, refill_count=5)
         pool._items = [
             {"dialogue": "a", "action": "idle", "priority": 3},
@@ -305,7 +305,7 @@ class TestResponseManagerEdgeCases:
         m.stop()
 
     def test_pool_type_tag_auto_assigned(self, qapp):
-        from src.response_manager import ResponsePool
+        from src.response_pool import ResponsePool
         pool = ResponsePool("jokes_blackmail", max_size=10, threshold=7, refill_count=5)
         pool.add_items([{"dialogue": "test", "action": "idle"}])
         assert pool._items[0]["pool_type"] == "jokes_blackmail"

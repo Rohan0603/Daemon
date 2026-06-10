@@ -44,8 +44,17 @@ def setup_logging(
     root.addHandler(file_handler)
     _cleanup_old_logs(log_dir)
 
+    default_overrides = {
+        "comtypes": "WARNING",
+        "comtypes.client": "WARNING",
+        "comtypes.client._code_cache": "WARNING",
+        "comtypes.client._generate": "WARNING",
+        "comtypes._post_coinit": "WARNING",
+        "urllib3.connectionpool": "WARNING",
+    }
     if config_overrides:
-        for name, level in config_overrides.items():
-            logging.getLogger(name).setLevel(getattr(logging, level.upper(), logging.INFO))
+        default_overrides.update(config_overrides)
+    for name, level in default_overrides.items():
+        logging.getLogger(name).setLevel(getattr(logging, level.upper(), logging.INFO))
 
     logging.captureWarnings(True)

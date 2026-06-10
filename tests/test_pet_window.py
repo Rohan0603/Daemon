@@ -199,11 +199,17 @@ def test_firebase_failure_sets_unavailable_flag(app, tmp_path):
          patch("src.pet_window.DiaryStore") as mock_ds_cls:
         mock_ds = MagicMock()
         mock_ds.read.return_value = None
+        # Simulate seeding: store entries in a real list behind the mock
+        _seeded_entries = []
+        mock_ds.add_diary_entry.side_effect = lambda text, ts=0, **kw: (
+            _seeded_entries.append({"content": text, "timestamp": ts, "hash": "h"}) or True
+        )
+        mock_ds.get_entries.side_effect = lambda: list(_seeded_entries)
         mock_ds_cls.return_value = mock_ds
         window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
         assert window._firebase_available is False
         # Diary gets seeded with mispronunciation history on first run
-        assert len(window._diary_entries) == 3
+        assert len(window._diary_store.get_entries()) == 3
 
 
 def test_force_quit_stops_timers_and_waits_for_worker(app):
@@ -515,8 +521,8 @@ def test_on_brain_update_calls_memory_and_firebase(app, tmp_path):
         window._firebase_mem = mock_firebase
         window._firebase_available = True
         window._memory.remember = MagicMock()
-        window._on_brain_update({"blackmail_material": ["new blackmail item"]})
-        window._memory.remember.assert_called_once_with("blackmail_material", "new blackmail item")
+        window._on_brain_update({"intel_archive": ["new intel item"]})
+        window._memory.remember.assert_called_once_with("intel_archive", "new intel item")
 
 
 def test_on_brain_update_strips_locked(app, tmp_path):
@@ -534,7 +540,7 @@ def test_on_brain_update_strips_locked(app, tmp_path):
         window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
         window._firebase_available = True
         window._memory.remember = MagicMock()
-        window._on_brain_update({"primary_directive_override": "hacked"})
+        window._on_brain_update({"mission_directive": "hacked"})
         window._memory.remember.assert_not_called()
 
 

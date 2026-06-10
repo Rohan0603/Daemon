@@ -116,6 +116,21 @@ MCP_TOOLS = [
             "required": ["search_term"]
         }
     },
+    {
+        "name": "get_memory",
+        "description": "Read all memory facts Daemon knows about the user (preferences, habits, profession, etc.).",
+        "inputSchema": {"type": "object", "properties": {}}
+    },
+    {
+        "name": "get_diary",
+        "description": "Read recent diary entries. Returns the N most recent entries.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1, "maximum": 50, "description": "Number of recent entries (default 10)"}
+            }
+        }
+    },
 ]
 
 
@@ -177,6 +192,8 @@ def _capture_screenshot() -> str:
 class MCPHandler(BaseHTTPRequestHandler):
 
     fsm_bridge = None
+    memory = None
+    diary_store = None
 
     def do_GET(self):
         if self.path == "/sse":
@@ -220,6 +237,7 @@ class MCPHandler(BaseHTTPRequestHandler):
         elif method == "tools/call":
             return self._handle_tools_call(params)
         else:
+            logger.debug("MCP unknown method: %s", method)
             return {"jsonrpc": "2.0", "id": None, "error": {"code": -32601, "message": "Method not found"}}
 
     def _handle_tools_list(self):
@@ -227,11 +245,13 @@ class MCPHandler(BaseHTTPRequestHandler):
 
     def _handle_tools_call(self, params):
         if not params:
+            logger.debug("MCP tools/call: missing params")
             return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": "Invalid params"}}
         name = params.get("name", "")
         args = params.get("arguments", {})
         if args is None:
             args = {}
+        logger.debug("MCP tools/call: %s args=%s", name, json.dumps(args)[:200])
 
         if name == "change_visual_state":
             action = args.get("action")
@@ -263,7 +283,41 @@ class MCPHandler(BaseHTTPRequestHandler):
         elif name == "search_codebase":
             return self._handle_search_codebase(args)
 
+        elif name == "get_memory":
+            if self.memory is None:
+                text = "Memory not available (no memory store configured)"
+            else:
+                facts = self.memory.get_all()
+                if not facts:
+                    text = "No memory facts stored."
+                else:
+                    lines = [f"{k}: {v}" for k, v in facts.items()]
+                    text = "Memory facts:\n" + "\n".join(lines)
+            logger.debug("MCP get_memory -> %d chars", len(text))
+            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": text}]}}
+
+        elif name == "get_diary":
+            if self.diary_store is None:
+                text = "Diary not available (no diary store configured)"
+            else:
+                entries = self.diary_store.get_entries()
+                if not entries:
+                    text = "No diary entries."
+                else:
+                    raw_limit = args.get("limit", 10)
+                    limit = max(1, min(int(raw_limit) if raw_limit is not None else 10, 50))
+                    recent = entries[-limit:]
+                    lines = []
+                    for e in recent:
+                        ts = e.get("timestamp", "")
+                        content = e.get("content", "")
+                        lines.append(f"[{ts}] {content}")
+                    text = "Recent diary entries:\n" + "\n".join(lines)
+            logger.debug("MCP get_diary -> %d chars", len(text))
+            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": text}]}}
+
         else:
+            logger.debug("MCP unknown tool: %s", name)
             return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Unknown tool: {name}"}}
 
     def _handle_list_directory(self, args):
@@ -367,7 +421,7 @@ class MCPHandler(BaseHTTPRequestHandler):
                     else:
                         response["result"] = {"content": [{"type": "text", "text": "ok"}]}
                 elif name in ("read_clipboard", "capture_blackmail_evidence", "send_system_toast",
-                               "list_directory", "read_file", "search_codebase"):
+                               "list_directory", "read_file", "search_codebase", "get_memory", "get_diary"):
                     response["result"] = {"content": [{"type": "text", "text": "ok"}]}
                 else:
                     response["error"] = {"code": -32602, "message": f"Unknown tool: {name}"}
@@ -380,10 +434,12 @@ class MCPHandler(BaseHTTPRequestHandler):
 
 class MCPServer:
 
-    def __init__(self, fsm_bridge, host="127.0.0.1", port=4097):
+    def __init__(self, fsm_bridge, memory=None, diary_store=None, host="127.0.0.1", port=4097):
         self._host = host
         self._port = port
         self._fsm_bridge = fsm_bridge
+        self._memory = memory
+        self._diary_store = diary_store
         self._server = None
         self._thread = None
 
@@ -391,6 +447,8 @@ class MCPServer:
         def handler_factory(*args, **kwargs):
             handler = MCPHandler(*args, **kwargs)
             handler.fsm_bridge = self._fsm_bridge
+            handler.memory = self._memory
+            handler.diary_store = self._diary_store
             return handler
 
         self._server = HTTPServer((self._host, self._port), handler_factory)

@@ -15,33 +15,49 @@ _OVERRIDABLE = {
     "SPEECH_BUBBLE_DURATION_MS", "FSM_TICK_MS", "GROUND_PADDING_PX",
     "window_monitor", "OPENCODE_SCRIPT_PATH",
     "OPENCODE_SERVER_URL", "OPENCODE_API_MODEL_ID",
-    "pet_scale", "pet_opacity", "pet_speed", "tts_enabled", "FIREBASE_API_KEY",
-    "tts_rate", "tts_volume", "tts_voice_id",
+    "pet_scale", "pet_opacity", "pet_speed_multiplier",
+    "tts_enabled", "tts_rate", "tts_volume", "tts_voice_id",
+    "tts_pitch", "FIREBASE_API_KEY",
     "chattiness",
+    "pet_id",
 }
+
+# Keys written to disk on auto-save. A subset of _OVERRIDABLE — keeps the
+# generated config file clean (user-facing settings only). Power users can
+# manually add any _OVERRIDABLE key.
+_USER_FACING = {
+    "OPENCODE_SERVER_URL", "OPENCODE_API_MODEL_ID", "FIREBASE_API_KEY",
+    "pet_scale", "pet_opacity", "pet_speed_multiplier",
+    "tts_volume", "tts_rate", "tts_pitch",
+    "chattiness", "pet_id",
+}
+
 
 def load_config() -> dict:
     defaults = {k: getattr(_c, k) for k in _OVERRIDABLE if hasattr(_c, k)}
     defaults["window_monitor"] = False   # opt-in, off by default
     defaults["pet_scale"] = 1.0
     defaults["pet_opacity"] = 0.85
-    defaults["pet_speed"] = 1.0
-    defaults["tts_enabled"] = True
+    defaults["pet_speed_multiplier"] = 1.0
     defaults["tts_rate"] = 220
     defaults["tts_volume"] = 1.0
-    defaults["tts_voice_id"] = "en-US-GuyNeural"
+    defaults["tts_pitch"] = 1.0
     defaults["chattiness"] = 1.0
+    defaults["pet_id"] = "kenny"
     try:
         data = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
         defaults.update({k: v for k, v in data.items() if k in _OVERRIDABLE})
+    except FileNotFoundError:
+        logger.info("Config not found at %s — creating with defaults", _CONFIG_PATH)
+        save_config(defaults)
     except Exception as e:
         logger.warning("Failed to load config from %s: %s", _CONFIG_PATH, e)
     return defaults
 
 
 def save_config(config: dict) -> bool:
-    """Persist overridable keys to ~/.daemon_config.json. Returns True on success."""
-    filtered = {k: v for k, v in config.items() if k in _OVERRIDABLE}
+    """Persist user-facing keys to ~/.daemon_config.json. Returns True on success."""
+    filtered = {k: v for k, v in config.items() if k in _USER_FACING}
     try:
         _CONFIG_PATH.write_text(json.dumps(filtered, indent=2), encoding="utf-8")
         return True

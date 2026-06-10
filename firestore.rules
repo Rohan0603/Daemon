@@ -1,0 +1,26 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Authenticated access only
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // User-level document — each user can read/write their own
+    match /users/{uid} {
+      allow read, write: if isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // Pet-level brain documents — each user can read/write their own pets
+    match /users/{uid}/pets/{petId} {
+      allow read, write: if isAuthenticated() && request.auth.uid == uid;
+    }
+
+    // Diary subcollection — each user can read/write their own pet diaries
+    match /users/{uid}/pets/{petId}/diary/{entry} {
+      allow read, write: if isAuthenticated() && request.auth.uid == uid;
+    }
+  }
+}

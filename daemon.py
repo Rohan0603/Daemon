@@ -6,7 +6,7 @@ import logging
 import traceback
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication
-from src.constants import LOCK_PATH
+from src.constants import STORAGE_DIR
 
 logger = logging.getLogger("daemon")
 
@@ -39,11 +39,14 @@ def _ensure_ffmpeg_on_path():
                     os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
 
 
-def _acquire_lock() -> bool:
-    """Check for existing daemon instance. Return True if lock acquired."""
-    if LOCK_PATH.exists():
+def _lock_path(pet_id: str) -> Path:
+    return STORAGE_DIR / f".daemon_{pet_id}.lock"
+
+def _acquire_lock(pet_id: str) -> bool:
+    lock = _lock_path(pet_id)
+    if lock.exists():
         try:
-            pid = int(LOCK_PATH.read_text().strip())
+            pid = int(lock.read_text().strip())
             import ctypes
             PROCESS_QUERY_LIMITED_INFO = 0x1000
             handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFO, False, pid)
@@ -52,13 +55,14 @@ def _acquire_lock() -> bool:
                 return False
         except Exception:
             pass
-    LOCK_PATH.write_text(str(os.getpid()))
+    lock.write_text(str(os.getpid()))
     return True
 
 
-def _release_lock() -> None:
+def _release_lock(pet_id: str) -> None:
+    lock = _lock_path(pet_id)
     try:
-        LOCK_PATH.unlink(missing_ok=True)
+        lock.unlink(missing_ok=True)
     except Exception:
         pass
 
@@ -78,9 +82,13 @@ def main() -> None:
     parser.add_argument("--verbose", action="store_true", help="Enable verbose debug logging")
     parser.add_argument("--no-opencode", action="store_true", help="Disable opencode integration")
     parser.add_argument("--no-auth", action="store_true", help="Disable Firebase auth login")
+    parser.add_argument("--pet-id", type=str, default=None, help="Pet persona ID (default: kenny)")
     args = parser.parse_args()
 
-    if not _acquire_lock():
+    pet_id = args.pet_id or cfg.get("pet_id", "kenny")
+    constants.CURRENT_PET_ID = pet_id
+
+    if not _acquire_lock(pet_id):
         print("Daemon is already running. Exiting.", file=sys.stderr)
         sys.exit(1)
 
@@ -160,20 +168,25 @@ def main() -> None:
         initial_state=state,
         auth=auth,
         fresh_login=fresh_login,
+        pet_id=pet_id,
     )
 
     try:
         exit_code = app.exec()
     finally:
-        _release_lock()
+        _release_lock(pet_id)
 
     elapsed = int(time.monotonic() - start_time)
 
     window._log_data_state("Pre-Sync")
     if window._firebase_mem:
         window._firebase_mem.sync_from_local(window._memory)
-        window._diary_synced = window._firebase_mem.push_pending_diaries(
-            window._diary_store, window._diary_entries, window._diary_synced,
+        diary_entries = window._diary_store.get_entries()
+        diary_texts = [e.get("content", "") for e in diary_entries]
+        existing = window._diary_store.read()
+        diary_synced = existing.get("synced", 0) if existing else 0
+        window._firebase_mem.push_pending_diaries(
+            window._diary_store, diary_texts, diary_synced,
         )
     window._history.save()
     window._memory.save()

@@ -53,13 +53,14 @@ def test_bubble_queue_drops_when_full(app):
          patch("src.pet_window.APMWorker"):
         window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
         window._bubble_queue.clear()
-        window._show_bubble("first")
-        window._show_bubble("second")
-        window._show_bubble("third")
-        window._show_bubble("fourth")
-        assert window._bubble_queue == ["second", "third", "fourth"]
-        window._show_bubble("fifth")  # should be dropped
-        assert window._bubble_queue == ["second", "third", "fourth"]
+        # BUBBLE_QUEUE_MAX_SIZE = 10, first displays immediately, rest queue
+        for i in range(11):  # 1 displayed + 10 queued = 11 total before drop
+            window._show_bubble(f"bubble{i}")
+        # First was displayed immediately, 10 queued
+        # 11th should be dropped
+        assert len(window._bubble_queue) == 10
+        window._show_bubble("overflow")  # should be dropped
+        assert len(window._bubble_queue) == 10
 
 def test_bubble_queue_immediate_replaces_current(app):
     with patch("src.pet_window.ClickThroughManager"), \

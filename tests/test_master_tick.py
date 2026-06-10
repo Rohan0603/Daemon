@@ -3,12 +3,15 @@ import time
 import pytest
 from unittest.mock import MagicMock, patch
 from src.pet_window import PetWindow
+from src.pet_fsm import PetState
 
 
 class TestMasterTick:
     def setup_method(self):
         with patch.object(PetWindow, '__init__', lambda self, *a, **kw: None):
             self.pw = PetWindow.__new__(PetWindow)
+            self.pw._fsm = MagicMock()
+            self.pw._fsm.current_state = PetState.IDLE
             self.pw._chat_timer_sec = 0
             self.pw._joke_timer_sec = 0
             self.pw._gcd_expiry_timestamp = 0.0
@@ -25,7 +28,7 @@ class TestMasterTick:
             self.pw._idle_backoff_seconds = 0.0
             self.pw._base_boredom_interval = 30
             self.pw._max_idle_backoff = 300
-            self.pw._last_boredom_fsm_time = 0.0
+            self.pw._last_boredom_fsm_time = time.time()
             self.pw._boredom_timer_ms = 30000
             self.pw._boredom_tick_count = 0
             self.pw._is_context_stable = MagicMock(return_value=True)

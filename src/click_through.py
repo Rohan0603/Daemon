@@ -14,7 +14,7 @@ GWL_EXSTYLE          = -20
 WS_EX_TRANSPARENT    = 0x00000020
 WS_EX_LAYERED        = 0x00080000
 
-_TOGGLE_DEBOUNCE_SEC = 0.2  # minimum gap between enable/disable toggles
+_TOGGLE_DEBOUNCE_SEC = 0.5  # minimum gap between enable/disable toggles
 
 
 class ClickThroughManager:

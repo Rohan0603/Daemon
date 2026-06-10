@@ -68,11 +68,13 @@ class PetWindow(QWidget):
         history_path: str | None = None,
         auth: "FirebaseAuth | None" = None,
         fresh_login: bool = False,
+        pet_id: str = "kenny",
         **kwargs
     ) -> None:
         if "agy_enabled" in kwargs:
             opencode_enabled = kwargs.pop("agy_enabled")
         super().__init__()
+        self._pet_id = pet_id
         self._opencode_enabled = opencode_enabled
         initial_state = initial_state or {}
         self._initial_state = initial_state
@@ -88,7 +90,7 @@ class PetWindow(QWidget):
         self._config = load_config()
         self._pet_scale = self._config.get("pet_scale", 1.0)
         self._pet_opacity = self._config.get("pet_opacity", 0.85)
-        self._pet_speed_multiplier = self._config.get("pet_speed", 1.0)
+        self._pet_speed_multiplier = self._config.get("pet_speed_multiplier", 1.0)
         self._chattiness = self._config.get("chattiness", 1.0)
 
         self._scale = QApplication.primaryScreen().devicePixelRatio()
@@ -155,8 +157,6 @@ class PetWindow(QWidget):
         self._fsm_bridge = FSMActionBridge()
         self._fsm_bridge.request.connect(self._on_mcp_fsm_action)
         self._fsm_bridge.toast_request.connect(self._on_toast_requested)
-        self._mcp_server = MCPServer(self._fsm_bridge)
-
         self._bubble_queue: list[str] = []
 
         self._memory = Memory(path=memory_path)
@@ -164,15 +164,14 @@ class PetWindow(QWidget):
         self._crud = None
         self._firebase_available = False
         self._firebase_mem = None
-        self._diary_entries: list[str] = []
-        self._diary_synced: int = 0
         self._diary_path = DIARY_PATH
 
         self._diary_store = DiaryStore(self._diary_path)
+        self._mcp_server = MCPServer(self._fsm_bridge, memory=self._memory, diary_store=self._diary_store)
         self._write_coalescer = WriteCoalescer(
             memory=self._memory, history=self._history,
             memory_manager=self._firebase_mem,
-            diary_entries_ref=self._diary_entries, diary_store=self._diary_store,
+            diary_store=self._diary_store,
         )
         self._memory._coalescer = self._write_coalescer
         self._history._coalescer = self._write_coalescer
@@ -181,7 +180,6 @@ class PetWindow(QWidget):
 
         self._context_manager = ContextManager(
             memory=self._memory, history=self._history,
-            diary_entries_ref=self._diary_entries,
         )
         self._response_manager = AutonomousResponseManager(
             cache_path=RESPONSE_CACHE_PATH,
@@ -418,6 +416,12 @@ class PetWindow(QWidget):
     def _master_tick(self) -> None:
         """Centralized behavioral tick — runs every BEHAVIOR_TICK_MS."""
         try:
+            from src.pet_fsm import PetState
+
+            # SLEEP guard: freeze all behavioral timers
+            if self._fsm.current_state == PetState.SLEEP:
+                return
+
             # 1. Accumulate time
             self._chat_timer_sec += 1
             self._joke_timer_sec += 1
@@ -441,10 +445,12 @@ class PetWindow(QWidget):
                 self._trigger_chat()
                 return
 
-            # P3: Joke (APM < 20)
+            # P3: Joke (APM < 20) — only if no active backoff
             if self._joke_timer_sec >= joke_threshold and self._current_apm < 20:
-                self._trigger_joke()
-                return
+                elapsed_since_boredom = time.time() - self._last_boredom_fsm_time
+                if elapsed_since_boredom >= self._idle_backoff_seconds:
+                    self._trigger_joke()
+                    return
 
             # P4: Boredom (APM == 0, Idle >= 60s) — WITH EXPONENTIAL BACKOFF
             if self._idle_seconds >= 60 and self._current_apm == 0:
@@ -575,7 +581,7 @@ class PetWindow(QWidget):
         self._pet_scale = values["pet_scale"]
         self._ground_y = self._compute_ground_y()
         self._pet_opacity = values["pet_opacity"]
-        self._pet_speed_multiplier = values["pet_speed"]
+        self._pet_speed_multiplier = values["pet_speed_multiplier"]
         self.setFixedSize(
             int(PET_WIDTH * self._pet_scale),
             int(PET_HEIGHT * self._pet_scale),
@@ -600,11 +606,9 @@ class PetWindow(QWidget):
         self._apply_settings({
             "pet_scale": self._saved_scale,
             "pet_opacity": self._saved_opacity,
-            "pet_speed": self._saved_speed,
-            "tts_enabled": self._saved_tts,
+            "pet_speed_multiplier": self._saved_speed,
             "tts_rate": self._saved_tts_rate,
             "tts_volume": self._saved_tts_volume,
-            "tts_voice_id": self._saved_tts_voice_id,
             "chattiness": self._saved_chattiness,
         })
 
@@ -1105,15 +1109,14 @@ class PetWindow(QWidget):
                 uid = self._auth.uid or "default"
 
         if self._crud.available:
-            self._firebase_mem = MemoryManager(crud=self._crud, uid=uid)
+            self._firebase_mem = MemoryManager(crud=self._crud, uid=uid, pet_id=self._pet_id)
             self._firebase_available = True
             self._write_coalescer._memory_manager = self._firebase_mem
             brain = self._firebase_mem.load_current_brain()
             if brain:
-                self._firebase_mem.sync_to_local(self._memory)
+                self._firebase_mem.sync_to_local(self._memory, brain=brain)
             diary = self._firebase_mem.fetch_all_diary_entries()
             if diary:
-                self._diary_entries = diary
                 self._diary_store.write(diary, len(diary))
             self._show_bubble(_LOGIN_SUCCESS)
         else:
@@ -1256,27 +1259,23 @@ class PetWindow(QWidget):
             logger.warning("Firebase unavailable: %s", e)
         local = self._diary_store.read()
         if local and local.get("entries"):
-            self._diary_entries = local["entries"]
-            self._diary_synced = local.get("synced", 0)
-            logger.info("Diary loaded from local file (%d entries)", len(self._diary_entries))
+            self._diary_store.write(local["entries"], local.get("synced", 0))
+            logger.info("Diary loaded from local file (%d entries)", len(local["entries"]))
         else:
             if self._firebase_mem:
                 entries = self._firebase_mem.fetch_all_diary_entries(limit=200)
-                self._diary_entries = entries
-                self._diary_synced = len(entries)
                 self._diary_store.write(entries, len(entries))
                 logger.info("Diary fetched from Firebase (%d entries)", len(entries))
+        diary_entries = self._diary_store.get_entries()
         first_run_done = self._initial_state.get("first_run_done", False)
-        if not self._diary_entries and not first_run_done:
+        if not diary_entries and not first_run_done:
             _seed_diary_entries = [
                 "I just heard him try to say 'Spotify' and he called it 'Stopipy'. Oh geez...",
                 "He just asked if we should go to the 'Frood Coat'. I am losing my mind.",
                 "He tried to explain his 'ODSD' today. I think he meant OCD and ADHD.",
             ]
             for entry in _seed_diary_entries:
-                self._diary_entries.append(entry)
-            self._diary_synced = 0
-            self._diary_store.write(self._diary_entries, 0)
+                self._diary_store.add_diary_entry(entry, int(time.time()))
             logger.info("Diary seeded (%d entries)", len(_seed_diary_entries))
 
     def _dispatch_trigger(self, mode: str, user_input: str = "",
@@ -1340,6 +1339,10 @@ class PetWindow(QWidget):
         self._fire_deferred_trigger()
 
     def _fire_deferred_trigger(self) -> None:
+        from src.pet_fsm import PetState
+        if self._fsm.current_state == PetState.SLEEP:
+            self._deferred_trigger_params = None
+            return
         params = self._deferred_trigger_params
         if params is not None:
             self._deferred_trigger_params = None
@@ -1395,19 +1398,20 @@ class PetWindow(QWidget):
             f.write(entry)
 
     def _get_diary_context(self, n: int = 5) -> str:
-        if not self._diary_entries:
+        entries = self._diary_store.get_entries()
+        if not entries:
             return ""
-        recent = self._diary_entries[-n:]
+        recent = entries[-n:]
         lines = ["## Imported History:"]
-        for text in recent:
+        for entry in recent:
+            text = entry.get("content", "")
             lines.append(f"- [Imported History] {text}")
         return "\n".join(lines)
 
     def _log_data_state(self, label: str) -> None:
         mem_count = len(self._memory.get_all()) if hasattr(self, "_memory") else 0
         hist_count = self._history.count() if hasattr(self, "_history") else 0
-        diary_count = len(self._diary_entries) if hasattr(self, "_diary_entries") else 0
-        synced = self._diary_synced if hasattr(self, "_diary_synced") else 0
+        diary_count = len(self._diary_store.get_entries()) if hasattr(self, "_diary_store") else 0
         try:
             if hasattr(self, "_firebase_mem"):
                 brain = self._firebase_mem.load_current_brain()
@@ -1419,15 +1423,15 @@ class PetWindow(QWidget):
         jokes = self._response_manager.remaining("jokes_blackmail") if hasattr(self, "_response_manager") else 0
         system = self._response_manager.remaining("system") if hasattr(self, "_response_manager") else 0
         logger.info(
-            "[DATA] %s | memory=%d facts | history=%d entries | diary=%d entries (synced=%d) | brain=%d fields | cache: jokes=%d system=%d",
-            label, mem_count, hist_count, diary_count, synced,
+            "[DATA] %s | memory=%d facts | history=%d entries | diary=%d entries | brain=%d fields | cache: jokes=%d system=%d",
+            label, mem_count, hist_count, diary_count,
             brain_fields, jokes, system,
         )
 
     def _add_diary_entry(self, text: str) -> None:
-        self._diary_entries.append(text)
+        self._diary_store.add_diary_entry(text, int(time.time()))
         self._write_coalescer.mark_dirty("diary")
-        logger.info("[DATA] add_diary_entry -> diary now %d entries, synced=%d", len(self._diary_entries), self._diary_synced)
+        logger.info("[DATA] add_diary_entry -> diary now %d entries", len(self._diary_store.get_entries()))
 
     def _on_typing_debounce(self) -> None:
         typing_content = self._typing_buffer.get_context() or ""
@@ -1495,6 +1499,7 @@ class PetWindow(QWidget):
             "",
             is_autonomous=True,
             prompt=prompt,
+            session_id=self._opencode_session_id,
         )
         worker.response_ready.connect(lambda items, pt=pool_type: self._on_refill_result(items, pt))
         worker.error_occurred.connect(lambda err, pt=pool_type: self._on_refill_error(pt))
@@ -1552,12 +1557,12 @@ class PetWindow(QWidget):
             else:
                 val_str = str(value)
             self._memory.remember(key, val_str)
-        if "recent_blackmail_log" in applied:
-            current = self._memory.recall("recent_blackmail_log")
+        if "intel_archive" in applied:
+            current = self._memory.recall("intel_archive")
             if current:
                 entries = current.split("; ")
                 if len(entries) > 10:
-                    self._memory.remember("recent_blackmail_log", "; ".join(entries[-10:]))
+                    self._memory.remember("intel_archive", "; ".join(entries[-10:]))
 
     def _install_crash_recovery_hook(self) -> None:
         """Patch sys.excepthook to flush pending writes on a main-thread crash.

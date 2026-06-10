@@ -28,14 +28,12 @@ class WriteCoalescer:
         history: "History",
         memory_manager: "MemoryManager",
         diary_store: "DiaryStore | None" = None,
-        diary_entries_ref: list | None = None,
         flush_sec: float = 8.0,
     ) -> None:
         self._memory = memory
         self._history = history
         self._memory_manager = memory_manager
         self._diary_store = diary_store
-        self._diary_entries_ref = diary_entries_ref or []
         self._flush_sec = flush_sec
         self._timer: QTimer | None = None
         self._dirty: dict[str, bool] = {
@@ -74,9 +72,10 @@ class WriteCoalescer:
     def _flush_diary(self) -> None:
         if self._diary_store is None:
             return
+        entries = self._diary_store.get_entries()
         existing = self._diary_store.read()
         synced = existing.get("synced", 0) if existing else 0
-        self._diary_store.write(self._diary_entries_ref, synced)
+        self._diary_store.write(entries, synced)
 
     def start(self) -> None:
         if self._timer is not None:

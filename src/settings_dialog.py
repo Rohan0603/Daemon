@@ -170,7 +170,7 @@ class SettingsDialog(QDialog):
         return {
             "pet_scale": self._size_slider.value() / 100.0,
             "pet_opacity": self._opacity_slider.value() / 100.0,
-            "pet_speed": self._speed_slider.value() / 100.0,
+            "pet_speed_multiplier": self._speed_slider.value() / 100.0,
             "tts_enabled": self._voice_checkbox.isChecked(),
             "tts_rate": self._rate_slider.value(),
             "tts_volume": self._volume_slider.value() / 100.0,
