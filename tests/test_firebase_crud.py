@@ -8,8 +8,7 @@ from src.firebase_crud import FirebaseCRUD
 
 @pytest.fixture
 def crud() -> FirebaseCRUD:
-    token_provider = MagicMock(return_value="test-token")
-    return FirebaseCRUD(token_provider=token_provider, project_id="test-project")
+    return FirebaseCRUD(creds_path="dummy/path")
 
 
 # ── Field flattening ────────────────────────────────────────────────────────
@@ -217,13 +216,12 @@ def test_retry_succeeds_on_second_attempt(crud: FirebaseCRUD) -> None:
 
 def test_available_resets_on_new_crud() -> None:
     """A new instance should start as available."""
-    tp = MagicMock(return_value="t")
-    c = FirebaseCRUD(token_provider=tp, project_id="p")
+    c = FirebaseCRUD(creds_path="dummy/path")
     assert c.available
 
 
 def test_add_returns_none_when_no_auth(crud: FirebaseCRUD) -> None:
-    crud._token_provider = MagicMock(return_value=None)
+    crud._available = False
     result = crud.add("c", {"text": "hello"})
     assert result is None
     assert not crud.available

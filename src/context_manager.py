@@ -20,11 +20,9 @@ def _apm_bucket(apm: int) -> str:
 
 
 class ContextManager:
-    def __init__(self, memory: "Memory", history: "History",
-                 diary_entries_ref: list[str]) -> None:
+    def __init__(self, memory: "Memory", history: "History") -> None:
         self._memory = memory
         self._history = history
-        self._diary = diary_entries_ref
         self._snapshot: dict = {}
 
     def _get_memory_block(self) -> str:
@@ -102,14 +100,6 @@ class ContextManager:
 
     def reset(self) -> None:
         self._snapshot = {}
-
-    def _snapshot_current(self) -> None:
-        self._snapshot = {
-            "memory": dict(self._memory.get_all()),
-            "diary_len": len(self._diary),
-            "active_window": self._snapshot.get("active_window", ""),
-            "apm_bucket": self._snapshot.get("apm_bucket", ""),
-        }
 
     def snapshot_context(self, context_hint: str, apm: int) -> None:
         """Update active_window and apm_bucket in snapshot."""

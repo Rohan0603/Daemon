@@ -79,7 +79,6 @@ HISTORY_PATH = str(STORAGE_DIR / ".daemon_history.json")
 DIARY_PATH = str(STORAGE_DIR / ".daemon_diary.json")
 STATE_PATH = str(STORAGE_DIR / ".daemon_state.json")
 CONFIG_PATH = STORAGE_DIR / ".daemon_config.json"
-LOCK_PATH = STORAGE_DIR / ".daemon.lock"
 RESPONSE_CACHE_PATH = str(STORAGE_DIR / ".daemon_response_cache.json")
 
 _PERSONA_HINT = "You are Daemon, the user's desktop pet. Continue in character. Keep responses brief."

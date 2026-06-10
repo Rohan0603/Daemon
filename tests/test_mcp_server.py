@@ -5,9 +5,11 @@ from unittest.mock import MagicMock, patch
 from src.mcp_server import MCPHandler, MCPServer
 
 
-def _handler(bridge=None):
+def _handler(bridge=None, memory=None, diary_store=None):
     handler = object.__new__(MCPHandler)
     handler.fsm_bridge = bridge if bridge is not None else MagicMock()
+    handler.memory = memory
+    handler.diary_store = diary_store
     return handler
 
 
@@ -62,7 +64,7 @@ def test_tools_list_count():
     handler = _handler()
     response = handler._handle_tools_list()
     tools = response["result"]["tools"]
-    assert len(tools) == 7
+    assert len(tools) == 9
     names = [t["name"] for t in tools]
     assert "change_visual_state" in names
     assert "read_clipboard" in names
@@ -71,6 +73,8 @@ def test_tools_list_count():
     assert "list_directory" in names
     assert "read_file" in names
     assert "search_codebase" in names
+    assert "get_memory" in names
+    assert "get_diary" in names
 
 
 def test_tools_list():
@@ -78,7 +82,7 @@ def test_tools_list():
     response = handler._handle_tools_list()
     assert response["jsonrpc"] == "2.0"
     assert "result" in response
-    assert len(response["result"]["tools"]) == 7
+    assert len(response["result"]["tools"]) == 9
     tool = response["result"]["tools"][0]
     assert tool["name"] == "change_visual_state"
     assert "inputSchema" in tool
@@ -238,6 +242,84 @@ def test_validate_read_extension():
     assert _validate_read_extension("daemon.spec") is False
 
 
+def test_tools_call_get_memory():
+    mem = MagicMock()
+    mem.get_all.return_value = {"name": "Alice", "profession": "developer"}
+    handler = _handler(memory=mem)
+    response = handler._handle_tools_call({"name": "get_memory", "arguments": {}})
+    text = response["result"]["content"][0]["text"]
+    assert "name: Alice" in text
+    assert "profession: developer" in text
+    assert "Memory facts" in text
+
+
+def test_tools_call_get_memory_empty():
+    mem = MagicMock()
+    mem.get_all.return_value = {}
+    handler = _handler(memory=mem)
+    response = handler._handle_tools_call({"name": "get_memory", "arguments": {}})
+    assert "No memory facts stored" in response["result"]["content"][0]["text"]
+
+
+def test_tools_call_get_memory_no_memory():
+    handler = _handler(memory=None)
+    response = handler._handle_tools_call({"name": "get_memory", "arguments": {}})
+    assert "Memory not available" in response["result"]["content"][0]["text"]
+
+
+def test_tools_call_get_diary():
+    store = MagicMock()
+    store.get_entries.return_value = [
+        {"content": "User learned Python", "timestamp": 1000},
+        {"content": "User built a pet", "timestamp": 2000},
+    ]
+    handler = _handler(diary_store=store)
+    response = handler._handle_tools_call({"name": "get_diary", "arguments": {}})
+    text = response["result"]["content"][0]["text"]
+    assert "User learned Python" in text
+    assert "User built a pet" in text
+    assert "Recent diary entries" in text
+
+
+def test_tools_call_get_diary_empty():
+    store = MagicMock()
+    store.get_entries.return_value = []
+    handler = _handler(diary_store=store)
+    response = handler._handle_tools_call({"name": "get_diary", "arguments": {}})
+    assert "No diary entries" in response["result"]["content"][0]["text"]
+
+
+def test_tools_call_get_diary_with_limit():
+    store = MagicMock()
+    store.get_entries.return_value = [
+        {"content": f"Entry {i}", "timestamp": i} for i in range(20)
+    ]
+    handler = _handler(diary_store=store)
+    response = handler._handle_tools_call({"name": "get_diary", "arguments": {"limit": 3}})
+    text = response["result"]["content"][0]["text"]
+    assert "Entry 17" in text
+    assert "Entry 18" in text
+    assert "Entry 19" in text
+    assert "Entry 0" not in text
+
+
+def test_tools_call_get_diary_no_diary_store():
+    handler = _handler(diary_store=None)
+    response = handler._handle_tools_call({"name": "get_diary", "arguments": {}})
+    assert "Diary not available" in response["result"]["content"][0]["text"]
+
+
+def test_tools_call_get_diary_with_null_limit():
+    store = MagicMock()
+    store.get_entries.return_value = [
+        {"content": f"Entry {i}", "timestamp": i} for i in range(5)
+    ]
+    handler = _handler(diary_store=store)
+    response = handler._handle_tools_call({"name": "get_diary", "arguments": {"limit": None}})
+    text = response["result"]["content"][0]["text"]
+    assert "Entry 0" in text
+
+
 def test_tools_list_includes_new_tools():
     handler = _handler()
     response = handler._handle_tools_list()
@@ -245,6 +327,8 @@ def test_tools_list_includes_new_tools():
     assert "list_directory" in names
     assert "read_file" in names
     assert "search_codebase" in names
+    assert "get_memory" in names
+    assert "get_diary" in names
 
 
 def test_tools_call_list_directory_src():

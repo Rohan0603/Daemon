@@ -9,6 +9,7 @@ def test_load_config_default_fallback():
         cfg = load_config()
         assert cfg["APM_HYPER_THRESHOLD"] == constants.APM_HYPER_THRESHOLD
         assert cfg["window_monitor"] is False
+        assert cfg["pet_id"] == "kenny"
 
 def test_load_config_with_override(tmp_path):
     config_file = tmp_path / "daemon_config.json"

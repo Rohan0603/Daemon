@@ -2,7 +2,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 
-def _make_manager(tmp_path, memory_facts=None, diary=None):
+def _make_manager(tmp_path, memory_facts=None):
     from src.context_manager import ContextManager
     from src.memory import Memory
     from src.history import History
@@ -11,12 +11,11 @@ def _make_manager(tmp_path, memory_facts=None, diary=None):
     for k, v in (memory_facts or {}).items():
         mem.remember(k, v)
     hist = History(path=str(tmp_path / "hist.json"))
-    diary_list = list(diary or [])
-    return ContextManager(mem, hist, diary_list), mem, hist, diary_list
+    return ContextManager(mem, hist), mem, hist
 
 
 def test_build_context_is_minimal(tmp_path):
-    mgr, _, _, _ = _make_manager(tmp_path)
+    mgr, _, _ = _make_manager(tmp_path)
     trigger = mgr.build_context("active_chat", "", 180, 5.0)
     assert len(trigger) < 500
     assert "active_chat" in trigger
@@ -31,25 +30,25 @@ def test_build_context_is_minimal(tmp_path):
 class TestEdgeCaseBuildContext:
 
     def test_minimal_params(self, tmp_path):
-        mgr, _, _, _ = _make_manager(tmp_path)
+        mgr, _, _ = _make_manager(tmp_path)
         trigger = mgr.build_context("boredom", "", 0, 0.0)
         assert "boredom" in trigger
         assert "0" in trigger
         assert "APM:" in trigger or "APM" in trigger
 
     def test_includes_idle_seconds(self, tmp_path):
-        mgr, _, _, _ = _make_manager(tmp_path)
+        mgr, _, _ = _make_manager(tmp_path)
         trigger = mgr.build_context("active_chat", "", 50, 300.0)
         assert "300" in trigger
 
     def test_build_context_generates_mode_and_apm(self, tmp_path):
-        mgr, _, _, _ = _make_manager(tmp_path)
+        mgr, _, _ = _make_manager(tmp_path)
         trigger = mgr.build_context("boredom", "", 0, 0.0)
         assert "Mode: boredom" in trigger
         assert "APM: 0" in trigger
 
     def test_build_context_includes_user_input(self, tmp_path):
-        mgr, _, _, _ = _make_manager(tmp_path)
+        mgr, _, _ = _make_manager(tmp_path)
         trigger = mgr.build_context("active_chat", "hello", 10, 0.0)
         assert "active_chat" in trigger
         assert "User: hello" in trigger

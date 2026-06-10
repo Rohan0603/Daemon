@@ -55,7 +55,7 @@ class TestSettingsDialog:
         values = dialog.get_values()
         assert values["pet_scale"] == 1.2
         assert values["pet_opacity"] == 0.5
-        assert values["pet_speed"] == 1.5
+        assert values["pet_speed_multiplier"] == 1.5
         assert values["tts_enabled"] is False
         assert values["tts_rate"] == 200
         assert values["tts_volume"] == 0.8

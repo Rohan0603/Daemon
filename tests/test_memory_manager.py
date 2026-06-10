@@ -20,6 +20,7 @@ def mgr_db(mock_crud):
     mgr = MemoryManager.__new__(MemoryManager)
     mgr.crud = mock_crud
     mgr._uid = "test-uid"
+    mgr._pet_id = "kenny"
     mgr._pending_writes = deque()
     return mgr
 
@@ -37,6 +38,7 @@ def mgr_no_db():
     unavailable_crud.read_all_text.return_value = []
     mgr.crud = unavailable_crud
     mgr._uid = "test-uid"
+    mgr._pet_id = "kenny"
     mgr._pending_writes = deque()
     return mgr
 
@@ -50,9 +52,33 @@ def test_constructor_accepts_crud_and_uid():
     from src.firebase_crud import FirebaseCRUD
     from src.memory_manager import MemoryManager
     crud = MagicMock(spec=FirebaseCRUD)
-    mgr = MemoryManager(crud=crud, uid="test-uid")
+    mgr = MemoryManager(crud=crud, uid="test-uid", pet_id="kenny")
     assert mgr._uid == "test-uid"
     assert mgr.crud is crud
+    assert mgr._pet_id == "kenny"
+
+
+def test_constructor_accepts_pet_id():
+    """Constructor stores pet_id with default 'kenny'."""
+    from src.firebase_crud import FirebaseCRUD
+    from src.memory_manager import MemoryManager
+    crud = MagicMock(spec=FirebaseCRUD)
+    mgr_default = MemoryManager(crud=crud, uid="test-uid")
+    assert mgr_default._pet_id == "kenny"
+    mgr_custom = MemoryManager(crud=crud, uid="test-uid", pet_id="morty")
+    assert mgr_custom._pet_id == "morty"
+
+
+def test_get_current_brain(mgr_db, mock_crud):
+    """get_current_brain delegates to load_current_brain."""
+    mock_crud.get.return_value = {"pet_origin": "test"}
+    brain = mgr_db.get_current_brain()
+    assert brain["pet_origin"] == "test"
+
+
+def test_get_all_diary_entries(mgr_db):
+    """get_all_diary_entries returns empty list placeholder."""
+    assert mgr_db.get_all_diary_entries() == []
 
 
 # ---------------------------------------------------------------------------
@@ -62,16 +88,16 @@ def test_constructor_accepts_crud_and_uid():
 def test_load_brain_returns_firestore_doc(mgr_db, mock_crud):
     """When doc exists, return its dict."""
     mock_crud.get.return_value = {
-        "daemon_origin": "test_origin",
+        "pet_origin": "test_origin",
         "user_habits": ["codes at night"],
-        "long_term_goals": ["ship daemon"],
+        "mission_goals": ["ship daemon"],
     }
 
     brain = mgr_db.load_current_brain()
 
-    assert brain["daemon_origin"] == "test_origin"
+    assert brain["pet_origin"] == "test_origin"
     assert brain["user_habits"] == ["codes at night"]
-    mock_crud.get.assert_called_with("daemon_data", "test-uid")
+    mock_crud.get.assert_called_with("users/test-uid/pets", "kenny")
 
 
 def test_load_brain_returns_defaults_when_doc_missing(mgr_db, mock_crud):
@@ -80,17 +106,17 @@ def test_load_brain_returns_defaults_when_doc_missing(mgr_db, mock_crud):
 
     brain = mgr_db.load_current_brain()
 
-    assert "daemon_origin" in brain
+    assert "pet_origin" in brain
     assert "user_habits" in brain
-    assert "long_term_goals" in brain
+    assert "mission_goals" in brain
 
 
 def test_load_brain_returns_defaults_when_db_none(mgr_no_db):
     """When db is None, return default dict without error."""
     brain = mgr_no_db.load_current_brain()
-    assert "daemon_origin" in brain
+    assert "pet_origin" in brain
     assert "user_habits" in brain
-    assert "long_term_goals" in brain
+    assert "mission_goals" in brain
 
 
 def test_load_brain_returns_defaults_on_exception(mgr_db, mock_crud):
@@ -98,7 +124,7 @@ def test_load_brain_returns_defaults_on_exception(mgr_db, mock_crud):
     mock_crud.get.side_effect = Exception("network error")
     with patch("src.memory_manager.logger") as mock_log:
         brain = mgr_db.load_current_brain()
-        assert "daemon_origin" in brain
+        assert "pet_origin" in brain
         mock_log.warning.assert_called_once()
 
 
@@ -108,24 +134,24 @@ def test_load_brain_returns_defaults_on_exception(mgr_db, mock_crud):
 
 def test_update_brain_calls_set_with_merge(mgr_db, mock_crud):
     """update_brain uses set(..., merge=True)."""
-    new_data = {"daemon_origin": "updated", "user_habits": [], "long_term_goals": []}
+    new_data = {"pet_origin": "updated", "user_habits": [], "mission_goals": []}
     mock_crud.set.return_value = True
 
     mgr_db.update_brain(new_data)
 
-    mock_crud.set.assert_called_with("daemon_data", "test-uid", new_data, merge=True)
+    mock_crud.set.assert_called_with("users/test-uid/pets", "kenny", new_data, merge=True)
 
 
 def test_update_brain_no_op_when_db_none(mgr_no_db):
     """db=None -> update_brain does nothing, no exception."""
-    mgr_no_db.update_brain({"daemon_origin": "x"})  # must not raise
+    mgr_no_db.update_brain({"pet_origin": "x"})  # must not raise
 
 
 def test_update_brain_silent_on_exception(mgr_db, mock_crud):
     """CRUD.set returns False -> logged at warning level, no crash."""
     mock_crud.set.return_value = False
     with patch("src.memory_manager.logger") as mock_log:
-        mgr_db.update_brain({"daemon_origin": "x"})
+        mgr_db.update_brain({"pet_origin": "x"})
         mock_log.warning.assert_called_once()
 
 
@@ -134,13 +160,13 @@ def test_update_brain_silent_on_exception(mgr_db, mock_crud):
 # ---------------------------------------------------------------------------
 
 def test_add_diary_entry_adds_to_collection(mgr_db, mock_crud):
-    """add_diary_entry writes text + timestamp to daemon_diary."""
+    """add_diary_entry writes text + timestamp to diary collection."""
     mock_crud.add.return_value = "abc123"
     mgr_db.add_diary_entry("Daemon danced today")
 
     mock_crud.add.assert_called_once()
     args, _ = mock_crud.add.call_args
-    assert args[0] == "daemon_diary/test-uid/entries"
+    assert args[0] == "users/test-uid/pets/kenny/diary"
     assert args[1]["text"] == "Daemon danced today"
     assert isinstance(args[1]["timestamp"], int)
 
@@ -159,7 +185,7 @@ def test_add_diary_entry_silent_on_exception(mgr_db, mock_crud):
 
 
 # ---------------------------------------------------------------------------
-# fetch_all_diary_entries  (replaces get_recent_diary — full fetch once at startup)
+# fetch_all_diary_entries
 # ---------------------------------------------------------------------------
 
 def test_fetch_all_returns_all_entries_ascending(mgr_db, mock_crud):
@@ -170,7 +196,7 @@ def test_fetch_all_returns_all_entries_ascending(mgr_db, mock_crud):
 
     assert result == ["old", "middle", "recent"]
     mock_crud.read_all_text.assert_called_with(
-        "daemon_diary/test-uid/entries", text_field="text", order_by="timestamp", limit=200, ascending=True
+        "users/test-uid/pets/kenny/diary", text_field="text", order_by="timestamp", limit=200, ascending=True
     )
 
 
@@ -204,10 +230,9 @@ def test_push_pending_pushes_unsynced_only(mgr_db, mock_crud):
     diary_store = MagicMock()
     mock_crud.add.return_value = "id"
     mgr_db.push_pending_diaries(diary_store, ["a", "b", "c"], synced=2)
-    # Only "c" is pending (index 2)
     assert mock_crud.add.call_count == 1
     args, _ = mock_crud.add.call_args
-    assert args[0] == "daemon_diary/test-uid/entries"
+    assert args[0] == "users/test-uid/pets/kenny/diary"
     assert args[1]["text"] == "c"
     diary_store.write.assert_called_once_with(["a", "b", "c"], 3)
 
@@ -251,8 +276,8 @@ def test_sync_to_local_writes_brain_fields_to_memory(tmp_path):
         "user_name": "Rohan",
         "user_profession": "SDE",
         "user_habits": ["Habit A", "Habit B"],
-        "daemon_quirks": ["Quirk X"],
-        "daemon_origin": "Born here",
+        "pet_quirks": ["Quirk X"],
+        "pet_origin": "Born here",
     }
 
     mock_crud = MagicMock()
@@ -262,6 +287,7 @@ def test_sync_to_local_writes_brain_fields_to_memory(tmp_path):
     mm = MemoryManager.__new__(MemoryManager)
     mm.crud = mock_crud
     mm._uid = "test-uid"
+    mm._pet_id = "kenny"
     mm._pending_writes = deque()
 
     mm.sync_to_local(mem)
@@ -269,8 +295,8 @@ def test_sync_to_local_writes_brain_fields_to_memory(tmp_path):
     assert mem.recall("user_name") == "Rohan"
     assert mem.recall("user_profession") == "SDE"
     assert mem.recall("user_habits") == "Habit A; Habit B"
-    assert mem.recall("daemon_quirks") == "Quirk X"
-    assert mem.recall("daemon_origin") == "Born here"
+    assert mem.recall("pet_quirks") == "Quirk X"
+    assert mem.recall("pet_origin") == "Born here"
 
 
 def test_sync_to_local_no_op_when_crud_unavailable(tmp_path):
@@ -296,13 +322,13 @@ def test_sync_to_local_no_op_when_crud_unavailable(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_sync_from_local_pushes_memory_facts(tmp_path):
-    """sync_from_local reads Memory facts and pushes to Firestore core_brain top-level fields."""
+    """sync_from_local splits user fields vs pet fields to respective paths."""
     from src.memory_manager import MemoryManager
     from src.memory import Memory
 
     mem = Memory(path=str(tmp_path / "mem.json"))
     mem.remember("user_name", "Rohan")
-    mem.remember("daemon_quirks", "Collects Hot Wheels")
+    mem.remember("pet_quirks", "Collects Hot Wheels")
 
     mock_crud = MagicMock()
     mock_crud.available = True
@@ -312,17 +338,25 @@ def test_sync_from_local_pushes_memory_facts(tmp_path):
     mm = MemoryManager.__new__(MemoryManager)
     mm.crud = mock_crud
     mm._uid = "test-uid"
+    mm._pet_id = "kenny"
     mm._pending_writes = deque()
 
     mm.sync_from_local(mem)
 
-    mock_crud.get.assert_called_with("daemon_data", "test-uid")
-    mock_crud.set.assert_called_once()
-    call_args = mock_crud.set.call_args
-    pushed = call_args[0][2]
-    assert pushed["user_name"] == "Rohan"
-    assert pushed["daemon_quirks"] == "Collects Hot Wheels"
-    assert call_args[1]["merge"] is True
+    mock_crud.get.assert_any_call("users", "test-uid")
+    mock_crud.get.assert_any_call("users/test-uid/pets", "kenny")
+
+    assert mock_crud.set.call_count == 2
+    user_call = mock_crud.set.call_args_list[0]
+    pet_call = mock_crud.set.call_args_list[1]
+    assert user_call[0][0] == "users"
+    assert user_call[0][1] == "test-uid"
+    assert user_call[0][2]["user_name"] == "Rohan"
+    assert user_call[1]["merge"] is True
+    assert pet_call[0][0] == "users/test-uid/pets"
+    assert pet_call[0][1] == "kenny"
+    assert pet_call[0][2]["pet_quirks"] == "Collects Hot Wheels"
+    assert pet_call[1]["merge"] is True
 
 
 def test_sync_from_local_no_op_when_crud_unavailable(tmp_path):
@@ -366,7 +400,7 @@ def test_sync_from_local_silent_on_exception(tmp_path):
     from src.memory import Memory
 
     mem = Memory(path=str(tmp_path / "mem.json"))
-    mem.remember("k", "v")
+    mem.remember("user_name", "Test User")
     mock_crud = MagicMock()
     mock_crud.available = True
     mock_crud.get.return_value = {}
@@ -375,10 +409,11 @@ def test_sync_from_local_silent_on_exception(tmp_path):
     mm = MemoryManager.__new__(MemoryManager)
     mm.crud = mock_crud
     mm._uid = "test-uid"
+    mm._pet_id = "kenny"
     mm._pending_writes = deque()
 
     mm.sync_from_local(mem)
-    mock_crud.set.assert_called_once()
+    assert mock_crud.set.call_count >= 1
 
 
 # ── _BRAIN_SCHEMA & apply_brain_update tests ─────────────────────────────────
@@ -395,18 +430,18 @@ def test_apply_brain_update_strips_locked_fields():
 
 def test_apply_brain_update_appends_to_list_fields():
     from src.memory_manager import apply_brain_update
-    update = {"blackmail_material": ["new item 1", "new item 2"]}
+    update = {"intel_archive": ["new item 1", "new item 2"]}
     result = apply_brain_update(update)
-    assert "blackmail_material" in result
-    assert "new item 1" in result["blackmail_material"]
-    assert "new item 2" in result["blackmail_material"]
+    assert "intel_archive" in result
+    assert "new item 1" in result["intel_archive"]
+    assert "new item 2" in result["intel_archive"]
 
 
 def test_apply_brain_update_deduplicates_list_items():
     from src.memory_manager import apply_brain_update
-    update = {"blackmail_material": ["same item", "same item"]}
+    update = {"intel_archive": ["same item", "same item"]}
     result = apply_brain_update(update)
-    assert result["blackmail_material"] == ["same item"]
+    assert result["intel_archive"] == ["same item"]
 
 
 def test_apply_brain_update_rejects_unknown_field():
@@ -425,9 +460,9 @@ def test_apply_brain_update_rejects_wrong_type():
 
 def test_apply_brain_update_editable_string_fields_accepted():
     from src.memory_manager import apply_brain_update
-    result = apply_brain_update({"long_term_goals": ["new goal"]})
-    assert "long_term_goals" in result
-    assert "new goal" in result["long_term_goals"]
+    result = apply_brain_update({"mission_goals": ["new goal"]})
+    assert "mission_goals" in result
+    assert "new goal" in result["mission_goals"]
 
 
 # ---------------------------------------------------------------------------
@@ -462,5 +497,5 @@ def test_fetch_all_diary_respects_limit(mgr_db, mock_crud):
     """fetch_all_diary_entries passes limit to CRUD."""
     mgr_db.fetch_all_diary_entries(limit=50)
     mock_crud.read_all_text.assert_called_with(
-        "daemon_diary/test-uid/entries", text_field="text", order_by="timestamp", limit=50, ascending=True
+        "users/test-uid/pets/kenny/diary", text_field="text", order_by="timestamp", limit=50, ascending=True
     )

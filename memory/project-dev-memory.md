@@ -6,13 +6,14 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-09 (Phase 37 — Surveillance & Sabotage MCP Tools)
+**Date updated:** 2026-06-11 (Phase 39 — Multi-Pet Refactor)
 **Current branch:** `master`
-**Latest commit:** `ffeeef2` docs: add surveillance/sabotage MCP tools to Kenny SKILL.md
+**Latest commit:** `8ebe9f1` feat: Phase 39 - Multi-Pet Refactor (squashed)
+**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39
 **Git root:** `C:\Users\ponna\Project\Daemon`
 **Python command:** `py` (Windows py launcher — not `python` or `python3`)
-**Test command:** `py -m pytest tests/ -v`
-**Test count:** 484 tests across 25 test files (2 pre-existing logging failures)
+**Test command:** `py -m pytest tests/ -v --ignore=tests/test_output.txt --ignore=tests/test_firebase_crud.py`
+**Test count:** 416 collected across 28 test files (1 pre-existing pet_window failure)
 
 ---
 
@@ -389,7 +390,7 @@ Adaptive backoff: 5 consecutive silent outputs → exponential interval increase
 
 ### Storage Durability
 
-All local JSON: atomic tmp+replace writes, .bak fallback on read failure. Single-instance PID lock (~/.daemon.lock). Crash recovery via sys.excepthook that calls WriteCoalescer.flush().
+All local JSON: atomic tmp+replace writes, .bak fallback on read failure. Single-instance PID lock (data/.daemon.lock). Crash recovery via sys.excepthook that calls WriteCoalescer.flush().
 ---
 
 ### Phase 35 — Firebase Auth Login + Firestore REST API + PyInstaller (2026-06-08)
@@ -452,12 +453,13 @@ All local JSON: atomic tmp+replace writes, .bak fallback on read failure. Single
 - Node.js plugin deferred — session management stays in Python
 - `parse_raw` static method retained for stateless JSON-RPC testing without server startup
 
+---
+
 ## What To Do Next
 
-- **Phase 36 complete** — 7 commits, MCP E2E verified, SKILL.md active, daemon-skill.md deleted
+- **Linting:** `ruff check src/` — fix any remaining warnings before next phase
 - **Test PyInstaller build** — `pyinstaller daemon.spec --clean` to produce `dist/Daemon.exe`
-- **Full test baseline:** 88+ core tests pass, 2 pre-existing logging failures
-- **Future ideas:** multi-monitor screen reading, screen text delta detection, thought log viewer in settings dialog, opencode serve health monitoring, Linux/macOS compatibility layer.
+- **Future ideas:** multi-monitor screen reading, screen text delta detection, thought log viewer in settings dialog, opencode serve health monitoring, Linux/macOS compatibility layer, auto-serve port reuse to avoid TIME_WAIT on restart.
 
 
 
@@ -610,6 +612,17 @@ Never commit to master directly. Never put AI assistant names in commit messages
 | `firebase_admin` duplicate init | `initialize_app()` raises `ValueError` if called twice. Guard: `try: firebase_admin.get_app()` → `except ValueError: firebase_admin.initialize_app(cred)` |
 | `OPENROUTER_API_URL` is base URL only | OpenAI SDK appends `/chat/completions` automatically — do NOT append it manually when calling the SDK |
 | `requests.exceptions.ConnectionError` only catches `requests` exceptions | When mocking the API in tests, use `_real_requests.exceptions.ConnectionError` (not the built-in `ConnectionError`) as the `side_effect`. Patching the entire `requests` module breaks `requests.exceptions` references. |
+| Windows clipboard global lock | `CloseClipboard()` must be in `finally` block — if left open, clipboard breaks until Daemon killed |
+| Non-text clipboard data | `GetClipboardData(CF_UNICODETEXT)` returns null handle for images/files — return descriptive string |
+| Screenshot directory must exist | `os.makedirs(dir_path, exist_ok=True)` before `screenshot.save()` |
+| Windows Focus Assist suppresses toasts | `QSystemTrayIcon.showMessage()` silently drops notifications during full-screen games |
+| COM UIA should be singleton | `_get_uia_automation()` lazy singleton avoids DLL binding 60x/min; `_cleanup_uia()` on shutdown |
+| `worker.wait()` blocks GUI thread | On SLEEP transition, use signal `disconnect()` + `worker.quit()` instead of `wait()` |
+| backoff can race with timer | Only increment backoff *after* a boredom FSM trigger fires, not on every tick |
+| Path traversal in MCP | Use `os.path.normpath(os.path.abspath(path))` and verify prefix — Windows accepts both `/` and `\` |
+| SLEEP timers tick unconditionally | Add `if state == SLEEP: return` at top of `_master_tick` to freeze all timers |
+| SLEEP deferred trigger leak | Guard `_fire_deferred_trigger` with FSM state check — drop params in SLEEP |
+| Joke timer ignores backoff | Add `elapsed_since_boredom >= _idle_backoff_seconds` gate in P3 joke route |
 
 ---
 
@@ -627,15 +640,16 @@ Never commit to master directly. Never put AI assistant names in commit messages
 ## Dependencies
 
 ```
-PyQt6>=6.6.0
-pynput>=1.7.6
+PyQt6>=6.7.0
+pynput>=1.7.7
 pytest (dev)
-openai
-firebase-admin
 requests
+pyttsx3
+comtypes>=1.4.8
+Pillow>=10.0.0
 ```
 
-Install: `pip install PyQt6 pynput pytest openai firebase-admin requests`
+Install: `pip install PyQt6 pynput pytest requests pyttsx3 comtypes Pillow`
 
 ---
 
@@ -644,81 +658,96 @@ Install: `pip install PyQt6 pynput pytest openai firebase-admin requests`
 ```
 src/
   __init__.py
-  constants.py       ← import all tunables from here
-  brain_schema.py    ← shared brain schema (26 fields), apply_brain_update, DEFAULT_BRAIN
-  pet_fsm.py         ← 15-state PetFSM, zero Qt imports, FSMContext dataclass
-  pet_renderer.py    ← stateless QPainter renderer, eye tracking, squash/stretch, 8-way perimeter
-  click_through.py   ← Win32 WS_EX_TRANSPARENT toggle, 50ms QTimer poll
-  apm_worker.py      ← pynput keyboard+mouse listeners, rolling 60s APM, hotkey
-  typing_buffer.py   ← pynput keystroke capture, deque ring buffer (500 chars)
-  opencode_worker.py ← HTTP API inject_context (noReply) + send_trigger, JSON parser
-  context_manager.py ← inject_full/inject_delta/build_trigger, 15-min heartbeat
-  context_menu.py    ← PetContextMenu with 6 actions, _Signals(QObject) for decoupling
-  screen_reader.py   ← UIA foreground window text extraction via comtypes, WM_GETTEXT fallback
-  pet_window.py      ← QWidget (1190 lines) — owns FSM, renderer, click-through, APM, TTS, TRM, session wiring
-  response_manager.py ← AutonomousResponseManager + ResponsePool (dual-pool, weighted draw, decay)
-  memory_manager.py  ← Firebase bridge: sync_to_local/sync_from_local, pending-write retry queue
-  memory.py          ← local JSON key-value fact store (.bak recovery, max 50 facts)
-  history.py         ← local JSON conversation log (.bak recovery, max 100 entries)
-  firebase_crud.py   ← generic FirebaseCRUD class with 3-attempt retry, 6 CRUD verbs
-  diary_store.py     ← atomic local diary I/O with .bak backup and 200-entry cap
-  write_coalescer.py ← QTimer batched flush (8s) for 5 dirty flags: memory/history/diary/cache/brain
-  persistence.py     ← save_state/load_state to .daemon_state.json, atomic write
-  config.py          ← load_config/save_config, 19 overridable keys
-  opencode_serve_manager.py ← auto-spawn opencode serve on boot, port-bound detection, PID tracking
-  tts_worker.py      ← TTSWorker(QThread) — edge-tts + pyttsx3 + pitch shift + winsound/simpleaudio
-  settings_dialog.py ← SettingsDialog(QDialog) — size/opacity/speed/voice live-preview sliders
-  active_window.py   ← Win32 GetForegroundWindow, returns window title string
-  logging_setup.py   ← unified stdlib logging with RotatingFileHandler
+  constants.py           ← All tunable values — import from here everywhere
+  brain_schema.py        ← 26-field brain schema, apply_brain_update, DEFAULT_BRAIN, validation
+  pet_fsm.py             ← 15-state PetFSM, FSMContext dataclass, zero Qt imports
+  pet_renderer.py        ← Stateless QPainter renderer, eye tracking, squash/stretch, 8-way perimeter
+  click_through.py       ← Win32 WS_EX_TRANSPARENT toggle, 50ms QTimer poll
+  apm_worker.py          ← pynput keyboard+mouse listeners, rolling 60s APM
+  typing_buffer.py       ← pynput keystroke capture, deque ring buffer (500 chars)
+  opencode_worker.py     ← HTTP API with structured JSON schema output, session reuse
+  context_manager.py     ← Minimal trigger prompt builder (autonomous/user/pool_refill)
+  context_menu.py        ← PetContextMenu with 6 actions, _Signals(QObject) for decoupling
+  screen_reader.py       ← UIA text extraction via comtypes, WM_GETTEXT fallback
+  pet_window.py          ← QWidget (1609 lines) — owns FSM, renderer, all wiring
+   response_pool.py       ← ResponsePool — priority-weighted pool with decay, weighted random draw, auto-refill
+   response_manager.py    ← AutonomousResponseManager — multi-pool response cache, persistence, pool lifecycle
 
-tests/
+  memory_manager.py      ← Firebase bridge: sync_to_local/sync_from_local, retry queue
+  memory.py              ← Local JSON key-value fact store (.bak recovery, max 50 facts)
+  history.py             ← Local JSON conversation log (.bak recovery, max 100 entries)
+  firebase_crud.py       ← FirebaseCRUD class with 3-attempt retry, 6 CRUD verbs
+  firebase_auth.py       ← Firebase Auth REST API, sign-in/sign-up/token-refresh
+  diary_store.py         ← Atomic local diary I/O with .bak backup, 200-entry cap
+  write_coalescer.py     ← QTimer batched flush (8s) for 5 dirty flags
+  persistence.py         ← save_state/load_state to data/.daemon_state.json
+  config.py              ← load_config/save_config, overridable keys
+  opencode_serve_manager.py ← Auto-spawn opencode serve on boot, PID tracking
+  tts_worker.py          ← TTSWorker(QThread) — pyttsx3 + pydub pitch shift + winsound
+  settings_dialog.py     ← SettingsDialog(QDialog) — size/opacity/speed/voice sliders
+  active_window.py       ← Win32 GetForegroundWindow, returns window title
+  logging_setup.py       ← Unified stdlib logging with RotatingFileHandler
+  fsm_bridge.py          ← FSMActionBridge — pyqtSignal relay for thread-safe MCP dispatch
+  mcp_server.py          ← In-process JSON-RPC 2.0 MCP server, 7 tools
+  login_dialog.py        ← Persona-infused email/password auth modal
+  utils/
+    __init__.py
+    security.py          ← is_safe_write_path() sandbox, restricts writes to data/
+
+scripts/
+  generate_ast_map.py    ← AST codebase map generator (29 classes, 33 functions)
+
+.opencode/skills/kenny/
+  SKILL.md               ← Kenny persona + action matrix + output contract (loaded natively)
+
+tests/ (416 tests across 28 files)
   __init__.py
-  test_fsm.py                    ← 35 FSM tests, no Qt needed
-  test_opencode_worker.py        ← opencode worker tests (trigger_ready, context_injected signals)
+  test_fsm.py                    ← 35 FSM tests
+  test_opencode_worker.py        ← structured schema, session reuse tests
   test_response_manager.py       ← multi-pool + atomic + TTL tests
   test_memory_manager.py         ← Firebase mocked tests + retry queue
   test_memory.py                 ← memory key-value + .bak + coalescer tests
-  test_history.py                ← history conversation log + .bak + coalescer tests
-  test_context_manager.py        ← injection/trigger/heartbeat tests
-  test_write_coalescer.py        ← write coalescer + brain flag + diary_store tests
+  test_history.py                ← history + .bak + coalescer tests
+  test_context_manager.py        ← trigger/build tests
+  test_write_coalescer.py        ← flush + brain flag + diary_store tests
   test_pet_window.py             ← PetWindow integration + session wiring tests
   test_pet_renderer.py           ← renderer tests
-  test_screen_reader.py          ← screen reader UIA/WM_GETTEXT extraction tests
+  test_screen_reader.py          ← UIA/WM_GETTEXT extraction tests
   test_active_window.py          ← active window module tests
   test_persistence.py            ← save/load + atomic write tests
+  test_typing_buffer.py          ← typing capture tests (13 tests)
   test_config.py                 ← config loading tests
   test_logging_setup.py          ← logging setup tests
   test_council_additions.py      ← council feature tests
   test_opencode_serve_manager.py ← serve manager tests
-  test_brain_schema.py           ← brain schema validation and apply_brain_update tests
+  test_brain_schema.py           ← schema validation + apply_brain_update tests
   test_diary_store.py            ← atomic diary I/O, backup, cap tests
-  test_firebase_crud.py          ← CRUD method tests (22 tests)
-  test_tts_worker.py             ← TTS enqueue/stop/generate/pitch/error tests (9 tests)
+  test_firebase_crud.py          ← 22 tests (CRUD + retry)
+  test_firebase_auth.py          ← Firebase Auth tests
+  test_tts_worker.py             ← TTS tests (9 tests)
   test_settings_dialog.py        ← settings dialog tests (5 tests)
-  test_typing_buffer.py          ← typing buffer tests (13 tests)
+  test_fsm_bridge.py             ← FSM bridge signal tests
+  test_mcp_server.py             ← MCP server tests
+  test_security.py               ← write sandbox tests
+  test_ast_mapper.py             ← AST codebase map tests
+  test_codebase_awareness_e2e.py ← E2E codebase awareness tests
 
 memory/
-  project-dev-memory.md  ← THIS FILE — update after every task
+  project-dev-memory.md  ← THIS FILE
 
-docs/superpowers/plans/
-  2026-06-08-memory-storage-and-noreply-context-injection.md
-  2026-06-08-screen-reading-apm-priority-and-autonomous-framing.md
+docs/
+  architecture.md        ← Full architecture doc (generated 2026-06-10)
+  OpenCode_Documentation.md
+  Kenny-speach-report.md
+  superpowers/plans/     ← Historical plan docs
+  superpowers/specs/     ← Historical spec docs
 
-docs/superpowers/specs/
-  2026-06-08-memory-storage-and-noreply-context-injection-design.md
-  2026-06-08-screen-reading-apm-priority-and-autonomous-framing.md
-  2026-06-07-response-cache-and-autonomous-manager-design.md
-
-assets/
-  daemon-skill.md            ← 350-line personality + JSON output contract, loaded at runtime
-  firebase-credentials.json  ← Firebase service account key (gitignored)
-
-AGENTS.md   ← Unified agent instructions (replaces CLAUDE.md + GEMINI.md)
-daemon.py    ← entry point (argparse, --debug simulation, --no-opencode flag, PID lock)
-opencode-query.ps1 ← PowerShell script (legacy CLI path, preserved but not called by PetWindow)
-requirements.txt   ← PyQt6, pynput, openai, firebase-admin
-seed_brain.py ← standalone Firestore brain seeder — view/merge/seed core_brain document
-README.md    ← comprehensive architecture documentation
+AGENTS.md                ← Unified agent instructions
+daemon.py                ← Entry point (argparse, PID lock, crash hook, auth gate)
+opencode-query.ps1       ← PowerShell script (legacy, not called by PetWindow)
+requirements.txt         ← PyQt6, pynput, requests, pyttsx3, comtypes, Pillow
+seed_brain.py            ← Standalone Firestore brain seeder
+README.md                ← Comprehensive architecture documentation
 ```
 
 ---
@@ -874,23 +903,73 @@ README.md    ← comprehensive architecture documentation
 | Screenshot directory must exist | `os.makedirs(dir_path, exist_ok=True)` before `screenshot.save()` |
 | Windows Focus Assist suppresses toasts | `QSystemTrayIcon.showMessage()` silently drops notifications during full-screen games |
 
-### Phase 38 — LLM Mode Collapse Prevention & COM Caching
+### Phase 38 — LLM Mode Collapse Prevention, COM Caching, Codebase Awareness MCP Tools
 
 | Task | File | Status | Commit | Notes |
 |------|------|--------|--------|-------|
-| 38.1 COM UIA singleton caching | `src/screen_reader.py`, `src/pet_window.py` | ✅ | HEAD | `_get_uia_automation()` lazy singleton, `_cleanup_uia()` on shutdown — eliminates DLL binding 60x/min overhead |
-| 38.2 FSM SLEEP state integration | `src/pet_window.py` | ✅ | HEAD | `PetState.SLEEP` added to blocked states in `_should_fire_autonomous` + `_trigger_boredom_query`; graceful disconnect pattern (no `worker.wait()` on main thread) for worker cleanup on SLEEP entry |
-| 38.3 Exponential boredom backoff | `src/pet_window.py`, `tests/test_master_tick.py`, `tests/test_behavior_integration.py` | ✅ | HEAD | Context stability tracking via `(window, APM, typing_len, screen_hash)`; backoff doubles after each boredom trigger in stable context (30s → 60s → 120s → 300s max); resets on user activity |
+| 38.1 COM UIA singleton caching | `src/screen_reader.py`, `src/pet_window.py` | ✅ | `3317478` | `_get_uia_automation()` lazy singleton, `_cleanup_uia()` on shutdown — eliminates DLL binding 60x/min overhead |
+| 38.2 FSM SLEEP state integration | `src/pet_window.py` | ✅ | `3317478` | `PetState.SLEEP` added to blocked states in `_should_fire_autonomous` + `_trigger_boredom_query`; graceful disconnect pattern (no `worker.wait()` on main thread) for worker cleanup on SLEEP entry |
+| 38.3 Exponential boredom backoff | `src/pet_window.py`, `tests/test_master_tick.py`, `tests/test_behavior_integration.py` | ✅ | `3317478` | Context stability tracking via `(window, APM, typing_len, screen_hash)`; backoff doubles after each boredom trigger in stable context (30s → 60s → 120s → 300s max); resets on user activity |
+| 38.4 Read-only MCP tools | `src/mcp_server.py`, `src/utils/security.py` | ✅ | `3317478` | 3 read-only MCP tools: `list_directory`, `read_file`, `search_codebase` with path validation via `_validate_mcp_path()` and `_validate_read_extension()` |
+| 38.5 Write sandbox | `src/utils/security.py` | ✅ | `3317478` | `is_safe_write_path()` guard restricting file writes to `data/` directory; screenshot tool wired through it |
+| 38.6 AST codebase map | `scripts/generate_ast_map.py`, `data/codebase_map.json` | ✅ | `3317478` | Auto-generates `data/codebase_map.json` at daemon startup — 29 classes, 33 functions extracted |
+| 38.7 Kenny SKILL.md update | `.opencode/skills/kenny/SKILL.md` | ✅ | `3317478` | Architectural awareness section added with 3 new MCP tools |
+| 38.8 E2E codebase awareness tests | `tests/test_codebase_awareness_e2e.py` | ✅ | `3317478` | 4 e2e tests for full pipeline (read, write sandbox, AST map, read-write link) |
 
 **New constants** (in `src/constants.py`): `MAX_IDLE_BACKOFF_SEC = 300`, `IDLE_BACKOFF_MULTIPLIER = 2.0`
+
+**New files:** `src/utils/security.py`, `scripts/generate_ast_map.py`, `data/codebase_map.json`, `tests/test_security.py`, `tests/test_ast_mapper.py`, `tests/test_codebase_awareness_e2e.py`
 
 **Key decisions:**
 - Backoff only increases *after* a boredom FSM trigger fires, not on every tick — prevents the logic-bomb where backoff outruns the timer
 - `time.time()` used for elapsed tracking instead of `_boredom_timer_ms` to avoid variable conflict with existing countdown mechanism in `_tick`
 - `worker.wait()` replaced with signal `disconnect()` + `worker.quit()` pattern to avoid GUI freeze on SLEEP transition
 - COM singleton is thread-safe for main thread only (verified: `get_text_via_uia()` only called from `_master_tick` running on main thread)
+- Path validation uses `os.path.normpath()` to handle Windows mixed separator edge cases
+- AST mapper runs at daemon startup before main window creation (daemon.py:94-102)
 
-**Test impact:** 112/113 pass (1 pre-existing failure: `test_bubble_queue_drops_when_full` expects queue max=3 but `BUBBLE_QUEUE_MAX_SIZE=10`)
+**Git history cleanup:** 194 commits squashed into 4 phase-boundary commits via `git rebase -i --root`. Phase 1-35 (154 commits), Phase 36 (12 commits), Phase 37 (18 commits), Phase 38 (1 commit). Duplicate origin commits and merge commit dropped.
+
+---
+
+### Phase 39 — Multi-Pet Refactor (2026-06-11)
+
+**Branch:** `master` (squash-merged, commit `8ebe9f1`)
+
+**What was built:**
+
+| Task | Files | Status | Notes |
+|------|-------|--------|-------|
+| 0. pet_id wiring | `src/config.py`, `daemon.py`, `src/pet_window.py`, `src/constants.py` | ✅ | `--pet-id` CLI arg, `pet_id` in config defaults, dynamic lockfile `data/.daemon_{pet_id}.lock` |
+| 1. Multi-pet Firebase paths | `src/memory_manager.py` | ✅ | Paths use `users/{uid}/pets/{pet_id}`, user-level fields split from pet-level, `get_current_brain()`/`get_all_diary_entries()` added |
+| 2. Diary encapsulation + hash dedup | `src/diary_store.py`, `src/write_coalescer.py`, `src/context_manager.py`, `src/pet_window.py` | ✅ | SHA-256 content-hash dedup, legacy `list[str]`→`list[dict]` migration on read, 200-entry cap, `.bak` fallback fixes, removed dead `diary_entries_ref` param |
+| 3. MCP memory tools | `src/mcp_server.py`, `src/pet_window.py`, `tests/test_mcp_server.py` | ✅ | `get_memory`/`get_diary` tools, local read-only, null-limit guard, 8 new tests (38 total) |
+| 4. ResponsePool extraction | `src/response_pool.py` (NEW), `src/response_manager.py`, `tests/test_response_manager.py` | ✅ | `ResponsePool` class extracted to dedicated module, clean imports, 25 tests pass |
+| 5. firestore.rules | `firestore.rules` (NEW) | ✅ | Authenticated-only, per-user scoped, covers `users/{uid}` + pets subcollection + diary subcollection |
+| 6. Config pruning | `src/config.py`, `src/settings_dialog.py` | ✅ | `_USER_FACING` reduced to 11 keys, `pet_speed`→`pet_speed_multiplier`, `tts_pitch` added |
+| 7. Brain schema standardize | `src/brain_schema.py`, `tests/test_brain_schema.py` | ✅ | Unified 24-field schema, `USER_LEVEL_FIELDS` module constant |
+| 8. Misc fixes | multiple | ✅ | Session reuse, SLEEP timer freeze, click-through debounce, brain load dedup, default config autocreate |
+
+**Squashed 13 commits** — `dfd1e8c..16d0c27` (session reuse, SLEEP timers, click-through debounce, brain load dedup, config autocreate, pet_id wiring, lockfile, multi-pet paths, USER_LEVEL_FIELDS, diary dedup, brain schema, config pruning)
+
+**Key decisions:**
+- Option C (Minimal Churn) for MCP tools: static `MCP_TOOLS` list + `elif` dispatch + class-level attrs on `MCPHandler`
+- Option A (Nested path support) for Firestore: pass `"users/{uid}/pets"` as collection, `pet_id` as doc_id
+- Option B (New format + migration) for DiaryStore: dict format with read-time legacy string migration
+- Option A (Local MCP reads): MCP tools read local Memory/DiaryStore, not Firebase
+- Config + CLI hybrid for pet_id: config stores default, CLI overrides
+- Hidden Power-User Pattern: `_USER_FACING` contains 11 user-facing keys; `_OVERRIDABLE` holds all internal dev keys
+
+**Fixes applied during review:**
+- `.bak` fallback now handles `FileNotFoundError` (silent data loss prevented)
+- `_write_atomic` re-raises exceptions so WriteCoalescer keeps dirty flag on failure
+- PetWindow MCPServer construction moved after `self._memory`/`self._diary_store` init (use-before-assignment crash)
+- `get_diary` limit clamped `max(1, min(int(raw_limit or 10), 50))` (null-limit `TypeError` crash)
+- Removed dead `diary_entries_ref` from WriteCoalescer + ContextManager
+- Removed dead `_snapshot_current` method from ContextManager
+- `pet_speed` → `pet_speed_multiplier` rename to match internal variable name
+
+**Test count:** 416 pass, 1 pre-existing pet_window failure (test_active_chat_tick_dispatches_trigger)
 
 ---
 

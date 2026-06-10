@@ -3,6 +3,7 @@
 Usage:
   py seed_brain.py                    # show current brain + diff from defaults (uses saved auth)
   py seed_brain.py --uid <uid>        # target a specific user
+  py seed_brain.py --pet-id <id>      # target a specific pet (default: kenny)
   py seed_brain.py --merge file.json  # merge JSON fields into core_brain
   py seed_brain.py --seed-defaults    # merge all _DEFAULT_BRAIN fields into core_brain
   py seed_brain.py --dry-run          # preview without writing
@@ -47,12 +48,15 @@ def main() -> None:
     dry_run = "--dry-run" in args
     do_seed = "--seed-defaults" in args
     uid = None
+    pet_id = "kenny"
     do_merge = None
     for i, a in enumerate(args):
         if a == "--merge" and i + 1 < len(args):
             do_merge = args[i + 1]
         if a == "--uid" and i + 1 < len(args):
             uid = args[i + 1]
+        if a == "--pet-id" and i + 1 < len(args):
+            pet_id = args[i + 1]
 
     # Read auth token from saved session
     auth = FirebaseAuth()
@@ -81,8 +85,8 @@ def main() -> None:
         print("[seed_brain] Cannot connect to Firestore.", file=sys.stderr)
         sys.exit(1)
 
-    collection = f"daemon_data/{uid}"
-    current = crud.get(collection, "core_brain") or {}
+    collection = f"users/{uid}/pets"
+    current = crud.get(collection, pet_id) or {}
     print(f"\n=== CURRENT core_brain ({len(current)} fields) ===")
     print(json.dumps(current, indent=2, ensure_ascii=False))
 
@@ -115,9 +119,9 @@ def main() -> None:
         sys.exit(0)
 
     if do_merge or do_seed:
-        crud.set(collection, "core_brain", current, merge=True)
+        crud.set(collection, pet_id, current, merge=True)
         print(f"\n=== UPDATED core_brain ({len(current)} fields) ===")
-        print(json.dumps(crud.get(collection, "core_brain"), indent=2, ensure_ascii=False))
+        print(json.dumps(crud.get(collection, pet_id), indent=2, ensure_ascii=False))
         print("[seed_brain] Done.")
     else:
         print("\n[seed_brain] No changes requested. Use --seed-defaults or --merge <file>.")
