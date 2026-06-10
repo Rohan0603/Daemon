@@ -135,6 +135,8 @@ class PetWindow(QWidget):
         self._context_menu.signals.recall_memory.connect(self._on_recall_memory)
         self._context_menu.signals.recall_history.connect(self._on_recall_history)
         self._context_menu.signals.pin_toggle.connect(self._on_pin_toggle)
+        self._context_menu.signals.restart_brain.connect(self._on_restart_brain)
+        self._context_menu.signals.thought_log.connect(self._open_thought_log)
 
         self._apm_worker = APMWorker()
         self._apm_worker.apm_updated.connect(self._on_apm_updated)
@@ -236,6 +238,12 @@ class PetWindow(QWidget):
 
         self._deferred_trigger_params: dict | None = None
 
+        self._brain_disconnected = False
+        self._health_timer = QTimer()
+        self._health_timer.setInterval(10000)
+        self._health_timer.timeout.connect(self._on_health_check)
+        self._health_timer.start()
+
         # Exponential backoff for idle/boredom
         self._last_context_snapshot = None
         self._idle_backoff_seconds = 0.0
@@ -335,6 +343,10 @@ class PetWindow(QWidget):
 
         window_changed = current_window != self._last_active_window and current_window != ""
         typing_burst = len(current_typing) - len(self._last_typing_snapshot) > 20
+
+        if window_changed:
+            from src.screen_reader import clear_screen_cache
+            clear_screen_cache()
 
         self._last_active_window = current_window
         self._last_typing_snapshot = current_typing
@@ -504,6 +516,11 @@ class PetWindow(QWidget):
         self._tts.stop()
         self._apm_worker.stop()
         self._tray_icon.hide()
+        if hasattr(self, "_thought_log_dialog") and self._thought_log_dialog is not None:
+            try:
+                self._thought_log_dialog.close()
+            except Exception:
+                pass
         # Cleanup UIA COM
         try:
             from src.screen_reader import _cleanup_uia
@@ -1125,6 +1142,29 @@ class PetWindow(QWidget):
 
         self._fsm.transition_to(PetState.IDLE)
 
+    def _on_health_check(self) -> None:
+        from src.opencode_serve_manager import check_health
+        alive = check_health()
+        if not alive and not self._brain_disconnected:
+            self._brain_disconnected = True
+            self._fsm.transition_to(PetState.DEVASTATED)
+            self._show_bubble("My brain... I can't connect to the server! The Boss unplugged me!")
+        elif alive and self._brain_disconnected:
+            self._brain_disconnected = False
+            self._fsm.transition_to(PetState.IDLE)
+            self._show_bubble("I'm back online! Who turned out the lights?!")
+
+    def _on_restart_brain(self) -> None:
+        from src.opencode_serve_manager import ensure_opencode_serve_running
+        ensure_opencode_serve_running()
+        self._on_health_check()
+
+    def _open_thought_log(self) -> None:
+        from src.thought_log_dialog import ThoughtLogDialog
+        if not hasattr(self, "_thought_log_dialog") or self._thought_log_dialog is None:
+            self._thought_log_dialog = ThoughtLogDialog(self)
+        self._thought_log_dialog.show()
+
     def _dispatch_multiplexed(self, modes: list[str]) -> None:
         base = self._context_manager.build_autonomous_trigger(
             mode=modes[0], apm=self._current_apm, idle_seconds=self._idle_seconds,
@@ -1382,8 +1422,6 @@ class PetWindow(QWidget):
             )
 
     def _log_thought(self, thought: str, mode: str, dialogue: str) -> None:
-        if not DEBUG:
-            return
         log_path = THOUGHTS_LOG_PATH
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         entry = (

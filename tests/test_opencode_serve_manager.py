@@ -294,3 +294,30 @@ def test_stop_opencode_serve_noop_when_no_pid(monkeypatch):
     monkeypatch.setattr("subprocess.run", mock_run)
     osm.stop_opencode_serve()
     assert not called[0]
+
+
+def test_check_health_returns_true_when_port_bound():
+    from src.opencode_serve_manager import check_health
+    fake_sock = MagicMock()
+    fake_sock.__enter__ = MagicMock(return_value=fake_sock)
+    fake_sock.__exit__ = MagicMock(return_value=False)
+    with patch("src.opencode_serve_manager.socket.create_connection",
+               return_value=fake_sock):
+        result = check_health(port=4096, timeout=1.0)
+    assert result is True
+
+
+def test_check_health_returns_false_when_port_not_bound():
+    from src.opencode_serve_manager import check_health
+    with patch("src.opencode_serve_manager.socket.create_connection",
+               side_effect=OSError("refused")):
+        result = check_health(port=4096, timeout=1.0)
+    assert result is False
+
+
+def test_check_health_returns_false_on_connection_error():
+    from src.opencode_serve_manager import check_health
+    with patch("src.opencode_serve_manager.socket.create_connection",
+               side_effect=ConnectionRefusedError("no server")):
+        result = check_health(port=4096, timeout=1.0)
+    assert result is False

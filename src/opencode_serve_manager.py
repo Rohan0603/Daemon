@@ -184,3 +184,17 @@ def stop_opencode_serve() -> None:
         logger.debug("stop_opencode_serve failed: %s", e)
     finally:
         _SERVE_PID = None
+
+
+def check_health(port: int = 4096, timeout: float = 1.0) -> bool:
+    """Return True if the opencode serve port is accepting TCP connections.
+
+    Uses socket.create_connection (same as _is_port_bound) to check whether
+    the server process is alive. Returns False on any connection failure.
+    Never raises.
+    """
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=timeout):
+            return True
+    except OSError:
+        return False

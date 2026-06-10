@@ -737,3 +737,82 @@ def test_structured_multiplexed_standard_path(qtbot):
         assert window._response_manager.add_items.called
 
 
+def test_health_timer_initialized(app, tmp_path):
+    from src.pet_window import PetWindow
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"):
+        window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+    assert hasattr(window, "_health_timer")
+    assert window._health_timer.isActive()
+    assert window._health_timer.interval() == 10000
+
+
+def test_health_check_disconnect_shows_devastated(app, tmp_path):
+    from src.pet_window import PetWindow
+    from src.pet_fsm import PetState
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"), \
+         patch("src.opencode_serve_manager.check_health", return_value=False):
+        window = PetWindow(opencode_enabled=True, memory_path=mem_path, history_path=hist_path)
+        window._brain_disconnected = False
+        window._on_health_check()
+    assert window._brain_disconnected is True
+    assert window._fsm.current_state == PetState.DEVASTATED
+
+
+def test_health_check_reconnect_returns_to_idle(app, tmp_path):
+    from src.pet_window import PetWindow
+    from src.pet_fsm import PetState
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"), \
+         patch("src.opencode_serve_manager.check_health", return_value=True):
+        window = PetWindow(opencode_enabled=True, memory_path=mem_path, history_path=hist_path)
+        window._brain_disconnected = True
+        window._fsm.transition_to(PetState.DEVASTATED)
+        window._on_health_check()
+    assert window._brain_disconnected is False
+    assert window._fsm.current_state == PetState.IDLE
+
+
+def test_window_change_clears_screen_cache(app, tmp_path):
+    from src.pet_window import PetWindow
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"), \
+         patch("src.screen_reader.clear_screen_cache") as mock_clear:
+        window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+        window._last_active_window = "Old Window"
+        with patch("src.pet_window.get_active_window_title", return_value="New Window"):
+            window._has_significant_delta()
+        mock_clear.assert_called_once()
+
+
+def test_restart_brain_calls_ensure_running_and_check(app, tmp_path):
+    from src.pet_window import PetWindow
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"), \
+         patch("src.opencode_serve_manager.ensure_opencode_serve_running") as mock_ensure, \
+         patch("src.opencode_serve_manager.check_health") as mock_check:
+        window = PetWindow(opencode_enabled=True, memory_path=mem_path, history_path=hist_path)
+        window._on_restart_brain()
+    mock_ensure.assert_called_once()
+    mock_check.assert_called_once()

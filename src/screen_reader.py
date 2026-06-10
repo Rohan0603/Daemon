@@ -1,5 +1,6 @@
 # src/screen_reader.py
 from __future__ import annotations
+import hashlib
 import logging
 import sys
 
@@ -14,6 +15,7 @@ except ImportError:
 
 _UIA_AUTOMATION = None
 _UIA_INITIALIZED = False
+_last_screen_hash: str | None = None
 
 
 def _get_uia_automation():
@@ -109,12 +111,40 @@ def _cleanup_uia():
         pass
 
 
+def get_foreground_text_delta() -> str:
+    """Return foreground text, or '[Screen unchanged]' if content hasn't changed.
+
+    Uses SHA-256 hashing to detect changes in the extracted text. When the
+    screen content is identical to the last call, returns a short sentinel
+    string instead of the full text — saving ~2000 tokens per idle tick.
+
+    Returns empty string (always) when no foreground window is detected.
+    """
+    global _last_screen_hash
+    text = get_text_via_uia()
+    if not text:
+        text = get_text_via_wm_gettext()
+    text = text[:2000]
+    if not text:
+        _last_screen_hash = None
+        return ""
+    current_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    if current_hash == _last_screen_hash:
+        return "[Screen unchanged]"
+    _last_screen_hash = current_hash
+    return text
+
+
+def clear_screen_cache() -> None:
+    """Force the next call to return fresh text instead of '[Screen unchanged]'."""
+    global _last_screen_hash
+    _last_screen_hash = None
+
+
 class ScreenReader:
     @staticmethod
     def get_foreground_text() -> str:
         if sys.platform != "win32":
             return ""
-        text = get_text_via_uia()
-        if text:
-            return text[:2000]
-        return get_text_via_wm_gettext()[:2000]
+        result = get_foreground_text_delta()
+        return result

@@ -11,6 +11,8 @@ class _Signals(QObject):
     recall_memory = pyqtSignal()
     recall_history = pyqtSignal()
     pin_toggle    = pyqtSignal()
+    restart_brain = pyqtSignal()
+    thought_log   = pyqtSignal()
 
 
 class PetContextMenu(QMenu):
@@ -22,6 +24,8 @@ class PetContextMenu(QMenu):
 
         self.addAction("What do you remember?", self.signals.recall_memory.emit)
         self.addAction("Show recent history", self.signals.recall_history.emit)
+        self.addAction("Restart Brain", self.signals.restart_brain.emit)
+        self.addAction("View Brain Scan", self.signals.thought_log.emit)
         self._pin_action = self.addAction("Pin position", self.signals.pin_toggle.emit)
         self._pin_action.setCheckable(True)
         self.addSeparator()
