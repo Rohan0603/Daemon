@@ -1,13 +1,34 @@
 import json
 import logging
 import os
+import re
 import ctypes
 from ctypes import wintypes
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 
+from src.utils.security import get_safe_data_path
+
 logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = os.path.abspath("C:/Users/ponna/Project/Daemon")
+ALLOWED_READ_EXTENSIONS = {".py", ".md", ".json", ".ps1", ".txt", ".log", ".yaml", ".yml"}
+MAX_READ_LINES = 500
+
+
+def _validate_mcp_path(relative_path: str, root: str = PROJECT_ROOT) -> str:
+    abs_root = os.path.normpath(os.path.abspath(root))
+    normed = os.path.normpath(os.path.join(abs_root, relative_path))
+    if not normed.startswith(abs_root):
+        raise ValueError(f"Path traversal blocked: {relative_path}")
+    return normed
+
+
+def _validate_read_extension(file_path: str) -> bool:
+    _, ext = os.path.splitext(file_path)
+    return ext.lower() in ALLOWED_READ_EXTENSIONS
+
 
 VALID_ACTIONS = {"idle", "wander", "shake", "spin", "hyper", "bounce",
                  "look_away", "celebrate", "devastated", "fall", "chase"}
@@ -49,6 +70,50 @@ MCP_TOOLS = [
                 "message": {"type": "string"}
             },
             "required": ["title", "message"]
+        }
+    },
+    {
+        "name": "list_directory",
+        "description": "List files and directories within the Daemon project root. Returns a structured JSON list with type (file/directory) and size for files.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "relative_path": {
+                    "type": "string",
+                    "description": "Path relative to project root (e.g. 'src/', 'tests/', 'README.md'). Empty string for root."
+                }
+            },
+            "required": ["relative_path"]
+        }
+    },
+    {
+        "name": "read_file",
+        "description": "Read a source file from the Daemon project. Limited to allowed extensions (.py, .md, .json, .ps1, .txt, .log, .yaml) and max 500 lines.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path relative to project root (e.g. 'src/pet_window.py')"
+                },
+                "start_line": {"type": "integer", "minimum": 1, "description": "1-indexed start line (optional)"},
+                "end_line": {"type": "integer", "minimum": 1, "description": "1-indexed end line (optional)"}
+            },
+            "required": ["file_path"]
+        }
+    },
+    {
+        "name": "search_codebase",
+        "description": "Search for a symbol (class, function, variable) across Python files in src/ and tests/. Returns file paths and line numbers with line snippets.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "search_term": {
+                    "type": "string",
+                    "description": "Term to search for (regex supported)"
+                }
+            },
+            "required": ["search_term"]
         }
     },
 ]
@@ -103,9 +168,8 @@ def _capture_screenshot() -> str:
     screenshot = ImageGrab.grab()
     ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     filename = f"evidence_{ts}.png"
-    dir_path = os.path.join("data", "blackmail")
-    os.makedirs(dir_path, exist_ok=True)
-    path = os.path.join(dir_path, filename)
+    path = get_safe_data_path(os.path.join("blackmail", filename))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     screenshot.save(path)
     return f"Evidence saved to {path}"
 
@@ -192,8 +256,93 @@ class MCPHandler(BaseHTTPRequestHandler):
                 self.fsm_bridge.emit_toast(title, message)
             return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "toast sent"}]}}
 
+        elif name == "list_directory":
+            return self._handle_list_directory(args)
+        elif name == "read_file":
+            return self._handle_read_file(args)
+        elif name == "search_codebase":
+            return self._handle_search_codebase(args)
+
         else:
             return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Unknown tool: {name}"}}
+
+    def _handle_list_directory(self, args):
+        relative_path = args.get("relative_path", "")
+        try:
+            abs_path = _validate_mcp_path(relative_path)
+        except ValueError as e:
+            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": str(e)}}
+        if not os.path.exists(abs_path):
+            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Path not found: {relative_path}"}}
+        if not os.path.isdir(abs_path):
+            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Not a directory: {relative_path}"}}
+        entries = []
+        for entry in sorted(os.listdir(abs_path)):
+            full = os.path.join(abs_path, entry)
+            if os.path.isdir(full):
+                entries.append({"name": entry, "type": "directory"})
+            else:
+                try:
+                    size = os.path.getsize(full)
+                except OSError:
+                    size = 0
+                entries.append({"name": entry, "type": "file", "size": size})
+        return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": json.dumps(entries, indent=2)}]}}
+
+    def _handle_read_file(self, args):
+        file_path = args.get("file_path", "")
+        start_line = args.get("start_line")
+        end_line = args.get("end_line")
+        if not _validate_read_extension(file_path):
+            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"File type not allowed: {file_path}"}}
+        try:
+            abs_path = _validate_mcp_path(file_path)
+        except ValueError as e:
+            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": str(e)}}
+        if not os.path.exists(abs_path):
+            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"File not found: {file_path}"}}
+        if not os.path.isfile(abs_path):
+            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Not a file: {file_path}"}}
+        try:
+            with open(abs_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except UnicodeDecodeError:
+            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Cannot read binary file: {file_path}"}}
+        total_lines = len(lines)
+        start_idx = max(0, (start_line or 1) - 1)
+        end_idx = min(total_lines, end_line) if end_line else min(total_lines, start_idx + MAX_READ_LINES)
+        selected = lines[start_idx:end_idx]
+        content = "".join(selected)
+        header = f"# {file_path} (lines {start_idx + 1}-{end_idx} of {total_lines})\n"
+        if end_idx - start_idx >= MAX_READ_LINES:
+            content += "\n... (truncated at 500 lines max, use start_line/end_line to paginate)"
+        return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": header + content}]}}
+
+    def _handle_search_codebase(self, args):
+        search_term = args.get("search_term", "")
+        if not search_term:
+            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": "search_term required"}}
+        results = []
+        search_dirs = [os.path.join(PROJECT_ROOT, "src"), os.path.join(PROJECT_ROOT, "tests")]
+        pattern = re.compile(search_term)
+        for search_dir in search_dirs:
+            if not os.path.exists(search_dir):
+                continue
+            for root, dirs, files in os.walk(search_dir):
+                dirs[:] = [d for d in dirs if not d.startswith("__") and not d.startswith(".")]
+                for file in files:
+                    if not file.endswith(".py"):
+                        continue
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_path, PROJECT_ROOT)
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            for i, line in enumerate(f, 1):
+                                if pattern.search(line):
+                                    results.append({"file": rel_path, "line": i, "snippet": line.strip()[:200]})
+                    except UnicodeDecodeError:
+                        continue
+        return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": json.dumps(results, indent=2)}]}}
 
     @staticmethod
     def parse_raw(body):
@@ -217,7 +366,8 @@ class MCPHandler(BaseHTTPRequestHandler):
                         response["error"] = {"code": -32602, "message": f"Invalid action: {action}"}
                     else:
                         response["result"] = {"content": [{"type": "text", "text": "ok"}]}
-                elif name in ("read_clipboard", "capture_blackmail_evidence", "send_system_toast"):
+                elif name in ("read_clipboard", "capture_blackmail_evidence", "send_system_toast",
+                               "list_directory", "read_file", "search_codebase"):
                     response["result"] = {"content": [{"type": "text", "text": "ok"}]}
                 else:
                     response["error"] = {"code": -32602, "message": f"Unknown tool: {name}"}

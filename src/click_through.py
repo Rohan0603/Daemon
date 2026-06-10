@@ -2,6 +2,7 @@
 import ctypes
 import ctypes.wintypes
 import logging
+import time
 from typing import Callable
 from PyQt6.QtCore import QTimer, QRect
 from PyQt6.QtGui import QCursor
@@ -13,12 +14,15 @@ GWL_EXSTYLE          = -20
 WS_EX_TRANSPARENT    = 0x00000020
 WS_EX_LAYERED        = 0x00080000
 
+_TOGGLE_DEBOUNCE_SEC = 0.2  # minimum gap between enable/disable toggles
+
 
 class ClickThroughManager:
     def __init__(self, hwnd: int, get_geometry_fn: Callable[[], QRect]) -> None:
         self._hwnd = hwnd
         self._get_geometry = get_geometry_fn   # callable -> QRect
         self._transparent = False
+        self._last_toggle_time: float = 0.0
 
         self._timer = QTimer()
         self._timer.setInterval(CLICK_THROUGH_POLL_MS)
@@ -34,6 +38,7 @@ class ClickThroughManager:
             style | WS_EX_LAYERED | WS_EX_TRANSPARENT
         )
         self._transparent = True
+        self._last_toggle_time = time.time()
         logger.debug("Click-through enabled for HWND %d", self._hwnd)
 
     def disable_click_through(self) -> None:
@@ -43,12 +48,15 @@ class ClickThroughManager:
             style & ~WS_EX_TRANSPARENT
         )
         self._transparent = False
+        self._last_toggle_time = time.time()
         logger.debug("Click-through disabled for HWND %d", self._hwnd)
 
     def stop(self) -> None:
         self._timer.stop()
 
     def _poll(self) -> None:
+        if time.time() - self._last_toggle_time < _TOGGLE_DEBOUNCE_SEC:
+            return
         cursor = QCursor.pos()
         geom: QRect = self._get_geometry()
         cursor_over = geom.contains(cursor)

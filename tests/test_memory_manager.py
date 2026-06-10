@@ -71,7 +71,7 @@ def test_load_brain_returns_firestore_doc(mgr_db, mock_crud):
 
     assert brain["daemon_origin"] == "test_origin"
     assert brain["user_habits"] == ["codes at night"]
-    mock_crud.get.assert_called_with("daemon_data/test-uid", "core_brain")
+    mock_crud.get.assert_called_with("daemon_data", "test-uid")
 
 
 def test_load_brain_returns_defaults_when_doc_missing(mgr_db, mock_crud):
@@ -113,7 +113,7 @@ def test_update_brain_calls_set_with_merge(mgr_db, mock_crud):
 
     mgr_db.update_brain(new_data)
 
-    mock_crud.set.assert_called_with("daemon_data/test-uid", "core_brain", new_data, merge=True)
+    mock_crud.set.assert_called_with("daemon_data", "test-uid", new_data, merge=True)
 
 
 def test_update_brain_no_op_when_db_none(mgr_no_db):
@@ -316,7 +316,7 @@ def test_sync_from_local_pushes_memory_facts(tmp_path):
 
     mm.sync_from_local(mem)
 
-    mock_crud.get.assert_called_with("daemon_data/test-uid", "core_brain")
+    mock_crud.get.assert_called_with("daemon_data", "test-uid")
     mock_crud.set.assert_called_once()
     call_args = mock_crud.set.call_args
     pushed = call_args[0][2]

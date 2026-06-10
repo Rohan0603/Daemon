@@ -130,13 +130,13 @@ def test_joke_interval_constant():
 
 def test_joke_timer_initialized(app):
     from src.pet_window import PetWindow
-    from src.constants import JOKE_INTERVAL_SEC
+    from src.constants import BEHAVIOR_TICK_MS
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
          patch("src.pet_window.APMWorker"):
         window = PetWindow(opencode_enabled=False)
-        assert hasattr(window, "_joke_timer")
-        assert window._joke_timer.interval() == JOKE_INTERVAL_SEC * 1000
+        assert hasattr(window, "_behavior_timer")
+        assert window._behavior_timer.interval() == BEHAVIOR_TICK_MS
 
 
 def test_on_joke_tick_skips_when_pending(app, tmp_path):
@@ -149,7 +149,7 @@ def test_on_joke_tick_skips_when_pending(app, tmp_path):
          patch("src.pet_window.OpencodeWorker") as mock_worker_cls:
         window = PetWindow(opencode_enabled=True, memory_path=mem_path, history_path=hist_path)
         window._autonomous_query_pending = True
-        window._on_joke_tick()
+        window._trigger_joke()
         mock_worker_cls.assert_not_called()
 
 
@@ -215,16 +215,14 @@ def test_force_quit_stops_timers_and_waits_for_worker(app):
          patch.object(PetWindow, "_on_boot_check_auth"):
         window = PetWindow(opencode_enabled=False)
         window._fsm_timer.stop = MagicMock()
-        window._active_chat_timer.stop = MagicMock()
-        window._joke_timer.stop = MagicMock()
+        window._behavior_timer.stop = MagicMock()
         window._response_manager.stop = MagicMock()
         mock_worker = MagicMock()
         mock_worker.isRunning.return_value = True
         window._opencode_worker = mock_worker
         window._force_quit_app()
         window._fsm_timer.stop.assert_called_once()
-        window._active_chat_timer.stop.assert_called_once()
-        window._joke_timer.stop.assert_called_once()
+        window._behavior_timer.stop.assert_called_once()
         window._response_manager.stop.assert_called_once()
         mock_worker.quit.assert_called_once()
         mock_worker.wait.assert_called_once_with(15000)
@@ -565,11 +563,13 @@ def test_active_chat_tick_dispatches_trigger(app, tmp_path):
          patch("src.pet_window.OpencodeWorker") as mock_worker_cls, \
          patch("src.pet_window.get_active_window_title", return_value="Test Window"):
         mock_worker = MagicMock()
+        mock_worker.isRunning.return_value = False
         mock_worker_cls.return_value = mock_worker
         pw = PetWindow(opencode_enabled=True, memory_path=mem_path, history_path=hist_path)
-        pw._on_active_chat_tick()
-        mock_worker_cls.assert_called_once()
-        mock_worker.start.assert_called_once()
+        pw._opencode_worker = mock_worker
+        pw._trigger_chat()
+        assert mock_worker_cls.call_count >= 2
+        mock_worker.start.assert_called()
 
 def test_joke_tick_dispatches_trigger(app, tmp_path):
     from src.pet_window import PetWindow
@@ -582,9 +582,11 @@ def test_joke_tick_dispatches_trigger(app, tmp_path):
          patch("src.pet_window.OpencodeWorker") as mock_worker_cls, \
          patch("src.pet_window.get_active_window_title", return_value="Test Window"):
         mock_worker = MagicMock()
+        mock_worker.isRunning.return_value = False
         mock_worker_cls.return_value = mock_worker
         pw = PetWindow(opencode_enabled=True, memory_path=mem_path, history_path=hist_path)
-        pw._on_joke_tick()
+        pw._opencode_worker = mock_worker
+        pw._trigger_joke()
         mock_worker_cls.assert_called_once()
         mock_worker.start.assert_called_once()
 

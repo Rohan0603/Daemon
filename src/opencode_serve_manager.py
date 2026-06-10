@@ -50,6 +50,37 @@ def _is_port_bound(host: str, port: int, timeout: float) -> bool:
         return False
 
 
+def _kill_process_on_port(host: str, port: int) -> bool:
+    """Kill any process listening on host:port using netstat + taskkill.
+
+    Returns True if at least one process was killed, False otherwise.
+    Never raises.
+    """
+    try:
+        result = subprocess.run(
+            ["netstat", "-ano"],
+            capture_output=True, text=True, timeout=5,
+            creationflags=_CREATE_NO_WINDOW,
+        )
+        listen_str = f"{host}:{port}"
+        killed = False
+        for line in result.stdout.splitlines():
+            if listen_str in line and "LISTENING" in line:
+                parts = line.split()
+                pid = parts[-1]
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", pid],
+                    capture_output=True, timeout=5,
+                    creationflags=_CREATE_NO_WINDOW,
+                )
+                logger.debug("[serve] killed PID %s on port %d", pid, port)
+                killed = True
+        return killed
+    except Exception as e:
+        logger.debug("[serve] _kill_process_on_port failed: %s", e)
+        return False
+
+
 def ensure_opencode_serve_running(
     url: str = _DEFAULT_URL,
     max_wait: float = _DEFAULT_MAX_WAIT_SEC,
@@ -57,11 +88,14 @@ def ensure_opencode_serve_running(
     which=None,
     popen=None,
 ) -> bool:
-    """Ensure `opencode serve --port <port>` is running.
+    """Ensure `opencode serve --port <port>` is running with a FRESH server.
 
-    Returns True if the port is bound (either by a pre-existing server or by
-    one this call spawned). Returns False if the server could not be started
-    (binary not on PATH, spawn failed, or it never bound within `max_wait`).
+    If the port is already bound, kills the existing process and spawns a new
+    server so that updated configs (SKILL.md, opencode.json) are always loaded.
+
+    Returns True if the port is bound after the attempt. Returns False if the
+    server could not be started (binary not on PATH, spawn failed, or it never
+    bound within `max_wait`).
 
     Never raises. Designed to be called at daemon startup.
     """
@@ -73,15 +107,24 @@ def ensure_opencode_serve_running(
 
     host, port = _parse_host_port(url)
 
-    # Fast path: something is already serving
+    # If something is already bound, kill it so we can spawn a fresh server
     if _is_port_bound(host, port, _DEFAULT_BIND_CHECK_TIMEOUT_SEC):
-        logger.debug(f"[serve] port {port} already bound; not spawning")
-        return True
+        bin_path = which("opencode")
+        if bin_path:
+            logger.debug("[serve] port %d already bound; killing to respawn fresh", port)
+            _kill_process_on_port(host, port)
+            time.sleep(0.5)
+            if _is_port_bound(host, port, _DEFAULT_BIND_CHECK_TIMEOUT_SEC):
+                logger.debug("[serve] port %d still bound after kill; reusing existing", port)
+                return True
+        else:
+            logger.debug("[serve] port %d already bound; opencode not on PATH, reusing", port)
+            return True
 
     # Port is free; try to find opencode on PATH
     bin_path = which("opencode")
     if not bin_path:
-        logger.debug(f"[serve] opencode not on PATH; skipping auto-spawn (port {port})")
+        logger.debug("[serve] opencode not on PATH; skipping auto-spawn (port %d)", port)
         return False
 
     # Make sure the log directory exists
