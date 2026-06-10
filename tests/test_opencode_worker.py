@@ -338,6 +338,32 @@ class TestEdgeCaseSessionLifecycle:
         last_url = mock_req.call_args_list[2].args[0]
         assert "persist_ses" in last_url
 
+    def test_two_stage_worker_sends_two_messages(self, qapp):
+        """Two-stage worker posts two messages — first without schema, second with."""
+        from src.opencode_worker import OpencodeWorker
+        from unittest.mock import MagicMock
+        handler = MagicMock()
+        with patch.object(OpencodeWorker, "_post_message") as mock_post:
+            mock_post.side_effect = [
+                "Tool result: user is coding at terminal",
+                '[{"dialogue": "hi"}]',
+            ]
+            worker = OpencodeWorker(
+                user_input="",
+                two_stage_prompts=("investigate", "generate 5"),
+            )
+            worker.response_ready.connect(handler)
+            worker._send_two_stage()
+
+        assert mock_post.call_count == 2
+        payload1 = mock_post.call_args_list[0][0][0]
+        payload2 = mock_post.call_args_list[1][0][0]
+        assert "structured" not in payload1
+        from src.constants import STRUCTURED_SCHEMA
+        assert payload2.get("structured") == STRUCTURED_SCHEMA
+        assert "user is coding" in payload2["parts"][0]["text"]
+        handler.assert_called_once_with([{"dialogue": "hi"}])
+
     def test_session_created_emitted_on_send_when_no_session(self, qapp):
         from src.opencode_worker import OpencodeWorker
         session_resp = _mock_response(200, {"id": "send_new_ses"})
