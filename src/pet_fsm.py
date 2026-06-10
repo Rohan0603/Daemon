@@ -8,6 +8,7 @@ from src.constants import (
     APM_HYPER_THRESHOLD, SLEEP_IDLE_SECONDS,
     SHAKE_DURATION_MS, BOUNCE_DURATION_MS,
     SPIN_DURATION_MS, LOOK_AWAY_DURATION_MS,
+    MIN_CHASE_DURATION_MS,
 )
 
 
@@ -84,11 +85,11 @@ class PetFSM:
         if ctx.is_falling:
             return PetState.FALLING
 
-        # Priority 3: CHASE
+        # Priority 3: CHASE (minimum dwell 500ms to prevent cursor jitter thrashing)
         if not ctx.query_pending:
             dist = self._cursor_distance(ctx)
             if cur == PetState.CHASE:
-                if dist > CHASE_EXIT_RADIUS_PX:
+                if dist > CHASE_EXIT_RADIUS_PX and ctx.state_elapsed_ms >= MIN_CHASE_DURATION_MS:
                     pass
                 else:
                     return PetState.CHASE

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import json
 import logging
+import re
 import requests
 from PyQt6.QtCore import QThread, pyqtSignal
 from src.constants import (
@@ -108,13 +109,31 @@ class OpencodeWorker(QThread):
             self._used_api = True
             self.path_used.emit("api")
             try:
-                items = json.loads(raw)
+                cleaned = raw.strip()
+                for fence in ("```json", "```"):
+                    if cleaned.startswith(fence):
+                        cleaned = cleaned[len(fence):]
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+                cleaned = cleaned.strip()
+                items = json.loads(cleaned)
                 if isinstance(items, list):
                     logger.debug("RECV parsed: %d items, first: %s", len(items), json.dumps(items[0] if items else {}))
                     self.response_ready.emit(items)
                     return
             except json.JSONDecodeError:
-                logger.debug("RECV json parse failed, raw: %s", raw[:500])
+                logger.debug("RECV json parse failed (attempted stripped), raw: %s", raw[:500])
+                pass
+            try:
+                match = re.search(r'\[\s*\{.*?\}\s*\]', raw, re.DOTALL)
+                if match:
+                    items = json.loads(match.group(0))
+                    if isinstance(items, list):
+                        logger.debug("RECV parsed via regex: %d items", len(items))
+                        self.response_ready.emit(items)
+                        return
+            except (json.JSONDecodeError, AttributeError):
+                logger.debug("RECV regex extraction also failed")
                 pass
             items = self._handle_schema_error(raw)
             self.response_ready.emit(items)
@@ -125,7 +144,6 @@ class OpencodeWorker(QThread):
         return [{
             "thought": "Kenny's brain just bluescreened.",
             "dialogue": "Holy crap, my brain just segfaulted!",
-            "action": "devastated"
         }]
 
     def run(self) -> None:

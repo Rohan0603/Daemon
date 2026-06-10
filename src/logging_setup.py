@@ -1,9 +1,22 @@
 import logging
 import os
-from logging.handlers import RotatingFileHandler
+import time
+from datetime import datetime
 
 _LOG_FORMAT = "[%(asctime)s] [%(levelname)-7s] [%(name)s] %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def _cleanup_old_logs(log_dir: str, days: int = 7) -> None:
+    cutoff = time.time() - days * 86400
+    for fname in os.listdir(log_dir):
+        if fname.startswith("daemon_") and fname.endswith(".log"):
+            fpath = os.path.join(log_dir, fname)
+            try:
+                if os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+            except OSError:
+                pass
 
 
 def setup_logging(
@@ -23,13 +36,13 @@ def setup_logging(
     root.addHandler(console)
 
     os.makedirs(log_dir, exist_ok=True)
-    log_path = os.path.join(log_dir, "daemon.log")
-    file_handler = RotatingFileHandler(
-        log_path, maxBytes=1_048_576, backupCount=3
-    )
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    log_path = os.path.join(log_dir, f"daemon_{timestamp}.log")
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     root.addHandler(file_handler)
+    _cleanup_old_logs(log_dir)
 
     if config_overrides:
         for name, level in config_overrides.items():

@@ -16,8 +16,8 @@ class FakeCompletedProcess:
         self.returncode = returncode
 
 
-def test_port_already_bound_returns_true_without_spawn(tmp_path):
-    """If port 4096 is already accepting connections, don't spawn anything."""
+def test_port_bound_no_opencode_on_path_reuses_existing(tmp_path):
+    """If port is bound but opencode not on PATH, reuse existing (can't kill+respawn)."""
     from src.opencode_serve_manager import ensure_opencode_serve_running
 
     fake_sock = MagicMock()
@@ -25,6 +25,7 @@ def test_port_already_bound_returns_true_without_spawn(tmp_path):
     fake_sock.__exit__ = MagicMock(return_value=False)
     with patch("src.opencode_serve_manager.socket.create_connection",
                return_value=fake_sock) as cc, \
+         patch("src.opencode_serve_manager.shutil.which", return_value=None), \
          patch("src.opencode_serve_manager.subprocess.Popen") as popen:
         result = ensure_opencode_serve_running(
             url="http://127.0.0.1:4096",
@@ -34,6 +35,48 @@ def test_port_already_bound_returns_true_without_spawn(tmp_path):
     assert result is True
     cc.assert_called_once_with(("127.0.0.1", 4096), timeout=0.5)
     popen.assert_not_called()
+
+
+def test_port_bound_kills_and_respawns_fresh(tmp_path):
+    """If port is bound and opencode is on PATH, kill existing and spawn fresh."""
+    from src.opencode_serve_manager import ensure_opencode_serve_running
+
+    fake_sock = MagicMock()
+    fake_sock.__enter__ = MagicMock(return_value=fake_sock)
+    fake_sock.__exit__ = MagicMock(return_value=False)
+
+    popen_mock = MagicMock()
+    popen_mock.poll.return_value = None
+
+    call_count = {"n": 0}
+
+    def _connect(addr, *args, **kwargs):
+        # call 1: initial port bound check → succeeds (port bound)
+        # call 2: post-kill check → raises (port freed, will spawn)
+        # call 3+: post-spawn check → succeeds
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            return fake_sock
+        if call_count["n"] == 2:
+            raise OSError("connection refused (was killed)")
+        return fake_sock
+
+    with patch("src.opencode_serve_manager.socket.create_connection",
+               side_effect=_connect), \
+         patch("src.opencode_serve_manager.shutil.which",
+               return_value="C:/fake/opencode.exe"), \
+         patch("src.opencode_serve_manager._kill_process_on_port",
+               return_value=True) as kill_mock, \
+         patch("src.opencode_serve_manager.subprocess.Popen",
+               return_value=popen_mock) as popen:
+        result = ensure_opencode_serve_running(
+            url="http://127.0.0.1:4096",
+            max_wait=2.0,
+            spawn_log_path=str(tmp_path / "serve.log"),
+        )
+    assert result is True
+    kill_mock.assert_called_once_with("127.0.0.1", 4096)
+    popen.assert_called_once()
 
 
 def test_port_closed_spawns_opencode_serve(tmp_path):
@@ -156,6 +199,7 @@ def test_url_with_custom_port_parses_correctly(tmp_path):
     fake_sock.__exit__ = MagicMock(return_value=False)
     with patch("src.opencode_serve_manager.socket.create_connection",
                return_value=fake_sock) as cc, \
+         patch("src.opencode_serve_manager.shutil.which", return_value=None), \
          patch("src.opencode_serve_manager.subprocess.Popen") as popen:
         result = ensure_opencode_serve_running(
             url="http://127.0.0.1:9999",
@@ -201,7 +245,7 @@ def test_spawn_log_path_creates_parent_dir(tmp_path):
 
 
 def test_no_spawn_when_already_running_even_if_max_wait_small(tmp_path):
-    """Early return path must not wait at all when port is bound."""
+    """Early return path must not wait at all when port is bound but no opencode on PATH."""
     from src.opencode_serve_manager import ensure_opencode_serve_running
 
     fake_sock = MagicMock()
@@ -209,6 +253,7 @@ def test_no_spawn_when_already_running_even_if_max_wait_small(tmp_path):
     fake_sock.__exit__ = MagicMock(return_value=False)
     with patch("src.opencode_serve_manager.socket.create_connection",
                return_value=fake_sock), \
+         patch("src.opencode_serve_manager.shutil.which", return_value=None), \
          patch("src.opencode_serve_manager.subprocess.Popen") as popen, \
          patch("src.opencode_serve_manager.time.monotonic") as clock:
         result = ensure_opencode_serve_running(

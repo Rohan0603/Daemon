@@ -44,6 +44,13 @@ class TestBehaviorIntegration:
             self.pw._trigger_chat = MagicMock()
             self.pw._trigger_joke = MagicMock()
             self.pw._trigger_boredom_fsm = MagicMock()
+            # Exponential backoff fields
+            self.pw._last_context_snapshot = None
+            self.pw._idle_backoff_seconds = 0.0
+            self.pw._base_boredom_interval = 30
+            self.pw._max_idle_backoff = 300
+            self.pw._last_boredom_fsm_time = 0.0
+            self.pw._is_context_stable = MagicMock(return_value=True)
 
     @patch('src.pet_window.get_active_window_title')
     def test_full_flow_state_silence(self, mock_window):

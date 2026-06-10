@@ -245,7 +245,8 @@ def test_send_emits_schema_error_on_garbage(qapp):
         worker.response_ready.connect(captured.append)
         worker.send("test prompt")
     assert len(captured) == 1
-    assert captured[0][0]["action"] == "devastated"
+    assert "dialogue" in captured[0][0]
+    assert "thought" in captured[0][0]
 
 
 def test_handle_schema_error_returns_safe_default(qapp):
@@ -253,8 +254,8 @@ def test_handle_schema_error_returns_safe_default(qapp):
     worker = OpencodeWorker("hi")
     items = worker._handle_schema_error("garbage")
     assert len(items) == 1
-    assert items[0]["action"] == "devastated"
     assert "dialogue" in items[0]
+    assert "thought" in items[0]
 
 
 # ── run() tests ─────────────────────────────────────────────────────────────

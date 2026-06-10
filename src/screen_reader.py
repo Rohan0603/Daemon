@@ -12,22 +12,52 @@ try:
 except ImportError:
     pass
 
+_UIA_AUTOMATION = None
+_UIA_INITIALIZED = False
+
+
+def _get_uia_automation():
+    """Lazy initialization of IUIAutomation singleton."""
+    global _UIA_AUTOMATION, _UIA_INITIALIZED
+    if not _UIA_AVAILABLE:
+        return None
+    if _UIA_AUTOMATION is not None:
+        return _UIA_AUTOMATION
+
+    try:
+        import ctypes
+        from comtypes.client import CreateObject, GetModule
+        import comtypes
+
+        # Initialize COM only once per thread
+        if not _UIA_INITIALIZED:
+            comtypes.CoInitialize()
+            _UIA_INITIALIZED = True
+
+        # Load typelib once
+        GetModule("UIAutomationCore.dll")
+        from comtypes.gen.UIAutomationClient import IUIAutomation
+
+        clsid = "{ff48dba4-60ef-4201-aa87-54103eef594e}"
+        _UIA_AUTOMATION = CreateObject(clsid, interface=IUIAutomation)
+        logger.info("UIA automation initialized successfully")
+        return _UIA_AUTOMATION
+    except Exception as e:
+        logger.warning("UIA initialization failed: %s", e)
+        return None
+
 
 def get_text_via_uia() -> str:
-    if not _UIA_AVAILABLE:
+    automation = _get_uia_automation()
+    if not automation:
         return ""
     try:
         import ctypes
-        from comtypes.client import CreateObject
-        import comtypes
 
-        comtypes.CoInitialize()
         hwnd = ctypes.windll.user32.GetForegroundWindow()
         if not hwnd:
             return ""
 
-        clsid = "{ff48dba4-60ef-4201-aa87-54103eef594e}"
-        automation = CreateObject(clsid)
         element = automation.ElementFromHandle(hwnd)
         if not element:
             return ""
@@ -41,8 +71,7 @@ def get_text_via_uia() -> str:
             return ""
 
         text = text_range.GetText(-1) or ""
-        text = text.strip()
-        return text[:2000]
+        return text.strip()[:2000]
     except Exception as e:
         logger.debug("get_text_via_uia failed: %s", e)
         return ""
@@ -66,6 +95,18 @@ def get_text_via_wm_gettext() -> str:
     except Exception as e:
         logger.debug("get_text_via_wm_gettext failed: %s", e)
         return ""
+
+
+def _cleanup_uia():
+    """Clean up COM on shutdown."""
+    global _UIA_AUTOMATION, _UIA_INITIALIZED
+    _UIA_AUTOMATION = None
+    _UIA_INITIALIZED = False
+    try:
+        import comtypes
+        comtypes.CoUninitialize()
+    except Exception:
+        pass
 
 
 class ScreenReader:

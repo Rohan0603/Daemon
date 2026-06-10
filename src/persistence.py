@@ -27,6 +27,9 @@ def save_state(state: dict, path: str = _DEFAULT_PATH) -> None:
 
 
 def load_state(path: str = _DEFAULT_PATH) -> dict:
+    if not os.path.exists(path):
+        logger.debug("State file not found at %s, using defaults", path)
+        return dict(_DEFAULTS)
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)

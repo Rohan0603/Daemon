@@ -13,6 +13,7 @@ from src.constants import (
     JOKES_BLACKMAIL_POOL_SIZE, JOKES_BLACKMAIL_POOL_THRESHOLD,
     JOKES_BLACKMAIL_POOL_REFILL_COUNT,
     SYSTEM_POOL_SIZE, SYSTEM_POOL_THRESHOLD, SYSTEM_POOL_REFILL_COUNT,
+    TYPING_POOL_MAX, TYPING_POOL_LOW_WATERMARK, TYPING_POOL_REFILL_COUNT,
 )
 
 
@@ -30,11 +31,12 @@ def _make_manager(qapp):
     return AutonomousResponseManager(cache_path=tmp.name, write_coalescer=MagicMock())
 
 
-def test_constructor_creates_two_pools(qapp):
+def test_constructor_creates_three_pools(qapp):
     m = _make_manager(qapp)
     assert "jokes_blackmail" in m._pools
     assert "system" in m._pools
-    assert len(m._pools) == 2
+    assert "typing_reactions" in m._pools
+    assert len(m._pools) == 3
 
 
 def test_jokes_pool_has_correct_config(qapp):
@@ -51,6 +53,14 @@ def test_system_pool_has_correct_config(qapp):
     assert p._max_size == SYSTEM_POOL_SIZE
     assert p._threshold == SYSTEM_POOL_THRESHOLD
     assert p._refill_count == SYSTEM_POOL_REFILL_COUNT
+
+
+def test_typing_pool_has_correct_config(qapp):
+    m = _make_manager(qapp)
+    p = m._pools["typing_reactions"]
+    assert p._max_size == TYPING_POOL_MAX
+    assert p._threshold == TYPING_POOL_LOW_WATERMARK
+    assert p._refill_count == TYPING_POOL_REFILL_COUNT
 
 
 def test_draw_from_jokes_pool(qapp):

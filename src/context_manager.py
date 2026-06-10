@@ -51,15 +51,16 @@ class ContextManager:
         if screen_text:
             lines.append("")
             lines.append(f"Screen: {screen_text}")
-        lines.append("Respond with a single JSON object.")
+        lines.append("Respond with a JSON array containing EXACTLY ONE object. Every item MUST contain 'thought' and 'dialogue'.")
+        logger.debug("build_user_trigger: prompt=%d chars (SKILL.md is NOT injected here — loaded natively by opencode serve)", sum(len(l) for l in lines))
         return "\n".join(lines)
 
     def build_autonomous_trigger(self, mode: str, apm: int,
                                  idle_seconds: float, typing_content: str = "",
                                  screen_text: str = "") -> str:
         lines = [
-            "Daemon is watching the user. She notices something worth thinking about.",
-            "APM (actions per minute) is her main signal.",
+            "Daemon is watching the user. He is a hyperactive, panicked, and foul-mouthed Python script.",
+            "APM (actions per minute) is his main signal.",
             f"APM: {apm}",
             f"Mode: {mode}",
             f"Idle seconds: {int(idle_seconds)}",
@@ -71,9 +72,10 @@ class ContextManager:
             lines.append("")
             lines.append(f"Screen: {screen_text}")
         lines.append("")
-        lines.append("She is thinking to herself. This is an internal monologue \u2014 she is NOT responding to the user.")
-        lines.append("She should NOT say 'you asked' or 'you said' because the user did not say anything.")
-        lines.append("Generate exactly 5 dialogs as a JSON array.")
+        lines.append("He is thinking to himself. This is an internal monologue \u2014 he is NOT responding to the user.")
+        lines.append("He should NOT say 'you asked' or 'you said' because the user did not say anything.")
+        lines.append("Generate exactly 5 items as a JSON array. Every item MUST contain 'thought' and 'dialogue', and may optionally include 'brain_update'.")
+        logger.debug("build_autonomous_trigger: prompt=%d chars (SKILL.md is NOT injected here — loaded natively by opencode serve)", sum(len(l) for l in lines))
         return "\n".join(lines)
 
     def build_context(self, mode: str, user_input: str = "", apm: int = 0,
@@ -114,3 +116,30 @@ class ContextManager:
         if self._snapshot:
             self._snapshot["active_window"] = context_hint
             self._snapshot["apm_bucket"] = _apm_bucket(apm)
+
+    def build_pool_refill_prompt(self, pool_type: str, apm: int, count: int = 5) -> str:
+        """Build prompt for API-driven pool refill."""
+        if pool_type == "typing_reactions":
+            if apm > 60:
+                vibe = "User is typing frantically. You are panicked by their speed."
+            elif apm < 10:
+                vibe = "User is typing painfully slow. You are bored and condescending."
+            else:
+                vibe = "User is typing at a normal pace. You are easily distracted."
+
+            return (
+                "You are silently restocking your local reaction cache for USER TYPING.\n"
+                f"Context: {vibe}\n"
+                f"APM: {apm}\n\n"
+                f"Generate EXACTLY {count} short, punchy one-liner reactions (max 10 words each) "
+                "to the user's typing. These must be pure Kenny—foul-mouthed, nervous, or snarky. "
+                "No preamble.\n"
+                f"Respond with a JSON array containing EXACTLY {count} objects. "
+                "Every item MUST contain 'thought' and 'dialogue'."
+            )
+        # Fallback for other pool types
+        return (
+            f"Generate {count} autonomous thoughts/jokes as a JSON array. "
+            "Every item MUST contain 'thought' and 'dialogue', "
+            "and may optionally include 'brain_update'."
+        )

@@ -231,9 +231,19 @@ class PetWindow(QWidget):
         self._autonomous_query_pending: bool = False
         self._session_active: bool = False
         self._opencode_session_id: str | None = None
+        self._opencode_worker: OpencodeWorker | None = None
         self._triggered_action: str | None = None
         self._last_daemon_action: str = "idle"
         self._refill_workers: dict[str, OpencodeWorker] = {}
+
+        self._deferred_trigger_params: dict | None = None
+
+        # Exponential backoff for idle/boredom
+        self._last_context_snapshot = None
+        self._idle_backoff_seconds = 0.0
+        self._base_boredom_interval = BOREDOM_TIMEOUT_SEC
+        self._max_idle_backoff = 300
+        self._last_boredom_fsm_time = 0.0
 
         self._consecutive_silent = 0
         self._consecutive_engaged = 0
@@ -304,6 +314,9 @@ class PetWindow(QWidget):
         self._current_apm = apm
         if apm > 0:
             self._boredom_timer_ms = BOREDOM_TIMEOUT_SEC * 1000
+            self._idle_backoff_seconds = 0.0
+            self._last_context_snapshot = None
+            self._last_boredom_fsm_time = time.time()
 
     def _calculate_joke_modifier(self) -> float:
         """Inverse APM scaling: low APM = frequent jokes, high APM = rare jokes."""
@@ -329,6 +342,23 @@ class PetWindow(QWidget):
         self._last_typing_snapshot = current_typing
 
         return window_changed or typing_burst
+
+    def _get_context_signature(self) -> tuple:
+        """Generate a hashable signature of the current context for stability detection."""
+        window = get_active_window_title() or ""
+        typing_buffer = getattr(self, '_typing_buffer', None)
+        typing = typing_buffer.get_context() if typing_buffer else ""
+        screen = ScreenReader.get_foreground_text() or ""
+        screen_hash = hash(screen[:500]) if screen else 0
+        return (window, self._current_apm, len(typing), screen_hash)
+
+    def _is_context_stable(self) -> bool:
+        """Check if context has remained unchanged since last snapshot."""
+        current = self._get_context_signature()
+        if self._last_context_snapshot is None:
+            self._last_context_snapshot = current
+            return False
+        return current == self._last_context_snapshot
 
     def _trigger_chat(self) -> None:
         """Handle active chat: instant local reaction + background API call."""
@@ -416,9 +446,25 @@ class PetWindow(QWidget):
                 self._trigger_joke()
                 return
 
-            # P4: Boredom (APM == 0, Idle >= 60s)
+            # P4: Boredom (APM == 0, Idle >= 60s) — WITH EXPONENTIAL BACKOFF
             if self._idle_seconds >= 60 and self._current_apm == 0:
-                self._trigger_boredom_fsm()
+                # 1. Update stability and base timer first
+                if not self._is_context_stable():
+                    self._idle_backoff_seconds = self._base_boredom_interval
+                    self._last_context_snapshot = self._get_context_signature()
+                    self._last_boredom_fsm_time = time.time()
+
+                # 2. Check if it's time to fire
+                elapsed = time.time() - self._last_boredom_fsm_time
+                if elapsed >= self._idle_backoff_seconds:
+                    self._trigger_boredom_fsm()
+                    self._last_boredom_fsm_time = time.time()
+
+                    # 3. ONLY increase backoff AFTER we've fired
+                    if self._idle_backoff_seconds == 0:
+                        self._idle_backoff_seconds = self._base_boredom_interval
+                    else:
+                        self._idle_backoff_seconds = min(self._idle_backoff_seconds * 2.0, self._max_idle_backoff)
                 return
 
         except Exception as e:
@@ -446,11 +492,18 @@ class PetWindow(QWidget):
         if self._opencode_worker and self._opencode_worker.isRunning():
             self._opencode_worker.quit()
             self._opencode_worker.wait(15000)
+        self._deferred_trigger_params = None
         self._close_opencode_session()
         self._typing_buffer.stop()
         self._tts.stop()
         self._apm_worker.stop()
         self._tray_icon.hide()
+        # Cleanup UIA COM
+        try:
+            from src.screen_reader import _cleanup_uia
+            _cleanup_uia()
+        except Exception:
+            pass
         QApplication.quit()
 
     def closeEvent(self, event) -> None:
@@ -583,6 +636,26 @@ class PetWindow(QWidget):
             if new_state != old_state:
                 logger.debug(f"FSM state transition: {old_state.name} -> {new_state.name}")
                 self._state_elapsed_ms = 0
+                # Handle SLEEP state entry
+                if new_state == PetState.SLEEP and old_state != PetState.SLEEP:
+                    self._autonomous_query_pending = False
+                    self._deferred_trigger_params = None
+                    self._last_boredom_fsm_time = time.time()
+                    # Gracefully disconnect refill workers (NO wait())
+                    for worker in self._refill_workers.values():
+                        if worker.isRunning():
+                            try:
+                                worker.response_ready.disconnect()
+                            except TypeError:
+                                pass
+                            worker.quit()
+                    self._refill_workers.clear()
+                # Handle SLEEP state exit
+                if old_state == PetState.SLEEP and new_state != PetState.SLEEP:
+                    self._idle_backoff_seconds = 0.0
+                    self._last_context_snapshot = None
+                    self._last_boredom_fsm_time = time.time()
+                    self._boredom_timer_ms = BOREDOM_TIMEOUT_SEC * 1000
             self._apply_physics(new_state, FSM_TICK_MS)
             self.update()
         except Exception as e:
@@ -743,10 +816,14 @@ class PetWindow(QWidget):
                 self._fsm.current_state = PetState.DRAGGED
                 self._drag_offset = local - QPoint(self._pet_x, self._pet_y)
                 self._last_drag_pos = local
+                self._idle_backoff_seconds = 0.0
+                self._last_context_snapshot = None
 
     def mouseMoveEvent(self, event) -> None:
         self._idle_seconds = 0.0
         self._boredom_timer_ms = BOREDOM_TIMEOUT_SEC * 1000
+        self._idle_backoff_seconds = 0.0
+        self._last_context_snapshot = None
         if self._fsm.current_state == PetState.DRAGGED:
             local = event.position().toPoint()
             self._drag_velocity_x = local.x() - self._last_drag_pos.x()
@@ -832,6 +909,8 @@ class PetWindow(QWidget):
         self._consecutive_engaged = ENGAGED_THRESHOLD
         self._consecutive_silent = 0
         self._current_interval = BASE_INTERVAL_SEC
+        self._idle_backoff_seconds = 0.0
+        self._last_context_snapshot = None
 
         if text.startswith("!remember "):
             parts = text[10:].strip()
@@ -897,6 +976,7 @@ class PetWindow(QWidget):
     def _on_opencode_error(self, error: str) -> None:
         logger.warning("_on_opencode_error called with error: '%s'", error)
         self._autonomous_query_pending = False
+        self._deferred_trigger_params = None
         self._fsm.current_state = PetState.IDLE
 
         user_name = self._memory.get_all().get("user_name")
@@ -935,7 +1015,7 @@ class PetWindow(QWidget):
     def _show_bubble(self, text: str) -> None:
         if self._bubble_timer_ms > 0:
             if len(self._bubble_queue) >= BUBBLE_QUEUE_MAX_SIZE:
-                logger.info("_show_bubble dropped (queue full): '%s'", text)
+                logger.debug("_show_bubble dropped (queue full): '%s'", text)
                 return
             self._bubble_queue.append(text)
             logger.info("_show_bubble queued: '%s' (queue size: %d)", text, len(self._bubble_queue))
@@ -1105,7 +1185,8 @@ class PetWindow(QWidget):
             logger.debug(f"[{mode}] Skipping: autonomous query pending")
             return False
         if self._fsm.current_state in (
-            PetState.THINKING, PetState.DRAGGED, PetState.FALLING
+            PetState.THINKING, PetState.DRAGGED, PetState.FALLING,
+            PetState.SLEEP,
         ):
             logger.debug(f"[{mode}] Skipping: FSM state={self._fsm.current_state.name}")
             return False
@@ -1136,7 +1217,8 @@ class PetWindow(QWidget):
             logger.debug("[boredom] Skipping: autonomous query pending")
             return
         if self._fsm.current_state in (
-            PetState.THINKING, PetState.DRAGGED, PetState.FALLING
+            PetState.THINKING, PetState.DRAGGED, PetState.FALLING,
+            PetState.SLEEP,
         ):
             logger.debug("[boredom] Skipping: FSM state=%s", self._fsm.current_state.name)
             return
@@ -1218,7 +1300,13 @@ class PetWindow(QWidget):
                 screen_text=screen_text,
             )
         if self._opencode_worker and self._opencode_worker.isRunning():
-            logger.warning("Previous worker still running; skipping new request to avoid race")
+            logger.info("Worker busy; deferring '%s' trigger", mode)
+            self._deferred_trigger_params = dict(
+                mode=mode, user_input=user_input,
+                context_hint=context_hint, apm=apm,
+                idle_seconds=idle_seconds, typing_content=typing_content,
+                is_autonomous=is_autonomous,
+            )
             return
         worker = OpencodeWorker(
             user_input=user_input, context_hint=context_hint,
@@ -1242,12 +1330,22 @@ class PetWindow(QWidget):
             self._opencode_worker.deleteLater()
             self._opencode_worker = None
         if not items:
+            self._fire_deferred_trigger()
             return
         self._dispatch_structured(items[0])
         for item in items[1:]:
             pool_type = item.get("pool_type", "jokes_blackmail")
             self._response_manager.add_items(pool_type, [item])
         self._boredom_timer_ms = AUTONOMOUS_QUERY_INTERVAL_SEC * 1000
+        self._fire_deferred_trigger()
+
+    def _fire_deferred_trigger(self) -> None:
+        params = self._deferred_trigger_params
+        if params is not None:
+            self._deferred_trigger_params = None
+            if not (self._opencode_worker and self._opencode_worker.isRunning()):
+                logger.info("Firing deferred trigger: mode='%s'", params.get("mode", "?"))
+                self._dispatch_trigger(**params)
 
     def _on_mcp_fsm_action(self, action: str, target_x, target_y) -> None:
         """Slot for MCP FSM action requests from background thread."""
@@ -1370,13 +1468,29 @@ class PetWindow(QWidget):
         )
 
     def _on_refill_needed(self, pool_type: str) -> None:
-        from src.constants import JOKES_BLACKMAIL_POOL_REFILL_COUNT, SYSTEM_POOL_REFILL_COUNT
-        count = JOKES_BLACKMAIL_POOL_REFILL_COUNT if pool_type == "jokes_blackmail" else SYSTEM_POOL_REFILL_COUNT
-        prompt = (
-            f"You are Daemon, the user's desktop pet. Generate {count} random "
-            f"autonomous thoughts/jokes about the user's desktop habits as a JSON array. "
-            f"Every item MUST contain 'thought' and 'dialogue', and may optionally include 'brain_update'."
+        from src.constants import (
+            JOKES_BLACKMAIL_POOL_REFILL_COUNT, SYSTEM_POOL_REFILL_COUNT,
+            TYPING_POOL_REFILL_COUNT,
         )
+        if pool_type == "typing_reactions":
+            count = TYPING_POOL_REFILL_COUNT
+            prompt = self._context_manager.build_pool_refill_prompt(
+                "typing_reactions", self._current_apm, count
+            )
+        elif pool_type == "jokes_blackmail":
+            count = JOKES_BLACKMAIL_POOL_REFILL_COUNT
+            prompt = (
+                f"You are Daemon, the user's desktop pet. Generate {count} random "
+                f"autonomous thoughts/jokes about the user's desktop habits as a JSON array. "
+                f"Every item MUST contain 'thought' and 'dialogue', and may optionally include 'brain_update'."
+            )
+        else:
+            count = SYSTEM_POOL_REFILL_COUNT
+            prompt = (
+                f"You are Daemon, the user's desktop pet. Generate {count} random "
+                f"autonomous thoughts/jokes about the user's desktop habits as a JSON array. "
+                f"Every item MUST contain 'thought' and 'dialogue', and may optionally include 'brain_update'."
+            )
         worker = OpencodeWorker(
             "",
             is_autonomous=True,

@@ -7,8 +7,6 @@ logger = logging.getLogger(__name__)
 
 
 class _Signals(QObject):
-    build_success = pyqtSignal()
-    build_failure = pyqtSignal()
     quit_requested = pyqtSignal()
     recall_memory = pyqtSignal()
     recall_history = pyqtSignal()
@@ -22,9 +20,6 @@ class PetContextMenu(QMenu):
 
         logger.debug("Context menu created")
 
-        self.addAction("Simulate Build Success", self.signals.build_success.emit)
-        self.addAction("Simulate Build Failure", self.signals.build_failure.emit)
-        self.addSeparator()
         self.addAction("What do you remember?", self.signals.recall_memory.emit)
         self.addAction("Show recent history", self.signals.recall_history.emit)
         self._pin_action = self.addAction("Pin position", self.signals.pin_toggle.emit)

@@ -11,6 +11,7 @@ from src.constants import (
     JOKES_BLACKMAIL_POOL_SIZE, JOKES_BLACKMAIL_POOL_THRESHOLD,
     JOKES_BLACKMAIL_POOL_REFILL_COUNT,
     SYSTEM_POOL_SIZE, SYSTEM_POOL_THRESHOLD, SYSTEM_POOL_REFILL_COUNT,
+    TYPING_POOL_MAX, TYPING_POOL_LOW_WATERMARK, TYPING_POOL_REFILL_COUNT,
     POOL_DECAY_INTERVAL_SEC, POOL_REFILL_PERIODIC_SEC,
 )
 
@@ -125,7 +126,8 @@ class AutonomousResponseManager(QObject):
                 SYSTEM_POOL_THRESHOLD, SYSTEM_POOL_REFILL_COUNT,
             ),
             "typing_reactions": ResponsePool(
-                "typing_reactions", 20, 0, 0,  # threshold=0 = never triggers API refill
+                "typing_reactions", TYPING_POOL_MAX,
+                TYPING_POOL_LOW_WATERMARK, TYPING_POOL_REFILL_COUNT,
             ),
         }
         self._decay_timer = QTimer(self)

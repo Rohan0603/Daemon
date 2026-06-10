@@ -4,6 +4,7 @@ from src.pet_fsm import PetFSM, PetState, FSMContext
 from src.constants import (
     SHAKE_DURATION_MS, BOUNCE_DURATION_MS,
     SPIN_DURATION_MS, LOOK_AWAY_DURATION_MS,
+    MIN_CHASE_DURATION_MS,
 )
 
 
@@ -99,17 +100,32 @@ def test_chase_triggers_when_cursor_near():
     assert new_state == PetState.CHASE
 
 
-def test_chase_exits_when_cursor_far():
-    from src.constants import CHASE_EXIT_RADIUS_PX
+def test_chase_exits_when_cursor_far_and_min_duration_elapsed():
+    from src.constants import CHASE_EXIT_RADIUS_PX, MIN_CHASE_DURATION_MS
     fsm = PetFSM()
     fsm.current_state = PetState.CHASE
     # cursor 300px away (> CHASE_EXIT_RADIUS_PX=250)
     ctx = make_context(
         cursor_pos=(120 + 300, 925),
-        pet_rect=(100, 900, 40, 50)
+        pet_rect=(100, 900, 40, 50),
+        state_elapsed_ms=MIN_CHASE_DURATION_MS,
     )
     new_state = fsm.update(33, ctx)
     assert new_state == PetState.IDLE
+
+
+def test_chase_holds_min_duration_before_exiting():
+    from src.constants import MIN_CHASE_DURATION_MS
+    fsm = PetFSM()
+    fsm.current_state = PetState.CHASE
+    # cursor far but state_elapsed_ms < MIN_CHASE_DURATION_MS
+    ctx = make_context(
+        cursor_pos=(120 + 300, 925),
+        pet_rect=(100, 900, 40, 50),
+        state_elapsed_ms=MIN_CHASE_DURATION_MS - 1,
+    )
+    new_state = fsm.update(33, ctx)
+    assert new_state == PetState.CHASE
 
 
 def test_hyper_triggers_after_sustained_apm():

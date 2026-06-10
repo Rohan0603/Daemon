@@ -20,7 +20,7 @@ class MemoryManager:
         self._uid = uid
 
     def _brain_path(self) -> str:
-        return f"daemon_data/{self._uid}"
+        return "daemon_data"
 
     def _diary_path(self) -> str:
         return f"daemon_diary/{self._uid}/entries"
@@ -30,7 +30,7 @@ class MemoryManager:
     def load_current_brain(self) -> dict:
         logger.debug("MemoryManager.load_current_brain called")
         try:
-            data = self.crud.get(self._brain_path(), "core_brain")
+            data = self.crud.get(self._brain_path(), self._uid)
         except Exception as e:
             logger.warning(f"[MemoryManager] load_current_brain failed: {e}")
             return dict(_DEFAULT_BRAIN)
@@ -43,7 +43,7 @@ class MemoryManager:
         return dict(_DEFAULT_BRAIN)
 
     def update_brain(self, new_data: dict) -> None:
-        if not self.crud.set(self._brain_path(), "core_brain", new_data, merge=True):
+        if not self.crud.set(self._brain_path(), self._uid, new_data, merge=True):
             logger.warning("[MemoryManager] update_brain failed after retries — queued for retry")
             self._pending_writes.append(("brain", new_data))
         else:
@@ -78,7 +78,7 @@ class MemoryManager:
         if not facts:
             logger.info("[MemoryManager] sync_from_local: nothing to push (memory empty)")
             return
-        existing = self.crud.get(self._brain_path(), "core_brain") or {}
+        existing = self.crud.get(self._brain_path(), self._uid) or {}
         merged = dict(existing)
         for key, value in facts.items():
             if key not in _BRAIN_SCHEMA:
@@ -91,7 +91,7 @@ class MemoryManager:
                         merged.setdefault(key, []).append(item)
             else:
                 merged[key] = value
-        self.crud.set(self._brain_path(), "core_brain", merged, merge=True)
+        self.crud.set(self._brain_path(), self._uid, merged, merge=True)
         logger.info(f"[MemoryManager] sync_from_local: merged {len(facts)} facts into core_brain top-level fields")
 
     # ── Diary (local file during session, Firebase only at startup/quit) ──────
@@ -116,7 +116,7 @@ class MemoryManager:
                 if kind == "diary":
                     ok = bool(self.crud.add(self._diary_path(), data))
                 elif kind == "brain":
-                    ok = self.crud.set(self._brain_path(), "core_brain", data, merge=True)
+                    ok = self.crud.set(self._brain_path(), self._uid, data, merge=True)
                 else:
                     ok = False
                 if not ok:

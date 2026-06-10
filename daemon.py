@@ -1,12 +1,28 @@
 import sys
 import os
+import faulthandler
 import argparse
 import logging
+import traceback
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 from src.constants import LOCK_PATH
 
 logger = logging.getLogger("daemon")
+
+_CRASH_LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "crash_dump.log")
+_crash_fh = open(_CRASH_LOG, "wb", buffering=0)
+faulthandler.enable(file=_crash_fh, all_threads=True)
+
+_original_excepthook = sys.excepthook
+def _crash_hook(exc_type, exc_value, exc_tb):
+    with open(_CRASH_LOG, "a") as f:
+        f.write(f"\n=== UNHANDLED EXCEPTION: {exc_type.__name__} ===\n")
+        f.write(f"Message: {exc_value}\n")
+        traceback.print_tb(exc_tb, file=f)
+        f.write("\n")
+    _original_excepthook(exc_type, exc_value, exc_tb)
+sys.excepthook = _crash_hook
 
 
 def _ensure_ffmpeg_on_path():
@@ -70,6 +86,37 @@ def main() -> None:
 
     from src.logging_setup import setup_logging
     setup_logging(debug=args.verbose, config_overrides=cfg.get("logging"))
+
+    logger.info("=== DAEMON STARTUP (PID %d) ===", os.getpid())
+    logger.info("Crash instrumentation active: crash_dump.log = %s", _CRASH_LOG)
+
+    # Generate codebase map for Kenny's self-awareness (runs at startup)
+    try:
+        from scripts.generate_ast_map import generate_codebase_map
+        project_root = os.path.abspath(os.path.dirname(__file__))
+        src_dir = os.path.join(project_root, "src")
+        map_path = os.path.join(project_root, "data", "codebase_map.json")
+        generate_codebase_map(src_dir, map_path)
+    except Exception as e:
+        logger.warning("Failed to generate codebase map: %s", e)
+
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            PHANDLER_ROUTINE = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.DWORD)
+
+            @PHANDLER_ROUTINE
+            def console_ctrl_handler(ctrl_type):
+                logger.warning("Console control signal received: %d (0=CTRL_C, 1=CTRL_BREAK, 2=CTRL_CLOSE, 5=CTRL_LOGOFF, 6=CTRL_SHUTDOWN)", ctrl_type)
+                return True
+
+            kernel32 = ctypes.windll.kernel32
+            kernel32.SetConsoleCtrlHandler(console_ctrl_handler, True)
+            logger.info("Windows console control handler installed")
+        except Exception as e:
+            logger.warning("Failed to install console control handler: %s", e)
 
     if args.debug:
         _run_debug_simulation()

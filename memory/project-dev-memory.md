@@ -874,6 +874,24 @@ README.md    ← comprehensive architecture documentation
 | Screenshot directory must exist | `os.makedirs(dir_path, exist_ok=True)` before `screenshot.save()` |
 | Windows Focus Assist suppresses toasts | `QSystemTrayIcon.showMessage()` silently drops notifications during full-screen games |
 
+### Phase 38 — LLM Mode Collapse Prevention & COM Caching
+
+| Task | File | Status | Commit | Notes |
+|------|------|--------|--------|-------|
+| 38.1 COM UIA singleton caching | `src/screen_reader.py`, `src/pet_window.py` | ✅ | HEAD | `_get_uia_automation()` lazy singleton, `_cleanup_uia()` on shutdown — eliminates DLL binding 60x/min overhead |
+| 38.2 FSM SLEEP state integration | `src/pet_window.py` | ✅ | HEAD | `PetState.SLEEP` added to blocked states in `_should_fire_autonomous` + `_trigger_boredom_query`; graceful disconnect pattern (no `worker.wait()` on main thread) for worker cleanup on SLEEP entry |
+| 38.3 Exponential boredom backoff | `src/pet_window.py`, `tests/test_master_tick.py`, `tests/test_behavior_integration.py` | ✅ | HEAD | Context stability tracking via `(window, APM, typing_len, screen_hash)`; backoff doubles after each boredom trigger in stable context (30s → 60s → 120s → 300s max); resets on user activity |
+
+**New constants** (in `src/constants.py`): `MAX_IDLE_BACKOFF_SEC = 300`, `IDLE_BACKOFF_MULTIPLIER = 2.0`
+
+**Key decisions:**
+- Backoff only increases *after* a boredom FSM trigger fires, not on every tick — prevents the logic-bomb where backoff outruns the timer
+- `time.time()` used for elapsed tracking instead of `_boredom_timer_ms` to avoid variable conflict with existing countdown mechanism in `_tick`
+- `worker.wait()` replaced with signal `disconnect()` + `worker.quit()` pattern to avoid GUI freeze on SLEEP transition
+- COM singleton is thread-safe for main thread only (verified: `get_text_via_uia()` only called from `_master_tick` running on main thread)
+
+**Test impact:** 112/113 pass (1 pre-existing failure: `test_bubble_queue_drops_when_full` expects queue max=3 but `BUBBLE_QUEUE_MAX_SIZE=10`)
+
 ---
 
 ## How To Update This File

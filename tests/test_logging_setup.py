@@ -43,7 +43,7 @@ def test_setup_logging_file_handler_present(tmp_path):
 
 def test_log_file_is_timestamped(tmp_path):
     setup_logging(debug=True, log_dir=str(tmp_path))
-    log_files = [f for f in os.listdir(str(tmp_path)) if f.startswith("daemon-") and f.endswith(".log")]
+    log_files = [f for f in os.listdir(str(tmp_path)) if f.startswith("daemon_") and f.endswith(".log")]
     assert len(log_files) == 1
     assert log_files[0] != "daemon.log"
 
@@ -52,8 +52,8 @@ def test_cleanup_removes_old_logs(tmp_path):
     from src.logging_setup import _cleanup_old_logs
     import time
 
-    old = os.path.join(str(tmp_path), "daemon-2020-01-01_00-00-00.log")
-    new = os.path.join(str(tmp_path), "daemon-2026-06-08_00-00-00.log")
+    old = os.path.join(str(tmp_path), "daemon_2020-01-01_00-00-00.log")
+    new = os.path.join(str(tmp_path), "daemon_2026-06-08_00-00-00.log")
     with open(old, "w") as f:
         f.write("old")
     with open(new, "w") as f:
