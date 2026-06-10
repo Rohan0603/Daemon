@@ -1533,10 +1533,20 @@ class PetWindow(QWidget):
                 f"autonomous thoughts/jokes about the user's desktop habits as a JSON array. "
                 f"Every item MUST contain 'thought' and 'dialogue', and may optionally include 'brain_update'."
             )
+        window = get_active_window_title() or "unknown"
+        stage1 = (
+            f"INVESTIGATION — DO NOT generate JSON yet.\n"
+            f"Investigate the user's current context to understand what they're doing:\n"
+            f"- Active window: {window}\n"
+            f"- APM: {self._current_apm}\n"
+            f"- Refill type: {pool_type}\n\n"
+            f"Use MCP tools (read_file, git_status, etc.) to learn more. "
+            f"Report your findings — they will be used to generate appropriate content next."
+        )
         worker = OpencodeWorker(
             "",
             is_autonomous=True,
-            prompt=prompt,
+            two_stage_prompts=(stage1, prompt),
             session_id=self._opencode_session_id,
         )
         worker.response_ready.connect(lambda items, pt=pool_type: self._on_refill_result(items, pt))

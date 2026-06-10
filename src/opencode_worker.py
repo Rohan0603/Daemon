@@ -28,7 +28,8 @@ class OpencodeWorker(QThread):
                  is_autonomous: bool = False, parent=None,
                  session_id: str | None = None,
                  prompt: str | None = None,
-                 typing_content: str = "") -> None:
+                 typing_content: str = "",
+                 two_stage_prompts: tuple[str, str] | None = None) -> None:
         super().__init__(parent)
         self._user_input = user_input
         self._context_hint = context_hint
@@ -38,6 +39,7 @@ class OpencodeWorker(QThread):
         self._prebuilt_prompt = prompt
         self._typing_content = typing_content
         self._used_api = False
+        self._two_stage = two_stage_prompts
 
     def _post_message(self, payload: dict) -> str | None:
         session_id = self._session_id
@@ -140,6 +142,63 @@ class OpencodeWorker(QThread):
         else:
             logger.warning("send: API returned empty or None")
 
+    def _send_two_stage(self) -> None:
+        from src.constants import STRUCTURED_SCHEMA
+        stage1, stage2 = self._two_stage
+        payload1 = {
+            "model": {
+                "providerID": OPENCODE_API_MODEL_PROVIDER,
+                "modelID": OPENCODE_API_MODEL_ID,
+            },
+            "parts": [{"type": "text", "text": stage1}],
+        }
+        raw1 = self._post_message(payload1)
+        if raw1 is None:
+            self.response_ready.emit([])
+            return
+        self._used_api = True
+        self.path_used.emit("api")
+
+        enriched = f"[Investigation results]\n{raw1}\n\n[Generation task]\n{stage2}"
+        payload2 = {
+            "model": {
+                "providerID": OPENCODE_API_MODEL_PROVIDER,
+                "modelID": OPENCODE_API_MODEL_ID,
+            },
+            "parts": [{"type": "text", "text": enriched}],
+            "structured": STRUCTURED_SCHEMA,
+        }
+        raw2 = self._post_message(payload2)
+        if raw2 is None:
+            self.response_ready.emit([])
+            return
+
+        try:
+            cleaned = raw2.strip()
+            for fence in ("```json", "```"):
+                if cleaned.startswith(fence):
+                    cleaned = cleaned[len(fence):]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3]
+            cleaned = cleaned.strip()
+            items = json.loads(cleaned)
+            if isinstance(items, list):
+                self.response_ready.emit(items)
+                return
+        except json.JSONDecodeError:
+            pass
+        try:
+            match = re.search(r'\[\s*\{.*?\}\s*\]', raw2, re.DOTALL)
+            if match:
+                items = json.loads(match.group(0))
+                if isinstance(items, list):
+                    self.response_ready.emit(items)
+                    return
+        except (json.JSONDecodeError, AttributeError):
+            pass
+        items = self._handle_schema_error(raw2)
+        self.response_ready.emit(items)
+
     def _handle_schema_error(self, raw_response: str) -> list[dict]:
         return [{
             "thought": "Kenny's brain just bluescreened.",
@@ -147,5 +206,8 @@ class OpencodeWorker(QThread):
         }]
 
     def run(self) -> None:
+        if self._two_stage is not None:
+            self._send_two_stage()
+            return
         if self._prebuilt_prompt is not None:
             self.send(self._prebuilt_prompt)
