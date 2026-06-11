@@ -4,13 +4,7 @@ import logging
 import re
 import requests
 from PyQt6.QtCore import QThread, pyqtSignal
-from src.constants import (
-    OPENCODE_SERVER_URL,
-    OPENCODE_API_MODEL_PROVIDER,
-    OPENCODE_API_MODEL_ID,
-    OPENCODE_API_TIMEOUT_SEC,
-)
-
+from src.config import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +23,8 @@ class OpencodeWorker(QThread):
                  session_id: str | None = None,
                  prompt: str | None = None,
                  typing_content: str = "",
-                 two_stage_prompts: tuple[str, str] | None = None) -> None:
+                 two_stage_prompts: tuple[str, str] | None = None,
+                 config: dict | None = None) -> None:
         super().__init__(parent)
         self._user_input = user_input
         self._context_hint = context_hint
@@ -41,6 +36,7 @@ class OpencodeWorker(QThread):
         self._used_api = False
         self._two_stage = two_stage_prompts
         self._abort = False
+        self._config = config if config is not None else load_config()
 
     def abort(self) -> None:
         self._abort = True
@@ -49,15 +45,18 @@ class OpencodeWorker(QThread):
         session_id = self._session_id
         if self._abort:
             return None
+        llm_cfg = self._config.get("llm", {})
+        server_url = llm_cfg.get("server_url", "http://127.0.0.1:4096")
+        timeout_sec = llm_cfg.get("timeout_sec", 180)
         try:
             if not session_id:
                 if self._abort:
                     return None
-                logger.info("API: creating session at %s/session", OPENCODE_SERVER_URL)
+                logger.info("API: creating session at %s/session", server_url)
                 r = requests.post(
-                    f"{OPENCODE_SERVER_URL}/session",
+                    f"{server_url}/session",
                     json={"title": "Daemon Pet"},
-                    timeout=OPENCODE_API_TIMEOUT_SEC,
+                    timeout=timeout_sec,
                 )
                 if r.status_code >= 400:
                     logger.warning("API session create failed: %s %s", r.status_code, r.text[:200])
@@ -74,9 +73,9 @@ class OpencodeWorker(QThread):
                 return None
             logger.info("API: posting message to session %s", session_id)
             r = requests.post(
-                f"{OPENCODE_SERVER_URL}/session/{session_id}/message",
+                f"{server_url}/session/{session_id}/message",
                 json=payload,
-                timeout=OPENCODE_API_TIMEOUT_SEC,
+                timeout=timeout_sec,
             )
             if r.status_code >= 400:
                 logger.warning("API message failed: %s %s", r.status_code, r.text[:200])
@@ -107,10 +106,13 @@ class OpencodeWorker(QThread):
         if self._abort:
             return
         from src.constants import STRUCTURED_SCHEMA
+        llm_cfg = self._config.get("llm", {})
+        provider = llm_cfg.get("provider", "opencode")
+        model_id = llm_cfg.get("model_id", "north-mini-code-free")
         payload = {
             "model": {
-                "providerID": OPENCODE_API_MODEL_PROVIDER,
-                "modelID": OPENCODE_API_MODEL_ID,
+                "providerID": provider,
+                "modelID": model_id,
             },
             "parts": [{"type": "text", "text": prompt}],
             "structured": STRUCTURED_SCHEMA,
@@ -162,10 +164,13 @@ class OpencodeWorker(QThread):
         logger.debug("[VERIFY] two-stage agentic refill: starting stage1 (investigation, no JSON constraint)")
         from src.constants import STRUCTURED_SCHEMA
         stage1, stage2 = self._two_stage
+        llm_cfg = self._config.get("llm", {})
+        provider = llm_cfg.get("provider", "opencode")
+        model_id = llm_cfg.get("model_id", "north-mini-code-free")
         payload1 = {
             "model": {
-                "providerID": OPENCODE_API_MODEL_PROVIDER,
-                "modelID": OPENCODE_API_MODEL_ID,
+                "providerID": provider,
+                "modelID": model_id,
             },
             "parts": [{"type": "text", "text": stage1}],
         }
@@ -182,8 +187,8 @@ class OpencodeWorker(QThread):
         enriched = f"[Investigation results]\n{raw1}\n\n[Generation task]\n{stage2}"
         payload2 = {
             "model": {
-                "providerID": OPENCODE_API_MODEL_PROVIDER,
-                "modelID": OPENCODE_API_MODEL_ID,
+                "providerID": provider,
+                "modelID": model_id,
             },
             "parts": [{"type": "text", "text": enriched}],
             "structured": STRUCTURED_SCHEMA,

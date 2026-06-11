@@ -5,25 +5,26 @@ from src.pet_fsm import PetState
 
 
 class TestSessionReuse:
-    """Verify pool refill workers receive the cached session_id."""
+    """Verify refill workers do NOT share the main dialog session to prevent
+    concurrent request mixing."""
 
     @patch("src.pet_window.OpencodeWorker")
-    def test_refill_worker_receives_session_id(self, MockWorker):
-        """When _on_refill_needed fires, the OpencodeWorker must receive the
-        cached _opencode_session_id so it reuses the existing session."""
+    def test_refill_worker_has_own_session(self, MockWorker):
+        """When _on_refill_needed fires, the OpencodeWorker must NOT receive the
+        cached _opencode_session_id — refill workers get their own session."""
         pw = MagicMock(spec=PetWindow)
         pw._opencode_session_id = "ses_abc123"
         pw._current_apm = 10
         pw._context_manager = MagicMock()
-        pw._context_manager.build_pool_refill_prompt.return_value = "test prompt"
+        pw._context_manager.build_mixed_bag_prompt.return_value = "test prompt"
         pw._refill_workers = {}
 
         mock_worker = MagicMock()
         MockWorker.return_value = mock_worker
 
-        PetWindow._on_refill_needed(pw, "jokes_blackmail")
+        PetWindow._on_refill_needed(pw)
 
         MockWorker.assert_called_once()
-        call_kwargs = MockWorker.call_args
-        assert call_kwargs[1].get("session_id") == "ses_abc123", \
-            f"Expected session_id='ses_abc123', got {call_kwargs[1].get('session_id')}"
+        call_kwargs = MockWorker.call_args[1]
+        assert call_kwargs.get("session_id") is None, \
+            f"Expected session_id=None (own session), got {call_kwargs.get('session_id')}"

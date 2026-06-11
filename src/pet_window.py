@@ -26,7 +26,6 @@ from src.constants import (
     MAX_BACKOFF_SEC, BACKOFF_MULTIPLIER,
     BUBBLE_QUEUE_MAX_SIZE,
     SHORT_BUBBLE_DURATION_MS, SHORT_BUBBLE_CHAR_LIMIT,
-    TTS_ENABLED, TTS_BASE_RATE, TTS_VOICE_ID,
     SQUASH_STRETCH_DURATION_MS, PERIMETER_FALL_CHANCE,
     THROW_VELOCITY_THRESHOLD, THROW_FRICTION,
     RISKY_KEYWORDS,
@@ -92,10 +91,10 @@ class PetWindow(QWidget):
 
         from src.config import load_config
         self._config = load_config()
-        self._pet_scale = self._config.get("pet_scale", 1.0)
-        self._pet_opacity = self._config.get("pet_opacity", 0.85)
-        self._pet_speed_multiplier = self._config.get("pet_speed_multiplier", 1.0)
-        self._chattiness = self._config.get("chattiness", 1.0)
+        self._pet_scale = self._config.get("pet", {}).get("scale", 1.0)
+        self._pet_opacity = self._config.get("pet", {}).get("opacity", 0.85)
+        self._pet_speed_multiplier = self._config.get("pet", {}).get("speed_multiplier", 1.0)
+        self._chattiness = self._config.get("pet", {}).get("chattiness", 1.0)
 
         self._scale = QApplication.primaryScreen().devicePixelRatio()
         self._ground_y = self._compute_ground_y()
@@ -159,13 +158,9 @@ class PetWindow(QWidget):
         self._typing_buffer = TypingBuffer()
         self._typing_buffer.start()
 
-        self._tts = TTSWorker(
-            rate=self._config.get("tts_rate", TTS_BASE_RATE),
-            volume=self._config.get("tts_volume", 1.0),
-            voice_id=self._config.get("tts_voice_id") or TTS_VOICE_ID,
-        )
+        self._tts = TTSWorker(config=self._config)
         self._tts.start()
-        if not self._config.get("tts_enabled", True):
+        if not self._config.get("tts", {}).get("enabled", True):
             self._tts.set_enabled(False)
 
         # MCP FSM bridge — thread-safe signal relay between MCP server and Qt main thread
@@ -182,7 +177,7 @@ class PetWindow(QWidget):
         self._diary_path = DIARY_PATH
 
         self._diary_store = DiaryStore(self._diary_path)
-        self._mcp_server = MCPServer(self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, config=self._config)
+        self._mcp_server = MCPServer(self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, config=self._config.get("consent", {}))
         self._write_coalescer = WriteCoalescer(
             memory=self._memory, history=self._history,
             memory_manager=self._firebase_mem,
@@ -647,7 +642,7 @@ class PetWindow(QWidget):
         self._saved_tts_voice_id = self._tts.voice_id if self._tts else None
         self._saved_chattiness = self._chattiness
         self._saved_consent = {
-            k: self._config.get(k, v) for k, v in {
+            k: self._config.get("consent", {}).get(k, v) for k, v in {
                 "allow_intrusive_animations": True,
                 "allow_audio_disruptions": False,
                 "allow_browser_redirection": False,
@@ -697,7 +692,7 @@ class PetWindow(QWidget):
             self._chattiness = values["chattiness"]
 
     def _save_settings(self, values: dict) -> None:
-        from src.config import save_config
+        from src.config import save_config, unflatten_config
         consent_keys = ("allow_intrusive_animations", "allow_audio_disruptions",
                         "allow_browser_redirection", "allow_clipboard_hijacking",
                         "allow_mouse_interference", "allow_window_management",
@@ -705,6 +700,9 @@ class PetWindow(QWidget):
         consent_state = {k: values.get(k, False) for k in consent_keys}
         logger.info("Consent Matrix updated by user: %s", consent_state)
         save_config(values)
+        self._config = unflatten_config(values)
+        if self._mcp_server:
+            self._mcp_server._config = self._config.get("consent", {})
 
     def _restore_settings(self) -> None:
         self._apply_settings({

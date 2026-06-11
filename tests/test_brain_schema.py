@@ -93,8 +93,9 @@ class TestBrainSchemaConsistency:
                 )
 
     def test_firebase_constants_importable(self):
-        from src.constants import FIREBASE_API_KEY, FIREBASE_PROJECT_ID
-        assert isinstance(FIREBASE_API_KEY, str)
+        from src.constants import FIREBASE_PROJECT_ID
+        from src.config import DEFAULT_CONFIG
+        assert isinstance(DEFAULT_CONFIG["firebase"]["api_key"], str)
         assert isinstance(FIREBASE_PROJECT_ID, str)
 
 

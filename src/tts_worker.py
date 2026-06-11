@@ -9,7 +9,6 @@ import tempfile
 import threading
 import wave
 from PyQt6.QtCore import QThread, pyqtSignal
-from src.constants import TTS_PITCH_FACTOR
 
 logger = logging.getLogger(__name__)
 
@@ -24,16 +23,34 @@ class TTSWorker(QThread):
     speaking_started = pyqtSignal()
     speaking_finished = pyqtSignal()
 
-    def __init__(self, rate: int = 250, volume: float = 1.0,
-                 voice_id: str | None = None, parent=None):
+    def __init__(self, rate: int = 220, volume: float = 1.0,
+                 voice_id: str | None = None, pitch: float = 1.15,
+                 parent=None, config: dict | None = None):
         super().__init__(parent)
         self._queue: queue.Queue[str] = queue.Queue()
         self._shutdown = threading.Event()
         self._enabled = threading.Event()
         self._enabled.set()
-        self._rate = rate
-        self._volume = volume
-        self._voice_id = voice_id
+        
+        if config is not None:
+            tts_cfg = config.get("tts", {})
+            self._rate = tts_cfg.get("rate", rate)
+            self._volume = tts_cfg.get("volume", volume)
+            self._voice_id = tts_cfg.get("voice_id", voice_id)
+            self._pitch = tts_cfg.get("pitch", pitch)
+        else:
+            self._rate = rate
+            self._volume = volume
+            self._voice_id = voice_id
+            self._pitch = pitch
+
+    @property
+    def pitch(self) -> float:
+        return self._pitch
+
+    @pitch.setter
+    def pitch(self, value: float) -> None:
+        self._pitch = value
 
     @property
     def rate(self) -> int:
@@ -147,7 +164,7 @@ class TTSWorker(QThread):
 
             audio = AudioSegment.from_file(audio_path)
             orig_rate = audio.frame_rate
-            new_rate = int(orig_rate * TTS_PITCH_FACTOR)
+            new_rate = int(orig_rate * self._pitch)
 
             shifted = audio._spawn(audio.raw_data, overrides={"frame_rate": new_rate})
             shifted = shifted.set_frame_rate(orig_rate)
@@ -173,7 +190,7 @@ class TTSWorker(QThread):
                 orig_rate = w.getframerate()
                 frames = w.readframes(w.getnframes())
 
-            pitched_rate = int(orig_rate * TTS_PITCH_FACTOR)
+            pitched_rate = int(orig_rate * self._pitch)
 
             with wave.open(tmp, "wb") as w:
                 w.setnchannels(nch)
