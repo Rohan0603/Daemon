@@ -6,14 +6,14 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-11 (Phase 39.5 — Two-Step Agentic Refill)
+**Date updated:** 2026-06-12 (Phase 45 — The Puppeteer)
 **Current branch:** `master`
-**Latest commit:** `83039f6` fix: two-step agentic loop for autonomous background tool usage
-**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40
+**Latest commit:** `pending` Phase 45 implementation
+**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45
 **Git root:** `C:\Users\ponna\Project\Daemon`
 **Python command:** `py` (Windows py launcher — not `python` or `python3`)
 **Test command:** `py -m pytest tests/ -v --ignore=tests/test_output.txt --ignore=tests/test_firebase_crud.py`
-**Test count:** 416 collected across 28 test files (1 pre-existing pet_window failure)
+**Test count:** ~450 across 29 test files (6 pool + 10 manager + 2 context + 2 pet_window new/updated)
 
 ---
 
@@ -517,6 +517,156 @@ All local JSON: atomic tmp+replace writes, .bak fallback on read failure. Single
 
 ---
 
+---
+
+### Phase 42 — Stream of Consciousness (2026-06-11)
+
+**Branch:** `master` (squashed, commit `35d55f4`)
+
+**What was built:**
+
+Collapsed the legacy 3-pool system (jokes_blackmail, system, typing_reactions) into a single unified ThoughtPool with type filtering, spatial TTL invalidation, and Mixed-Bag JSON schema.
+
+**Task 1 — Constants & ThoughtPool (`c3632ba`):**
+- Deleted 9 legacy pool constants (`JOKES_BLACKMAIL_POOL_*`, `SYSTEM_POOL_*`, `TYPING_POOL_*`)
+- Added `THOUGHT_POOL_SIZE=20`, `THOUGHT_POOL_THRESHOLD=5`, `THOUGHT_POOL_REFILL_COUNT=5`
+- Renamed `ResponsePool` → `ThoughtPool`, removed `pool_type` from `__init__`
+- Added `draw_by_type(target_type, current_context_hash)` with spatial TTL invalidation
+- Items with mismatched `context_hash` get discarded after 3 consecutive stale draws
+- Items without `context_hash` are always valid (backward compat)
+- `refill_needed` signal changed from `pyqtSignal(str)` → `pyqtSignal()`
+- 6 pool tests
+
+**Task 2 — Mixed-Bag Manager (`f3d6732`):**
+- Replaced `build_pool_refill_prompt(pool_type, apm, count)` with `build_mixed_bag_prompt(count)` — produces single prompt requesting all 4 types (`typing_reaction`, `observation`, `intel_roast`, `idle_thought`)
+- Collapsed `AutonomousResponseManager` to single `thought_pool` instance
+- Removed `_load_local_typing_reactions()` → renamed `_load_local_seeds()`
+- Removed `prime_from_user_response()` (dead code — no system pool to feed)
+- 10 manager tests + 2 context manager tests
+
+**Task 3 — PetWindow Wiring (`8b6a0b2`, amended to `35d55f4`):**
+- `_trigger_chat()`: draws `typing_reaction` with `current_context_hash`
+- `_trigger_boredom_query()`: draws `idle_thought` then `observation` with hash
+- `_should_fire_autonomous()`: checks `thought_pool.remaining()` for boredom
+- `_on_structured_multiplexed()`: adds surplus items to single pool (no pool_type dispatch)
+- `_on_refill_needed()`: uses `build_mixed_bag_prompt()`, no `pool_type` param
+- `_log_data_state`: single `thought_pool` count instead of jokes+system
+- Removed `_on_pool_items_ready()` dead code
+- 15 hardcoded Kenny typing reactions seeded into ThoughtPool on boot
+
+**Files changed:** 9 files, +305/-484 lines
+
+**Key decisions:**
+- 4 types: `typing_reaction`, `observation`, `intel_roast`, `idle_thought` — no `system_announcement` (health check handled in Python, Phase 40)
+- Field name stays `dialogue` — consistent with `_dispatch_structured()` downstream
+- Items without `context_hash` always valid — backward compatible for seeded/manual items
+- `count` param removed from `AutonomousResponseManager.draw()` — type-filtered draws always return 1 item
+- `_BOREDOM_FALLBACK_JOKES` kept in `pet_window.py` as last-resort fallback
+
+**Review fixes applied:**
+- `draw_by_type()` no longer mutates `self._items` while iterating (uses `candidates` copy)
+- Vestigial `pool_type` param removed from `_on_refill_needed()`
+
+### Phase 43 — The Consent Matrix (2026-06-11)
+
+**Branch:** `master` (squashed, commit `1918e7f`)
+
+**What was built:**
+
+7-tier boolean permission matrix that gates MCP tool execution at the routing layer. Settings UI Tab 3 "Boundaries" with 3 tier-grouped QGroupBoxes.
+
+**Files changed:** `src/config.py`, `src/settings_dialog.py`, `src/pet_window.py`, `tests/test_settings_dialog.py`, `tests/test_config.py`
+
+**Key details:**
+- Tier 1 (Low Risk): `allow_intrusive_animations` = True
+- Tier 2 (Medium Risk): `allow_audio_disruptions`, `allow_browser_redirection` = False
+- Tier 3 (High Risk, red text): `allow_clipboard_hijacking`, `allow_mouse_interference`, `allow_window_management`, `allow_keyboard_injection` = False
+- API-first, config keys only read in MCP dispatcher, never in renderer/FSM
+
+### Phase 44 — The Emotion Engine (2026-06-11)
+
+**Branch:** `master` (3 commits: `029f7d6`, `32b3031`, `61a034e`)
+
+**Architecture:** Modifier Pattern — EmotionAnimator is pure visual overlay, never writes X/Y.
+
+**Task 1 — Particle System + Emotion Expressions (`029f7d6`, amended):**
+- `ParticleSystem` — emit/update/draw with gravity, alpha fade, 200-particle cap
+- `Emotion` enum — 9 states: MIRTH, ANGER, FEAR, DISGUST, PATHOS, DEVOTION, HEROISM, WONDER, TRANQUILITY
+- `EmotionAnimator` — transform curves, body color overrides, overlay descriptors, per-emotion particle emission
+- Wired through `RenderContext` → `PetRenderer` → paint pipeline (transform composition, overlay drawing)
+- 40 tests in `tests/test_animator.py`
+
+**Task 2 — Throw Physics (`32b3031`):**
+- Velocity-based drag tracking in `mouseMoveEvent` (dx/dt per frame)
+- `THROW_VELOCITY_THRESHOLD=5.0`, `THROW_FRICTION=0.95`
+- Throw trajectory as FALLING sub-state with horizontal friction + gravity
+- 3 throw physics tests
+
+**Task 3 — Window Tracking + Emotion FSM (`61a034e`):**
+- `_evaluate_emotion()` — 7-rule priority chain: FEAR > DISGUST > WONDER > ANGER > DEVOTION > PATHOS > TRANQUILITY > MIRTH
+- FEAR→FALLING macro transition (Task Manager detected)
+- Window switch tracking for WONDER detection, 5s evaluation tick
+- 7 context-driven emotion tests
+
+### Phase 44.5 — QA & Integration Sweep (2026-06-11)
+
+**Commit:** `00f5b6c`
+
+**What was fixed (3 gaps found by verification matrix):**
+
+| # | Gap | Fix |
+|---|-----|-----|
+| 1 | MCP firewall wasn't gated | `_CONSENT_TOOL_MAP` dict + `_is_tool_allowed()` routing gate in `_handle_tools_call`; config passed from PetWindow → MCPServer → MCPHandler |
+| 2 | No animator constraint test | `test_constraint_never_writes_xy` — asserts no `_pet_x`/`_pet_y` across all 9 emotions |
+| 3 | Missing logging + test coverage | `INFO` emotion transition logging in `set_emotion()`, `WARNING` MCP block logging; body color/overlay/particle tests for all 9 emotions |
+
+**Bonus fix:** SSE keepalive loop (`_handle_sse`) — persistent `: keepalive\n\n` every 15s prevents opencode "Unable to connect" error.
+
+**Test results:** 104/104 passed (animator: 54, mcp_server: 47, active_window: 4)
+
+---
+
+### Phase 44.6 — Production Log Audit Bugfixes (2026-06-12)
+
+**Commit:** `d3fbd49`
+
+**Bugs found in** `logs/daemon_2026-06-12_00-04-04.log` **audit:**
+
+| # | Bug | Severity | Fix |
+|---|-----|----------|-----|
+| 1 | Zombie worker on shutdown — `OpencodeWorker.run()` blocking on `requests.post(180s timeout)` ignores `QThread.quit()` | CRITICAL | `_abort` flag checked before each blocking call in `_post_message()`, `send()`, `_send_two_stage()`; `abort()` method called before `worker.quit()` in `_force_quit_app()` |
+| 2 | Click-through thrashing — binary `geom.contains(cursor)` toggles rapidly when cursor near pet edge during CHASE movement | MEDIUM | Hysteresis deadzone: expanded geometry for entry (15px margin), shrunk geometry for exit (15px margin) — eliminates edge jitter during movement |
+| 3 | FSM double-fire in logs — two `IDLE→CHASE` transitions logged at same second | LOW | Guard in `PetFSM.update()`: `if next_state == self.current_state: return` skips redundant state assignment |
+| 4 | Preemption timer stale — `_idle_seconds` never reset on user input; deferred triggers carry pre-interaction idle time | MEDIUM | `_idle_seconds = 0.0` and `_deferred_trigger_params = None` in `_on_input_submitted()`; deferred trigger re-reads `self._idle_seconds` via `params["idle_seconds"] = self._idle_seconds` at fire time |
+| 5 | Firebase config undocumented | LOW | Comment block in `constants.py` with GCP service account instructions |
+
+**Additional finding:** Deferred autonomous triggers carry stale `idle_seconds` — fixed by re-reading current `self._idle_seconds` at fire time rather than using captured params.
+
+**Test results:** 208/208 in targeted pass (FSM, hysteresis, animator, MCP, config, constants, brain_schema, diary, history). 11 pre-existing failures in `test_master_tick.py` + `test_behavior_integration.py` (mock PetWindow lacks Phase 44's `_emotion_timer_sec`).
+
+---
+
+### Phase 45 — The Puppeteer ✅ IN PROGRESS (Phase 45.1-45.3)
+
+**Commit:** `pending`
+
+**Tasks:**
+
+| Task | File | Status | Notes |
+|------|------|--------|-------|
+| 45.1 Add 3 new MCP tools | `src/mcp_server.py` | ✅ | `simulate_keystroke`, `move_mouse`, `browser_navigation` with pynput Controllers, consent gating, safety checks |
+| 45.2 Add 9 new tests | `tests/test_mcp_server.py` | ✅ | 3 per tool: allowed (patched), blocked (consent), edge case (window key, bad URL, negative coords) |
+| 45.3 Update config model ID | `data/.daemon_config.json` | ✅ | Fix stale `deepseek-v4-flash` → `deepseek-v4-flash-free` |
+
+**Changes:**
+- `src/mcp_server.py`: Added 3 tool handlers with pynput, 50-char keystroke limit, Windows-key blocking, screen-space mouse clamping, http/https-only browser navigation
+- `tests/test_mcp_server.py`: Added 9 new tests, updated 3 existing tests (tools_list_count, tools_list, consent tests)
+- `data/.daemon_config.json`: Fixed model ID to `deepseek-v4-flash-free`
+
+**Test results:** 58/58 MCP + config tests pass (all 49 MCP server tests + 9 new Puppeteer tests). Pre-existing failures in `test_master_tick.py` + `test_behavior_integration.py` unchanged.
+
+---
+
 ## What To Do Next
 
 - **Linting:** `ruff check src/` — fix any remaining warnings before next phase
@@ -732,8 +882,8 @@ src/
   context_menu.py        ← PetContextMenu with 6 actions, _Signals(QObject) for decoupling
   screen_reader.py       ← UIA text extraction via comtypes, WM_GETTEXT fallback
   pet_window.py          ← QWidget (1609 lines) — owns FSM, renderer, all wiring
-   response_pool.py       ← ResponsePool — priority-weighted pool with decay, weighted random draw, auto-refill
-   response_manager.py    ← AutonomousResponseManager — multi-pool response cache, persistence, pool lifecycle
+   response_pool.py       ← ThoughtPool — single unified pool with type filtering, spatial TTL, priority decay
+   response_manager.py    ← AutonomousResponseManager — single ThoughtPool, Mixed-Bag refill, persistence
 
   memory_manager.py      ← Firebase bridge: sync_to_local/sync_from_local, retry queue
   memory.py              ← Local JSON key-value fact store (.bak recovery, max 50 facts)
@@ -762,11 +912,12 @@ scripts/
 .opencode/skills/kenny/
   SKILL.md               ← Kenny persona + action matrix + output contract (loaded natively)
 
-tests/ (416 tests across 28 files)
+tests/ (~450 tests across 29 files)
   __init__.py
   test_fsm.py                    ← 35 FSM tests
   test_opencode_worker.py        ← structured schema, session reuse tests
-  test_response_manager.py       ← multi-pool + atomic + TTL tests
+   test_response_pool.py          ← ThoughtPool: type filtering, spatial TTL, priority tests (6 tests)
+   test_response_manager.py       ← single ThoughtPool + atomic + Mixed-Bag tests (10 tests)
   test_memory_manager.py         ← Firebase mocked tests + retry queue
   test_memory.py                 ← memory key-value + .bak + coalescer tests
   test_history.py                ← history + .bak + coalescer tests
