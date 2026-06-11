@@ -8,7 +8,7 @@
 
 **Date updated:** 2026-06-12 (Phase 45 — The Puppeteer)
 **Current branch:** `master`
-**Latest commit:** `pending` Phase 45 implementation
+**Latest commit:** `e0b0d0b` feat(config): migrate to unified nested configuration
 **Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45
 **Git root:** `C:\Users\ponna\Project\Daemon`
 **Python command:** `py` (Windows py launcher — not `python` or `python3`)
@@ -646,9 +646,9 @@ Collapsed the legacy 3-pool system (jokes_blackmail, system, typing_reactions) i
 
 ---
 
-### Phase 45 — The Puppeteer ✅ IN PROGRESS (Phase 45.1-45.3)
+### Phase 45 — The Puppeteer ✅ COMPLETE (Phase 45.1-45.3)
 
-**Commit:** `pending`
+**Commit:** `dadd9c1`
 
 **Tasks:**
 
@@ -663,7 +663,26 @@ Collapsed the legacy 3-pool system (jokes_blackmail, system, typing_reactions) i
 - `tests/test_mcp_server.py`: Added 9 new tests, updated 3 existing tests (tools_list_count, tools_list, consent tests)
 - `data/.daemon_config.json`: Fixed model ID to `deepseek-v4-flash-free`
 
-**Test results:** 58/58 MCP + config tests pass (all 49 MCP server tests + 9 new Puppeteer tests). Pre-existing failures in `test_master_tick.py` + `test_behavior_integration.py` unchanged.
+**Test results:** 58/58 MCP + config tests pass (all 49 MCP server tests + 9 new Puppeteer tests).
+
+---
+
+### Phase 45.4 — Unified Config Migration ✅ COMPLETE
+
+**Commit:** `e0b0d0b`
+
+**Tasks:**
+- Created `data/daemon_config.json` with nested schema
+- Rewrote `src/config.py` to support deep merging, flat-to-nested adapters, and valid key filtering
+- Stripped user-configurable values from `src/constants.py`
+- Updated `src/pet_window.py` to use nested access + pass flat to SettingsDialog + update `_save_settings`
+- Updated `src/opencode_worker.py` and `src/firebase_auth.py` to retrieve values from configuration
+- Updated `src/tts_worker.py` to accept nested configuration
+- Fixed pre-existing PyQt6 test constructor bypasses in `tests/test_master_tick.py` and `tests/test_behavior_integration.py`
+- Deleted old dot config file `data/.daemon_config.json`
+- Verified all unit and integration tests pass successfully
+
+**Test results:** All targeted and full test runs pass, including the previously failing `test_master_tick.py` and `test_behavior_integration.py` tests.
 
 ---
 
