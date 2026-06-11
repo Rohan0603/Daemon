@@ -51,8 +51,20 @@ def _acquire_lock(pet_id: str) -> bool:
             PROCESS_QUERY_LIMITED_INFO = 0x1000
             handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFO, False, pid)
             if handle:
+                is_stale = False
+                try:
+                    from ctypes import wintypes
+                    buf = ctypes.create_unicode_buffer(1024)
+                    size = wintypes.DWORD(1024)
+                    if ctypes.windll.kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size)):
+                        exe_name = os.path.basename(buf.value).lower()
+                        if not any(x in exe_name for x in ("python", "py", "daemon")):
+                            is_stale = True
+                except Exception:
+                    pass
                 ctypes.windll.kernel32.CloseHandle(handle)
-                return False
+                if not is_stale:
+                    return False
         except Exception:
             pass
     lock.write_text(str(os.getpid()))
