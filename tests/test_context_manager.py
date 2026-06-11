@@ -161,60 +161,28 @@ def test_trigger_prompt_excludes_skill_content():
                 assert line.strip() not in auto_prompt, f"SKILL.md leaked into autonomous trigger: {line.strip()[:40]}"
 
 
-def test_build_pool_refill_prompt_typing_high_apm():
-    """Typing pool refill prompt adapts to high APM with panicked vibe."""
+def test_build_mixed_bag_prompt_includes_all_types():
+    """Mixed bag prompt lists all four type options."""
     from src.context_manager import ContextManager
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
-    prompt = cm.build_pool_refill_prompt("typing_reactions", 80, 5)
-    assert "frantically" in prompt
-    assert "panicked" in prompt
-    assert "APM: 80" in prompt
-    assert "EXACTLY 5" in prompt
-    assert "'thought' and 'dialogue'" in prompt
+    prompt = cm.build_mixed_bag_prompt(5)
+    assert "typing_reaction" in prompt
+    assert "observation" in prompt
+    assert "intel_roast" in prompt
+    assert "idle_thought" in prompt
+    assert "type" in prompt
+    assert "dialogue" in prompt
+    assert "priority" in prompt
 
 
-def test_build_pool_refill_prompt_typing_low_apm():
-    """Typing pool refill prompt adapts to low APM with bored vibe."""
+def test_build_mixed_bag_prompt_respects_count():
+    """Mixed bag prompt embeds the requested item count."""
     from src.context_manager import ContextManager
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
-    prompt = cm.build_pool_refill_prompt("typing_reactions", 5, 5)
-    assert "painfully slow" in prompt
-    assert "bored" in prompt
-    assert "APM: 5" in prompt
-
-
-def test_build_pool_refill_prompt_typing_normal_apm():
-    """Typing pool refill prompt adapts to normal APM with distracted vibe."""
-    from src.context_manager import ContextManager
-    cm = ContextManager.__new__(ContextManager)
-    cm._snapshot = {}
-    cm._full_injected = False
-    prompt = cm.build_pool_refill_prompt("typing_reactions", 30, 5)
-    assert "normal pace" in prompt
-    assert "distracted" in prompt
-    assert "APM: 30" in prompt
-
-
-def test_build_pool_refill_prompt_custom_count():
-    """Typing pool refill prompt respects custom count parameter."""
-    from src.context_manager import ContextManager
-    cm = ContextManager.__new__(ContextManager)
-    cm._snapshot = {}
-    cm._full_injected = False
-    prompt = cm.build_pool_refill_prompt("typing_reactions", 50, 3)
-    assert "EXACTLY 3" in prompt
-
-
-def test_build_pool_refill_prompt_unknown_type_fallback():
-    """Unknown pool type gets generic fallback prompt."""
-    from src.context_manager import ContextManager
-    cm = ContextManager.__new__(ContextManager)
-    cm._snapshot = {}
-    cm._full_injected = False
-    prompt = cm.build_pool_refill_prompt("unknown_pool", 50, 2)
-    assert "autonomous thoughts/jokes" in prompt
-    assert "2 autonomous" in prompt
+    prompt = cm.build_mixed_bag_prompt(3)
+    assert "3" in prompt or "EXACTLY 3" in prompt
+    assert "typing_reaction" in prompt

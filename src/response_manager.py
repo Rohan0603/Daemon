@@ -7,13 +7,10 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, QTimer
 
 from src.constants import (
-    JOKES_BLACKMAIL_POOL_SIZE, JOKES_BLACKMAIL_POOL_THRESHOLD,
-    JOKES_BLACKMAIL_POOL_REFILL_COUNT,
-    SYSTEM_POOL_SIZE, SYSTEM_POOL_THRESHOLD, SYSTEM_POOL_REFILL_COUNT,
-    TYPING_POOL_MAX, TYPING_POOL_LOW_WATERMARK, TYPING_POOL_REFILL_COUNT,
+    THOUGHT_POOL_SIZE, THOUGHT_POOL_THRESHOLD, THOUGHT_POOL_REFILL_COUNT,
     POOL_DECAY_INTERVAL_SEC, POOL_REFILL_PERIODIC_SEC,
 )
-from src.response_pool import ResponsePool
+from src.response_pool import ThoughtPool
 
 logger = logging.getLogger(__name__)
 
@@ -23,20 +20,13 @@ class AutonomousResponseManager(QObject):
         super().__init__(parent)
         self._cache_path = cache_path
         self._write_coalescer = write_coalescer
-        self._pools = {
-            "jokes_blackmail": ResponsePool(
-                "jokes_blackmail", JOKES_BLACKMAIL_POOL_SIZE,
-                JOKES_BLACKMAIL_POOL_THRESHOLD, JOKES_BLACKMAIL_POOL_REFILL_COUNT,
-            ),
-            "system": ResponsePool(
-                "system", SYSTEM_POOL_SIZE,
-                SYSTEM_POOL_THRESHOLD, SYSTEM_POOL_REFILL_COUNT,
-            ),
-            "typing_reactions": ResponsePool(
-                "typing_reactions", TYPING_POOL_MAX,
-                TYPING_POOL_LOW_WATERMARK, TYPING_POOL_REFILL_COUNT,
-            ),
-        }
+        self.thought_pool = ThoughtPool(
+            max_size=THOUGHT_POOL_SIZE,
+            threshold=THOUGHT_POOL_THRESHOLD,
+            refill_count=THOUGHT_POOL_REFILL_COUNT,
+        )
+        logger.debug("[VERIFY] unified ThoughtPool: single pool created (max=%d, threshold=%d, refill=%d)",
+                     THOUGHT_POOL_SIZE, THOUGHT_POOL_THRESHOLD, THOUGHT_POOL_REFILL_COUNT)
         self._decay_timer = QTimer(self)
         self._decay_timer.setInterval(POOL_DECAY_INTERVAL_SEC * 1000)
         self._decay_timer.timeout.connect(self.decay_all)
@@ -44,10 +34,10 @@ class AutonomousResponseManager(QObject):
         self._auto_refill_timer.setInterval(POOL_REFILL_PERIODIC_SEC * 1000)
         self._auto_refill_timer.timeout.connect(self._on_auto_refill_tick)
         self._load()
-        self._load_local_typing_reactions()
+        self._load_local_seeds()
 
-    def _load_local_typing_reactions(self) -> None:
-        """Hardcoded Kenny 1-liners for instant typing reactions (no API)."""
+    def _load_local_seeds(self) -> None:
+        logger.debug("[VERIFY] ThoughtPool: seeding with %d local typing reactions", 15)
         kenny_typing_lines = [
             "Look at those fingers fly! You're a regular hacker-man, huh?",
             "Whoa, slow down there, champ. The keyboard has a family.",
@@ -66,43 +56,32 @@ class AutonomousResponseManager(QObject):
             "I'm getting carpal tunnel just WATCHING you.",
         ]
         items = [
-            {"dialogue": line, "action": "hyper", "target_x": 0, "priority": 3, "pool_type": "typing_reactions"}
+            {"dialogue": line, "type": "typing_reaction", "action": "hyper",
+             "target_x": 0, "priority": 3}
             for line in kenny_typing_lines
         ]
-        self.add_items("typing_reactions", items)
+        self.thought_pool.add_items(items)
 
-    def draw(self, pool_type: str, count: int = 1) -> list[dict]:
-        pool = self._pools.get(pool_type)
-        if not pool:
-            logger.warning("Unknown pool type: %s", pool_type)
-            return []
-        return pool.draw(count)
+    def draw(self, target_type: str, current_context_hash: str = None) -> list[dict]:
+        return self.thought_pool.draw_by_type(target_type, current_context_hash)
 
-    def add_items(self, pool_type: str, items: list[dict]):
-        pool = self._pools.get(pool_type)
-        if pool:
-            pool.add_items(items)
+    def add_items(self, items: list[dict]):
+        if items:
+            self.thought_pool.add_items(items)
             self._mark_dirty()
 
-    def remaining(self, pool_type: str) -> int:
-        pool = self._pools.get(pool_type)
-        return pool.remaining() if pool else 0
+    def remaining(self) -> int:
+        return self.thought_pool.remaining()
 
     def decay_all(self):
-        for pool in self._pools.values():
-            pool.decay()
-
-    def prime_from_user_response(self, joke_items: list[dict], system_items: list[dict]):
-        self.add_items("jokes_blackmail", joke_items[:2])
-        self.add_items("system", system_items[:2])
+        self.thought_pool.decay()
 
     def start(self):
         self._decay_timer.start()
         self._auto_refill_timer.start()
-        for pool_type, pool in self._pools.items():
-            if pool.remaining() < 3:
-                logger.debug("Pool %s stale (%d), priming", pool_type, pool.remaining())
-                QTimer.singleShot(2000, pool._request_refill)
+        if self.thought_pool.remaining() < 3:
+            logger.debug("ThoughtPool stale (%d), priming", self.thought_pool.remaining())
+            QTimer.singleShot(2000, self.thought_pool._request_refill)
 
     def stop(self):
         self._decay_timer.stop()
@@ -115,23 +94,21 @@ class AutonomousResponseManager(QObject):
             data = json.loads(Path(self._cache_path).read_text(encoding="utf-8"))
             cutoff = datetime.now() - timedelta(days=7)
             pools_data = data.get("pools", {})
-            for pool_type, pool in self._pools.items():
-                pool_data = pools_data.get(pool_type, {})
-                items = pool_data.get("items", [])
-                filtered = []
-                for item in items:
-                    last_used_str = item.get("last_used")
-                    if last_used_str:
-                        try:
-                            last_used = datetime.fromisoformat(last_used_str)
-                            if last_used < cutoff:
-                                continue
-                        except (ValueError, TypeError):
-                            pass
-                    filtered.append(item)
-                pool.load_items(filtered)
-            logger.info("Loaded response cache: jokes=%d, system=%d",
-                        self.remaining("jokes_blackmail"), self.remaining("system"))
+            pool_data = pools_data.get("thought_pool", {})
+            items = pool_data.get("items", [])
+            filtered = []
+            for item in items:
+                last_used_str = item.get("last_used")
+                if last_used_str:
+                    try:
+                        last_used = datetime.fromisoformat(last_used_str)
+                        if last_used < cutoff:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+                filtered.append(item)
+            self.thought_pool.load_items(filtered)
+            logger.info("Loaded thought pool: %d items", self.thought_pool.remaining())
         except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
             logger.warning("Failed to load response cache: %s", e)
 
@@ -140,11 +117,10 @@ class AutonomousResponseManager(QObject):
             data = {
                 "version": 2,
                 "pools": {
-                    pool_type: {
-                        "items": pool.save_items(),
+                    "thought_pool": {
+                        "items": self.thought_pool.save_items(),
                         "last_refill": datetime.now().isoformat(),
                     }
-                    for pool_type, pool in self._pools.items()
                 }
             }
             tmp = self._cache_path + ".tmp"
@@ -163,6 +139,5 @@ class AutonomousResponseManager(QObject):
         self._write_coalescer.mark_dirty("response_cache")
 
     def _on_auto_refill_tick(self):
-        for pool_type, pool in self._pools.items():
-            if not pool._refilling:
-                pool._request_refill()
+        if not self.thought_pool._refilling:
+            self.thought_pool._request_refill()
