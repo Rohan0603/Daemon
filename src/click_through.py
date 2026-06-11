@@ -14,7 +14,8 @@ GWL_EXSTYLE          = -20
 WS_EX_TRANSPARENT    = 0x00000020
 WS_EX_LAYERED        = 0x00080000
 
-_TOGGLE_DEBOUNCE_SEC = 0.5  # minimum gap between enable/disable toggles
+_TOGGLE_DEBOUNCE_SEC = 0.5
+_HYSTERESIS_MARGIN_PX = 15
 
 
 class ClickThroughManager:
@@ -23,6 +24,7 @@ class ClickThroughManager:
         self._get_geometry = get_geometry_fn   # callable -> QRect
         self._transparent = False
         self._last_toggle_time: float = 0.0
+        self._prev_cursor_over: bool | None = None
 
         self._timer = QTimer()
         self._timer.setInterval(CLICK_THROUGH_POLL_MS)
@@ -30,6 +32,7 @@ class ClickThroughManager:
         self._timer.start()
 
         self.enable_click_through()
+        self._prev_cursor_over = False
 
     def enable_click_through(self) -> None:
         style = ctypes.windll.user32.GetWindowLongW(self._hwnd, GWL_EXSTYLE)
@@ -55,11 +58,29 @@ class ClickThroughManager:
         self._timer.stop()
 
     def _poll(self) -> None:
-        if time.time() - self._last_toggle_time < _TOGGLE_DEBOUNCE_SEC:
-            return
         cursor = QCursor.pos()
         geom: QRect = self._get_geometry()
-        cursor_over = geom.contains(cursor)
+
+        if self._transparent:
+            hit_geom = geom.adjusted(
+                -_HYSTERESIS_MARGIN_PX, -_HYSTERESIS_MARGIN_PX,
+                _HYSTERESIS_MARGIN_PX, _HYSTERESIS_MARGIN_PX,
+            )
+            cursor_over = hit_geom.contains(cursor)
+        else:
+            hit_geom = geom.adjusted(
+                _HYSTERESIS_MARGIN_PX, _HYSTERESIS_MARGIN_PX,
+                -_HYSTERESIS_MARGIN_PX, -_HYSTERESIS_MARGIN_PX,
+            )
+            cursor_over = hit_geom.contains(cursor)
+
+        if cursor_over == self._prev_cursor_over:
+            return
+
+        if time.time() - self._last_toggle_time < _TOGGLE_DEBOUNCE_SEC:
+            return
+
+        self._prev_cursor_over = cursor_over
 
         if cursor_over and self._transparent:
             self.disable_click_through()

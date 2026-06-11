@@ -64,6 +64,8 @@ class PetFSM:
 
     def update(self, dt_ms: int, ctx: FSMContext) -> PetState:
         next_state = self._evaluate(ctx)
+        if next_state == self.current_state:
+            return next_state
         self.current_state = next_state
         return next_state
 

@@ -40,11 +40,19 @@ class OpencodeWorker(QThread):
         self._typing_content = typing_content
         self._used_api = False
         self._two_stage = two_stage_prompts
+        self._abort = False
+
+    def abort(self) -> None:
+        self._abort = True
 
     def _post_message(self, payload: dict) -> str | None:
         session_id = self._session_id
+        if self._abort:
+            return None
         try:
             if not session_id:
+                if self._abort:
+                    return None
                 logger.info("API: creating session at %s/session", OPENCODE_SERVER_URL)
                 r = requests.post(
                     f"{OPENCODE_SERVER_URL}/session",
@@ -62,6 +70,8 @@ class OpencodeWorker(QThread):
                 self.session_created.emit(session_id)
                 logger.info("API: created session %s", session_id)
 
+            if self._abort:
+                return None
             logger.info("API: posting message to session %s", session_id)
             r = requests.post(
                 f"{OPENCODE_SERVER_URL}/session/{session_id}/message",
@@ -94,6 +104,8 @@ class OpencodeWorker(QThread):
             return None
 
     def send(self, prompt: str) -> None:
+        if self._abort:
+            return
         from src.constants import STRUCTURED_SCHEMA
         payload = {
             "model": {
@@ -106,6 +118,8 @@ class OpencodeWorker(QThread):
         logger.debug("SEND payload prompt (first 500): %s", prompt[:500])
         logger.debug("SEND payload full: %s", json.dumps(payload, indent=2)[:2000])
         raw = self._post_message(payload)
+        if self._abort:
+            return
         if raw:
             logger.debug("RECV raw (first 1000): %s", raw[:1000])
             self._used_api = True
@@ -143,6 +157,9 @@ class OpencodeWorker(QThread):
             logger.warning("send: API returned empty or None")
 
     def _send_two_stage(self) -> None:
+        if self._abort:
+            return
+        logger.debug("[VERIFY] two-stage agentic refill: starting stage1 (investigation, no JSON constraint)")
         from src.constants import STRUCTURED_SCHEMA
         stage1, stage2 = self._two_stage
         payload1 = {
@@ -153,12 +170,15 @@ class OpencodeWorker(QThread):
             "parts": [{"type": "text", "text": stage1}],
         }
         raw1 = self._post_message(payload1)
+        if self._abort:
+            return
         if raw1 is None:
             self.response_ready.emit([])
             return
         self._used_api = True
         self.path_used.emit("api")
 
+        logger.debug("[VERIFY] two-stage agentic refill: stage1 complete (%d chars), now sending stage2 with structured schema", len(raw1))
         enriched = f"[Investigation results]\n{raw1}\n\n[Generation task]\n{stage2}"
         payload2 = {
             "model": {
@@ -169,6 +189,8 @@ class OpencodeWorker(QThread):
             "structured": STRUCTURED_SCHEMA,
         }
         raw2 = self._post_message(payload2)
+        if self._abort:
+            return
         if raw2 is None:
             self.response_ready.emit([])
             return
