@@ -72,6 +72,9 @@ class TestJokeBackoff:
         pw._max_idle_backoff = 300
         pw._boredom_tick_count = 0
         pw._autonomous_query_pending = False
+        pw._emotion_timer_sec = 0
+        pw._window_switch_count = 0
+        pw._last_evaluated_window = ""
         pw._opencode_enabled = True
 
         PetWindow._master_tick(pw)
