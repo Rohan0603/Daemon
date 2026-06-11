@@ -30,6 +30,10 @@ _USER_FACING = {
     "pet_scale", "pet_opacity", "pet_speed_multiplier",
     "tts_volume", "tts_rate", "tts_pitch",
     "chattiness", "pet_id",
+    "allow_intrusive_animations", "allow_audio_disruptions",
+    "allow_browser_redirection", "allow_clipboard_hijacking",
+    "allow_mouse_interference", "allow_window_management",
+    "allow_keyboard_injection",
 }
 
 
@@ -44,6 +48,13 @@ def load_config() -> dict:
     defaults["tts_pitch"] = 1.0
     defaults["chattiness"] = 1.0
     defaults["pet_id"] = "kenny"
+    defaults["allow_intrusive_animations"] = True
+    defaults["allow_audio_disruptions"] = False
+    defaults["allow_browser_redirection"] = False
+    defaults["allow_clipboard_hijacking"] = False
+    defaults["allow_mouse_interference"] = False
+    defaults["allow_window_management"] = False
+    defaults["allow_keyboard_injection"] = False
     try:
         data = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
         defaults.update({k: v for k, v in data.items() if k in _OVERRIDABLE})

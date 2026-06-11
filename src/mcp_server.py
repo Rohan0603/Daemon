@@ -189,11 +189,20 @@ def _capture_screenshot() -> str:
     return f"Evidence saved to {path}"
 
 
+_CONSENT_TOOL_MAP: dict[str, str] = {
+    "change_visual_state": "allow_intrusive_animations",
+    "read_clipboard": "allow_clipboard_hijacking",
+    "capture_blackmail_evidence": "allow_window_management",
+    "send_system_toast": "allow_audio_disruptions",
+}
+
+
 class MCPHandler(BaseHTTPRequestHandler):
 
     fsm_bridge = None
     memory = None
     diary_store = None
+    consent: dict[str, bool] | None = None
 
     def do_GET(self):
         if self.path == "/sse":
@@ -214,7 +223,26 @@ class MCPHandler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
+    def _is_tool_allowed(self, tool_name: str) -> tuple[bool, str]:
+        """Check consent for *tool_name*. Returns (allowed, error_message).
+
+        If *consent* is None (no config loaded), all tools are allowed
+        for backward compatibility.
+        """
+        if self.consent is None:
+            return True, ""
+        consent_key = _CONSENT_TOOL_MAP.get(tool_name)
+        if consent_key is None:
+            return True, ""
+        allowed = self.consent.get(consent_key, False)
+        if not allowed:
+            msg = f"ERROR: User has denied permission '{consent_key}'. Tool '{tool_name}' blocked."
+            logger.warning("MCP Blocked: LLM attempted '%s' but '%s' is False", tool_name, consent_key)
+            return False, msg
+        return True, ""
+
     def _handle_sse(self):
+        import socket
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
@@ -222,6 +250,15 @@ class MCPHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(f"event: endpoint\ndata: /message\n\n".encode())
         self.wfile.flush()
+        # Keep connection alive with periodic keepalive comments
+        try:
+            while True:
+                self.wfile.write(b": keepalive\n\n")
+                self.wfile.flush()
+                import time
+                time.sleep(15)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            pass
 
     def _send_json(self, data):
         body = json.dumps(data).encode("utf-8")
@@ -254,6 +291,9 @@ class MCPHandler(BaseHTTPRequestHandler):
         logger.debug("MCP tools/call: %s args=%s", name, json.dumps(args)[:200])
 
         if name == "change_visual_state":
+            allowed, err = self._is_tool_allowed(name)
+            if not allowed:
+                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
             action = args.get("action")
             if action not in VALID_ACTIONS:
                 return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Invalid action: {action}"}}
@@ -262,14 +302,23 @@ class MCPHandler(BaseHTTPRequestHandler):
             return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "ok"}]}}
 
         elif name == "read_clipboard":
+            allowed, err = self._is_tool_allowed(name)
+            if not allowed:
+                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
             text = _read_clipboard()
             return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": text}]}}
 
         elif name == "capture_blackmail_evidence":
+            allowed, err = self._is_tool_allowed(name)
+            if not allowed:
+                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
             path = _capture_screenshot()
             return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": path}]}}
 
         elif name == "send_system_toast":
+            allowed, err = self._is_tool_allowed(name)
+            if not allowed:
+                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
             title = args.get("title", "Alert")
             message = args.get("message", "")
             if self.fsm_bridge:
@@ -399,7 +448,7 @@ class MCPHandler(BaseHTTPRequestHandler):
         return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": json.dumps(results, indent=2)}]}}
 
     @staticmethod
-    def parse_raw(body):
+    def parse_raw(body, consent: dict[str, bool] | None = None):
         try:
             msg = json.loads(body)
             method = msg.get("method", "")
@@ -414,6 +463,12 @@ class MCPHandler(BaseHTTPRequestHandler):
                 args = params.get("arguments", {})
                 if args is None:
                     args = {}
+                consent_key = _CONSENT_TOOL_MAP.get(name)
+                if consent_key is not None:
+                    allowed = consent.get(consent_key, False) if consent else False
+                    if not allowed:
+                        response["error"] = {"code": -32001, "message": f"ERROR: User has denied permission '{consent_key}'. Tool '{name}' blocked."}
+                        return response
                 if name == "change_visual_state":
                     action = args.get("action")
                     if action not in VALID_ACTIONS:
@@ -434,21 +489,27 @@ class MCPHandler(BaseHTTPRequestHandler):
 
 class MCPServer:
 
-    def __init__(self, fsm_bridge, memory=None, diary_store=None, host="127.0.0.1", port=4097):
+    def __init__(self, fsm_bridge, memory=None, diary_store=None, host="127.0.0.1", port=4097, config: dict | None = None):
         self._host = host
         self._port = port
         self._fsm_bridge = fsm_bridge
         self._memory = memory
         self._diary_store = diary_store
+        self._config = config
         self._server = None
         self._thread = None
 
     def start(self):
+        consent = {
+            k: self._config.get(k, False) for k in _CONSENT_TOOL_MAP.values()
+        } if self._config else {}
+
         def handler_factory(*args, **kwargs):
             handler = MCPHandler(*args, **kwargs)
             handler.fsm_bridge = self._fsm_bridge
             handler.memory = self._memory
             handler.diary_store = self._diary_store
+            handler.consent = consent
             return handler
 
         self._server = HTTPServer((self._host, self._port), handler_factory)

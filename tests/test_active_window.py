@@ -25,3 +25,9 @@ def test_returns_empty_string_on_ctypes_exception():
         mock_windll.user32.GetForegroundWindow.side_effect = Exception("no access")
         result = src.active_window.get_active_window_title()
     assert result == ""
+
+
+def test_get_window_rect_returns_tuple_or_none():
+    from src.active_window import get_window_rect
+    result = get_window_rect()
+    assert result is None or (isinstance(result, tuple) and len(result) == 4)

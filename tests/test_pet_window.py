@@ -801,6 +801,61 @@ def test_window_change_clears_screen_cache(app, tmp_path):
         mock_clear.assert_called_once()
 
 
+def test_throw_velocity_tracked_on_drag(app, tmp_path):
+    from src.pet_window import PetWindow
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"):
+        window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+    assert window._drag_velocity_x == 0.0
+    assert window._drag_velocity_y == 0.0
+
+
+def test_throw_below_threshold_no_throw(app, tmp_path):
+    import math
+    from src.pet_window import PetWindow
+    from src.constants import THROW_VELOCITY_THRESHOLD
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"):
+        window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+    window._drag_velocity_x = 3.0
+    window._drag_velocity_y = 2.0
+    window._pet_y = window._ground_y - 10
+    speed = math.sqrt(9 + 4)
+    assert speed < THROW_VELOCITY_THRESHOLD
+
+
+def test_throw_above_threshold_triggers_throw(app, tmp_path):
+    from src.pet_window import PetWindow
+    from src.pet_fsm import PetState
+    from PyQt6.QtCore import QPointF, Qt
+    from PyQt6.QtGui import QMouseEvent
+    from PyQt6.QtCore import QEvent
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"):
+        window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+    window._drag_velocity_x = 20.0
+    window._drag_velocity_y = 5.0
+    window._pet_y = window._ground_y - 50
+    window._fsm.current_state = PetState.DRAGGED
+    rel = QMouseEvent(QEvent.Type.MouseButtonRelease, QPointF(60, 60),
+                      Qt.MouseButton.LeftButton, Qt.MouseButton.LeftButton,
+                      Qt.KeyboardModifier.NoModifier)
+    window.mouseReleaseEvent(rel)
+    assert window._is_thrown
+
+
 def test_restart_brain_calls_ensure_running_and_check(app, tmp_path):
     from src.pet_window import PetWindow
     mem_path = str(tmp_path / "mem.json")

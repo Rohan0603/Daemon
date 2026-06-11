@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from PyQt6.QtCore import QRect
+    from src.animator import Emotion, EmotionAnimator
 from PyQt6.QtCore import QRect, QPoint, Qt
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QFontMetrics
 from src.pet_fsm import PetState
@@ -40,6 +41,8 @@ class RenderContext:
     facing: str = "right"   # direction along edge: "right" | "left" | "up" | "down"
     screen_rect: QRect = field(default_factory=lambda: QRect(0, 0, 0, 0))
     bubble_rect: QRect = field(default_factory=lambda: QRect(0, 0, 0, 0))
+    emotion: 'Emotion | None' = None
+    animator: 'EmotionAnimator | None' = None
 
 
 class PetRenderer:
@@ -60,6 +63,13 @@ class PetRenderer:
         painter.translate(cx + ox, cy + oy)
 
         scale_x, scale_y, rotation = self._state_transform(ctx)
+        if ctx.animator:
+            a_sx, a_sy, a_rot = ctx.animator.get_transform(
+                QRect(ctx.pet_x, ctx.pet_y, PET_WIDTH, PET_HEIGHT),
+                0, ctx.state_elapsed_ms)
+            scale_x *= a_sx
+            scale_y *= a_sy
+            rotation += a_rot
         if rotation != 0:
             painter.rotate(rotation)
         painter.scale(scale_x, scale_y)
@@ -71,6 +81,11 @@ class PetRenderer:
         painter.restore()
 
         self._draw_state_overlay(painter, ctx)
+
+        if ctx.animator:
+            ctx.animator.draw_particles(painter)
+            for overlay in ctx.animator.get_overlay():
+                self._draw_overlay(painter, ctx, overlay)
 
     def _state_offset(self, ctx: RenderContext) -> tuple[float, float]:
         t = ctx.state_elapsed_ms / 1000.0
@@ -203,6 +218,8 @@ class PetRenderer:
             c = QColor(BODY_BLUE)
             c.setAlpha(220)
             return c
+        if ctx.animator:
+            return ctx.animator.get_body_color(QColor(BODY_BLUE))
         return QColor(BODY_BLUE)
 
     def _draw_body(self, painter: QPainter, color: QColor, state: PetState) -> None:
@@ -347,6 +364,44 @@ class PetRenderer:
                 painter.drawLine(x1, y1, x2, y2)
 
         painter.restore()
+
+    # ── Emotion Overlays ─────────────────────────────────────────────────
+
+    def _draw_overlay(self, painter: QPainter, ctx: RenderContext,
+                      overlay: tuple) -> None:
+        """Render a single emotion overlay descriptor.
+
+        Supported types::
+            ("border", color, width)  → QPen rounded-rect outline
+            ("aura", color)            → filled ellipse with alpha
+            ("flash", alpha)           → white screen rect with alpha
+        """
+        kind = overlay[0]
+        px, py = ctx.pet_x, ctx.pet_y
+
+        if kind == "border":
+            color, width = overlay[1], overlay[2]
+            painter.setPen(QPen(QColor(color), width))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRoundedRect(px, py, PET_WIDTH, PET_HEIGHT,
+                                    PET_CORNER_RADIUS, PET_CORNER_RADIUS)
+
+        elif kind == "aura":
+            color = overlay[1]
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(color))
+            cx = px + PET_WIDTH // 2
+            cy = py + PET_HEIGHT // 2
+            painter.drawEllipse(QPointF(cx, cy), PET_WIDTH, PET_HEIGHT)
+
+        elif kind == "flash":
+            alpha = overlay[1]
+            c = QColor(255, 255, 255)
+            c.setAlpha(alpha)
+            painter.setBrush(QBrush(c))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawRoundedRect(px, py, PET_WIDTH, PET_HEIGHT,
+                                    PET_CORNER_RADIUS, PET_CORNER_RADIUS)
 
     # ── Speech Bubble ─────────────────────────────────────────────────────
 
