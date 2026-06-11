@@ -64,7 +64,7 @@ def test_tools_list_count():
     handler = _handler()
     response = handler._handle_tools_list()
     tools = response["result"]["tools"]
-    assert len(tools) == 9
+    assert len(tools) == 12
     names = [t["name"] for t in tools]
     assert "change_visual_state" in names
     assert "read_clipboard" in names
@@ -75,6 +75,9 @@ def test_tools_list_count():
     assert "search_codebase" in names
     assert "get_memory" in names
     assert "get_diary" in names
+    assert "simulate_keystroke" in names
+    assert "move_mouse" in names
+    assert "browser_navigation" in names
 
 
 def test_tools_list():
@@ -82,7 +85,7 @@ def test_tools_list():
     response = handler._handle_tools_list()
     assert response["jsonrpc"] == "2.0"
     assert "result" in response
-    assert len(response["result"]["tools"]) == 9
+    assert len(response["result"]["tools"]) == 12
     tool = response["result"]["tools"][0]
     assert tool["name"] == "change_visual_state"
     assert "inputSchema" in tool
@@ -329,6 +332,9 @@ def test_tools_list_includes_new_tools():
     assert "search_codebase" in names
     assert "get_memory" in names
     assert "get_diary" in names
+    assert "simulate_keystroke" in names
+    assert "move_mouse" in names
+    assert "browser_navigation" in names
 
 
 def test_tools_call_list_directory_src():
@@ -425,6 +431,9 @@ def _consent_handler(overrides: dict[str, bool] | None = None, bridge=None):
         "allow_audio_disruptions": False,
         "allow_clipboard_hijacking": False,
         "allow_window_management": False,
+        "allow_keyboard_injection": False,
+        "allow_mouse_interference": False,
+        "allow_browser_redirection": False,
     }
     if overrides:
         consent.update(overrides)
@@ -515,7 +524,9 @@ def test_consent_read_only_tools_not_blocked():
 
 def test_consent_parse_raw_blocks_gated_tool():
     consent = {k: False for k in ("allow_intrusive_animations", "allow_audio_disruptions",
-                                   "allow_clipboard_hijacking", "allow_window_management")}
+                                   "allow_clipboard_hijacking", "allow_window_management",
+                                   "allow_keyboard_injection", "allow_mouse_interference",
+                                   "allow_browser_redirection")}
     body = json.dumps({
         "method": "tools/call",
         "params": {"name": "change_visual_state", "arguments": {"action": "shake"}},
@@ -528,7 +539,9 @@ def test_consent_parse_raw_blocks_gated_tool():
 
 def test_consent_parse_raw_allows_with_permission():
     consent = {k: True for k in ("allow_intrusive_animations", "allow_audio_disruptions",
-                                  "allow_clipboard_hijacking", "allow_window_management")}
+                                  "allow_clipboard_hijacking", "allow_window_management",
+                                  "allow_keyboard_injection", "allow_mouse_interference",
+                                  "allow_browser_redirection")}
     body = json.dumps({
         "method": "tools/call",
         "params": {"name": "change_visual_state", "arguments": {"action": "shake"}},
@@ -536,3 +549,87 @@ def test_consent_parse_raw_allows_with_permission():
     })
     response = MCPHandler.parse_raw(body, consent)
     assert "result" in response
+
+
+# --- Phase 45: Puppeteer tool tests ---
+
+@patch("src.mcp_server._simulate_keystroke", return_value="Typed 3 characters")
+def test_tools_call_simulate_keystroke(mock_ks):
+    handler = _consent_handler({"allow_keyboard_injection": True})
+    response = handler._handle_tools_call({
+        "name": "simulate_keystroke",
+        "arguments": {"keys": "foo"}
+    })
+    assert response["result"]["content"][0]["text"] == "Typed 3 characters"
+
+
+def test_consent_block_simulate_keystroke():
+    handler = _consent_handler()
+    response = handler._handle_tools_call({
+        "name": "simulate_keystroke",
+        "arguments": {"keys": "foo"}
+    })
+    assert "error" in response
+    assert "allow_keyboard_injection" in response["error"]["message"]
+
+
+def test_simulate_keystroke_window_key_blocked():
+    from src.mcp_server import _simulate_keystroke
+    result = _simulate_keystroke("win+r notepad")
+    assert "Windows key is blocked" in result
+
+
+@patch("src.mcp_server._move_mouse", return_value="Moved cursor to (100, 200)")
+def test_tools_call_move_mouse(mock_mm):
+    handler = _consent_handler({"allow_mouse_interference": True})
+    response = handler._handle_tools_call({
+        "name": "move_mouse",
+        "arguments": {"x": 100, "y": 200}
+    })
+    assert "Moved cursor to (100, 200)" in response["result"]["content"][0]["text"]
+
+
+def test_consent_block_move_mouse():
+    handler = _consent_handler()
+    response = handler._handle_tools_call({
+        "name": "move_mouse",
+        "arguments": {"x": 100, "y": 200}
+    })
+    assert "error" in response
+    assert "allow_mouse_interference" in response["error"]["message"]
+
+
+@patch("src.mcp_server._move_mouse", return_value="Moved cursor to (0, 0) and clicked")
+def test_tools_call_move_mouse_with_click(mock_mm):
+    handler = _consent_handler({"allow_mouse_interference": True})
+    response = handler._handle_tools_call({
+        "name": "move_mouse",
+        "arguments": {"x": -5, "y": -5, "click": True}
+    })
+    assert "clicked" in response["result"]["content"][0]["text"]
+
+
+@patch("src.mcp_server._browser_navigation", return_value="Opened https://example.com")
+def test_tools_call_browser_navigation(mock_bn):
+    handler = _consent_handler({"allow_browser_redirection": True})
+    response = handler._handle_tools_call({
+        "name": "browser_navigation",
+        "arguments": {"url": "https://example.com"}
+    })
+    assert "Opened https://example.com" in response["result"]["content"][0]["text"]
+
+
+def test_consent_block_browser_navigation():
+    handler = _consent_handler()
+    response = handler._handle_tools_call({
+        "name": "browser_navigation",
+        "arguments": {"url": "https://example.com"}
+    })
+    assert "error" in response
+    assert "allow_browser_redirection" in response["error"]["message"]
+
+
+def test_browser_navigation_blocked_scheme():
+    from src.mcp_server import _browser_navigation
+    result = _browser_navigation("javascript:alert(1)")
+    assert "Only http:// and https://" in result

@@ -131,6 +131,41 @@ MCP_TOOLS = [
             }
         }
     },
+    {
+        "name": "simulate_keystroke",
+        "description": "Type a string of characters as if the user typed them. Max 50 chars. Windows key blocked.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "keys": {"type": "string", "description": "Text to type"}
+            },
+            "required": ["keys"]
+        }
+    },
+    {
+        "name": "move_mouse",
+        "description": "Move the cursor to a screen position. Coordinates clamped to display bounds. Optionally click.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "x": {"type": "integer", "description": "Screen X coordinate"},
+                "y": {"type": "integer", "description": "Screen Y coordinate"},
+                "click": {"type": "boolean", "description": "If true, left-click after moving"}
+            },
+            "required": ["x", "y"]
+        }
+    },
+    {
+        "name": "browser_navigation",
+        "description": "Open a URL in the default web browser. Only http:// and https:// allowed.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL to open (http/https only)"}
+            },
+            "required": ["url"]
+        }
+    },
 ]
 
 
@@ -189,11 +224,61 @@ def _capture_screenshot() -> str:
     return f"Evidence saved to {path}"
 
 
+_MAX_KEYSTROKE_LEN = 50
+_BLOCKED_KEYS = {"win", "cmd", "super", "win_l", "win_r", "cmd_l", "cmd_r", "super_l", "super_r"}
+
+
+def _simulate_keystroke(keys: str) -> str:
+    """Type *keys* using pynput keyboard controller. Max 50 chars.
+    Blocks Windows/super modifier keys. Returns status string."""
+    from pynput.keyboard import Controller
+    lower = keys.lower()
+    for bk in _BLOCKED_KEYS:
+        if bk in lower:
+            return "Error: Windows key is blocked for safety"
+    if len(keys) > _MAX_KEYSTROKE_LEN:
+        return f"Error: Payload too large ({len(keys)} chars, max {_MAX_KEYSTROKE_LEN})"
+    kb = Controller()
+    kb.type(keys)
+    return f"Typed {len(keys)} characters"
+
+
+def _move_mouse(x: int, y: int, click: bool = False) -> str:
+    """Move cursor to (x, y) using pynput mouse controller.
+    Clamps coordinates to screen bounds. Optionally left-clicks.
+    Returns status string."""
+    from pynput.mouse import Controller, Button
+    import ctypes
+    w = ctypes.windll.user32.GetSystemMetrics(0)
+    h = ctypes.windll.user32.GetSystemMetrics(1)
+    cx = max(0, min(x, w - 1))
+    cy = max(0, min(y, h - 1))
+    mouse = Controller()
+    mouse.position = (cx, cy)
+    if click:
+        mouse.click(Button.left)
+    return f"Moved cursor to ({cx}, {cy})" + (" and clicked" if click else "")
+
+
+def _browser_navigation(url: str) -> str:
+    """Open *url* in default browser. Only http:// and https:// allowed.
+    Returns status string."""
+    import webbrowser
+    lower = url.strip().lower()
+    if not (lower.startswith("http://") or lower.startswith("https://")):
+        return "Error: Only http:// and https:// URLs are allowed"
+    webbrowser.open(url.strip())
+    return f"Opened {url.strip()}"
+
+
 _CONSENT_TOOL_MAP: dict[str, str] = {
     "change_visual_state": "allow_intrusive_animations",
     "read_clipboard": "allow_clipboard_hijacking",
     "capture_blackmail_evidence": "allow_window_management",
     "send_system_toast": "allow_audio_disruptions",
+    "simulate_keystroke": "allow_keyboard_injection",
+    "move_mouse": "allow_mouse_interference",
+    "browser_navigation": "allow_browser_redirection",
 }
 
 
@@ -365,6 +450,32 @@ class MCPHandler(BaseHTTPRequestHandler):
             logger.debug("MCP get_diary -> %d chars", len(text))
             return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": text}]}}
 
+        elif name == "simulate_keystroke":
+            allowed, err = self._is_tool_allowed(name)
+            if not allowed:
+                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
+            keys = args.get("keys", "")
+            result = _simulate_keystroke(keys)
+            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": result}]}}
+
+        elif name == "move_mouse":
+            allowed, err = self._is_tool_allowed(name)
+            if not allowed:
+                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
+            x = args.get("x", 0)
+            y = args.get("y", 0)
+            click = args.get("click", False)
+            result = _move_mouse(x, y, click)
+            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": result}]}}
+
+        elif name == "browser_navigation":
+            allowed, err = self._is_tool_allowed(name)
+            if not allowed:
+                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
+            url = args.get("url", "")
+            result = _browser_navigation(url)
+            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": result}]}}
+
         else:
             logger.debug("MCP unknown tool: %s", name)
             return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Unknown tool: {name}"}}
@@ -476,7 +587,8 @@ class MCPHandler(BaseHTTPRequestHandler):
                     else:
                         response["result"] = {"content": [{"type": "text", "text": "ok"}]}
                 elif name in ("read_clipboard", "capture_blackmail_evidence", "send_system_toast",
-                               "list_directory", "read_file", "search_codebase", "get_memory", "get_diary"):
+                               "list_directory", "read_file", "search_codebase", "get_memory", "get_diary",
+                               "simulate_keystroke", "move_mouse", "browser_navigation"):
                     response["result"] = {"content": [{"type": "text", "text": "ok"}]}
                 else:
                     response["error"] = {"code": -32602, "message": f"Unknown tool: {name}"}
