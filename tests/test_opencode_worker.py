@@ -46,8 +46,8 @@ def test_boredom_timeout_constant():
 def test_api_constants_present():
     from src import constants
     assert constants.OPENCODE_SERVER_URL.startswith("http")
-    assert constants.OPENCODE_API_MODEL_ID == "deepseek-v4-flash"
-    assert constants.OPENCODE_API_MODEL_PROVIDER == "opencode-go"
+    assert constants.OPENCODE_API_MODEL_ID == "deepseek-v4-flash-free"
+    assert constants.OPENCODE_API_MODEL_PROVIDER == "opencode"
     assert isinstance(constants.OPENCODE_API_TIMEOUT_SEC, int)
 
 
