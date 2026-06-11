@@ -120,6 +120,10 @@ SETTINGS_SPEED_MIN: float = 0.5
 SETTINGS_SPEED_MAX: float = 2.0
 
 # --- Firebase Admin SDK ---
+# Obtain firebase-credentials.json from: Firebase Console > Project Settings > Service Accounts >
+# "Generate new private key". Save the downloaded JSON to data/firebase-credentials.json.
+# Only needed for Firestore persistence (brain sync, diary). Daemon runs fine without it
+# (graceful degradation to local-only memory + history).
 FIREBASE_CREDENTIALS_PATH: Path = STORAGE_DIR / "firebase-credentials.json"
 FIREBASE_PROJECT_ID: str = "daemon-87f81"
 
@@ -153,6 +157,19 @@ RISKY_KEYWORDS: Final[dict[str, list[dict]]] = {
         {"dialogue": "Straight to prod? No PR? No review? You maniac!", "action": "shake"},
     ],
 }
+
+# --- Phase 44: Emotion / Window Tracking ---
+EMOTION_TICK_SEC: int = 5
+RAPID_WINDOW_SWITCH_THRESHOLD: int = 3
+TASK_MANAGER_KEYWORDS: tuple = (
+    "Task Manager", "Activity Monitor", "Process Explorer",
+    "Process Hacker", "Resource Monitor", "System Monitor",
+    "htop", "top", "ps", "perfmon", "resmon"
+)
+PROCRASTINATION_DOMAINS: tuple = (
+    "youtube", "twitter", "reddit", "tiktok", "instagram",
+    "facebook", "netflix", "twitch", "discord"
+)
 
 # MCP Server
 MCP_HOST = "127.0.0.1"

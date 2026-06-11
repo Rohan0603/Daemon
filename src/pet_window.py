@@ -571,12 +571,14 @@ class PetWindow(QWidget):
             logger.warning("WriteCoalescer flush failed: %s", e)
         for worker in list(self._refill_workers.values()):
             if worker.isRunning():
+                worker.abort()
                 worker.quit()
-                worker.wait(15000)
+                worker.wait(5000)
         self._refill_workers.clear()
         if self._opencode_worker and self._opencode_worker.isRunning():
+            self._opencode_worker.abort()
             self._opencode_worker.quit()
-            self._opencode_worker.wait(15000)
+            self._opencode_worker.wait(5000)
         self._deferred_trigger_params = None
         self._close_opencode_session()
         self._typing_buffer.stop()
@@ -1049,6 +1051,8 @@ class PetWindow(QWidget):
         self._consecutive_silent = 0
         self._current_interval = BASE_INTERVAL_SEC
         self._idle_backoff_seconds = 0.0
+        self._idle_seconds = 0.0
+        self._deferred_trigger_params = None
         self._last_context_snapshot = None
 
         if text.startswith("!remember "):
@@ -1517,6 +1521,7 @@ class PetWindow(QWidget):
             self._deferred_trigger_params = None
             if not (isinstance(self._opencode_worker, QThread) and self._opencode_worker.isRunning()):
                 logger.info("Firing deferred trigger: mode='%s'", params.get("mode", "?"))
+                params["idle_seconds"] = self._idle_seconds
                 self._dispatch_trigger(**params)
 
     def _on_mcp_fsm_action(self, action: str, target_x, target_y) -> None:
