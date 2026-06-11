@@ -231,7 +231,7 @@ def test_force_quit_stops_timers_and_waits_for_worker(app):
         window._behavior_timer.stop.assert_called_once()
         window._response_manager.stop.assert_called_once()
         mock_worker.quit.assert_called_once()
-        mock_worker.wait.assert_called_once_with(15000)
+        mock_worker.wait.assert_called_once_with(5000)
 
 
 def test_firebase_crud_sets_available_flag(app, tmp_path, qtbot):
@@ -870,3 +870,118 @@ def test_restart_brain_calls_ensure_running_and_check(app, tmp_path):
         window._on_restart_brain()
     mock_ensure.assert_called_once()
     mock_check.assert_called_once()
+
+
+# ── Phase 44 Task 3: Emotion evaluation tests ──────────────────────────
+
+def test_emotion_defaults_to_mirth():
+    from src.pet_window import PetWindow
+    from src.animator import Emotion, EmotionAnimator
+    pw = PetWindow.__new__(PetWindow)
+    pw._animator = EmotionAnimator()
+    assert pw._animator.current_emotion == Emotion.MIRTH
+
+
+def test_emotion_fear_on_task_manager(app, tmp_path):
+    from src.pet_window import PetWindow
+    from src.animator import Emotion
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"), \
+         patch('src.pet_window.get_active_window_title', return_value="Task Manager"):
+        pw = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+        pw._window_switch_count = 0
+        pw._current_apm = 0
+        pw._idle_seconds = 0
+        emotion = pw._evaluate_emotion()
+        assert emotion == Emotion.FEAR
+
+
+def test_emotion_disgust_on_youtube(app, tmp_path):
+    from src.pet_window import PetWindow
+    from src.animator import Emotion
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"), \
+         patch('src.pet_window.get_active_window_title', return_value="YouTube - Google Chrome"):
+        pw = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+        pw._window_switch_count = 0
+        pw._current_apm = 0
+        pw._idle_seconds = 0
+        emotion = pw._evaluate_emotion()
+        assert emotion == Emotion.DISGUST
+
+
+def test_emotion_devotion_high_apm(app, tmp_path):
+    from src.pet_window import PetWindow
+    from src.animator import Emotion
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"), \
+         patch('src.pet_window.get_active_window_title', return_value="some window"):
+        pw = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+        pw._window_switch_count = 0
+        pw._current_apm = 80
+        pw._idle_seconds = 0
+        emotion = pw._evaluate_emotion()
+        assert emotion == Emotion.DEVOTION
+
+
+def test_emotion_pathos_stale_idle(app, tmp_path):
+    from src.pet_window import PetWindow
+    from src.animator import Emotion
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"), \
+         patch('src.pet_window.get_active_window_title', return_value="some window"):
+        pw = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+        pw._window_switch_count = 0
+        pw._current_apm = 0
+        pw._idle_seconds = 180
+        emotion = pw._evaluate_emotion()
+        assert emotion == Emotion.PATHOS
+
+
+def test_emotion_tranquility_steady_coding(app, tmp_path):
+    from src.pet_window import PetWindow
+    from src.animator import Emotion
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"), \
+         patch('src.pet_window.get_active_window_title', return_value="Visual Studio Code"):
+        pw = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+        pw._window_switch_count = 0
+        pw._current_apm = 30
+        pw._idle_seconds = 10
+        emotion = pw._evaluate_emotion()
+        assert emotion == Emotion.TRANQUILITY
+
+
+def test_window_switch_tracking(app, tmp_path):
+    from src.pet_window import PetWindow
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"):
+        window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+        count_before = window._window_switch_count
+        with patch('src.pet_window.get_active_window_title', return_value="NewWindow"):
+            window._master_tick()
+        assert window._window_switch_count == count_before + 1

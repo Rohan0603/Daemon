@@ -6,10 +6,26 @@ from src.pet_window import PetWindow
 from src.pet_fsm import PetState
 
 
+def app():
+    import sys
+    from PyQt6.QtWidgets import QApplication
+    _app = QApplication.instance()
+    if _app is None:
+        _app = QApplication(sys.argv)
+    return _app
+
+
 class TestBehaviorIntegration:
     def setup_method(self):
-        with patch.object(PetWindow, '__init__', lambda self, *a, **kw: None):
-            self.pw = PetWindow.__new__(PetWindow)
+        self._pw_app = app()  # ensure QApplication exists
+        from PyQt6.QtWidgets import QWidget
+        def mock_init(self, *a, **kw):
+            QWidget.__init__(self)
+        with patch.object(PetWindow, '__init__', mock_init):
+            self.pw = PetWindow()
+            self.pw._emotion_timer_sec = 0
+            self.pw._last_evaluated_window = ""
+            self.pw._window_switch_count = 0
             self.pw._chat_timer_sec = 0
             self.pw._joke_timer_sec = 0
             self.pw._boredom_tick_count = 0

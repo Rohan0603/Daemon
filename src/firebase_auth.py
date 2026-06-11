@@ -7,7 +7,8 @@ from typing import Optional
 
 import requests
 
-from src.constants import FIREBASE_API_KEY, FIREBASE_PROJECT_ID, AUTH_TOKEN_PATH
+from src.constants import FIREBASE_PROJECT_ID, AUTH_TOKEN_PATH
+from src.config import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,11 @@ class FirebaseAuth:
         project_id: str = "",
         token_path: Path | None = None,
     ) -> None:
-        self._api_key = api_key or FIREBASE_API_KEY
+        if not api_key:
+            cfg = load_config()
+            self._api_key = cfg.get("firebase", {}).get("api_key", "")
+        else:
+            self._api_key = api_key
         self._project_id = project_id or FIREBASE_PROJECT_ID
         self._token_path = Path(token_path) if token_path else AUTH_TOKEN_PATH
 

@@ -2,76 +2,182 @@
 from __future__ import annotations
 import json
 import logging
+import copy
 from pathlib import Path
-import src.constants as _c
-from src.constants import CONFIG_PATH
 
 logger = logging.getLogger(__name__)
 
-_CONFIG_PATH = CONFIG_PATH
-_OVERRIDABLE = {
-    "APM_HYPER_THRESHOLD", "SLEEP_IDLE_SECONDS", "WANDER_SPEED_PX",
-    "CHASE_ENTER_RADIUS_PX", "CHASE_EXIT_RADIUS_PX",
-    "SPEECH_BUBBLE_DURATION_MS", "FSM_TICK_MS", "GROUND_PADDING_PX",
-    "window_monitor", "OPENCODE_SCRIPT_PATH",
-    "OPENCODE_SERVER_URL", "OPENCODE_API_MODEL_ID",
-    "pet_scale", "pet_opacity", "pet_speed_multiplier",
-    "tts_enabled", "tts_rate", "tts_volume", "tts_voice_id",
-    "tts_pitch", "FIREBASE_API_KEY",
-    "chattiness",
-    "pet_id",
+STORAGE_DIR = Path(__file__).parent.parent / "data"
+CONFIG_PATH = STORAGE_DIR / "daemon_config.json"
+
+DEFAULT_CONFIG = {
+    "llm": {
+        "model_id": "north-mini-code-free",
+        "provider": "opencode",
+        "server_url": "http://127.0.0.1:4096",
+        "timeout_sec": 180
+    },
+    "pet": {
+        "id": "kenny",
+        "scale": 1.0,
+        "opacity": 0.85,
+        "speed_multiplier": 1.0,
+        "chattiness": 1.0
+    },
+    "tts": {
+        "enabled": True,
+        "rate": 220,
+        "volume": 1.0,
+        "voice_id": "en-US-GuyNeural",
+        "pitch": 1.15
+    },
+    "consent": {
+        "allow_intrusive_animations": True,
+        "allow_audio_disruptions": False,
+        "allow_browser_redirection": False,
+        "allow_clipboard_hijacking": False,
+        "allow_mouse_interference": False,
+        "allow_window_management": False,
+        "allow_keyboard_injection": False
+    },
+    "window": {
+        "monitor": False
+    },
+    "firebase": {
+        "api_key": "AIzaSyAX0n85NY4F7WycIYfVwEjfM25hSkDt33U"
+    }
 }
 
-# Keys written to disk on auto-save. A subset of _OVERRIDABLE — keeps the
-# generated config file clean (user-facing settings only). Power users can
-# manually add any _OVERRIDABLE key.
-_USER_FACING = {
-    "OPENCODE_SERVER_URL", "OPENCODE_API_MODEL_ID", "FIREBASE_API_KEY",
-    "pet_scale", "pet_opacity", "pet_speed_multiplier",
-    "tts_volume", "tts_rate", "tts_pitch",
-    "chattiness", "pet_id",
-    "allow_intrusive_animations", "allow_audio_disruptions",
-    "allow_browser_redirection", "allow_clipboard_hijacking",
-    "allow_mouse_interference", "allow_window_management",
-    "allow_keyboard_injection",
+FLAT_TO_NESTED = {
+    "OPENCODE_API_MODEL_ID": ("llm", "model_id"),
+    "OPENCODE_API_MODEL_PROVIDER": ("llm", "provider"),
+    "OPENCODE_SERVER_URL": ("llm", "server_url"),
+    "OPENCODE_API_TIMEOUT_SEC": ("llm", "timeout_sec"),
+    "pet_scale": ("pet", "scale"),
+    "pet_opacity": ("pet", "opacity"),
+    "pet_speed_multiplier": ("pet", "speed_multiplier"),
+    "pet_speed": ("pet", "speed_multiplier"),
+    "chattiness": ("pet", "chattiness"),
+    "pet_id": ("pet", "id"),
+    "tts_enabled": ("tts", "enabled"),
+    "tts_rate": ("tts", "rate"),
+    "tts_volume": ("tts", "volume"),
+    "tts_voice_id": ("tts", "voice_id"),
+    "tts_pitch": ("tts", "pitch"),
+    "allow_intrusive_animations": ("consent", "allow_intrusive_animations"),
+    "allow_audio_disruptions": ("consent", "allow_audio_disruptions"),
+    "allow_browser_redirection": ("consent", "allow_browser_redirection"),
+    "allow_clipboard_hijacking": ("consent", "allow_clipboard_hijacking"),
+    "allow_mouse_interference": ("consent", "allow_mouse_interference"),
+    "allow_window_management": ("consent", "allow_window_management"),
+    "allow_keyboard_injection": ("consent", "allow_keyboard_injection"),
+    "window_monitor": ("window", "monitor"),
+    "FIREBASE_API_KEY": ("firebase", "api_key"),
 }
+
+NESTED_TO_FLAT = {
+    ("llm", "model_id"): "OPENCODE_API_MODEL_ID",
+    ("llm", "provider"): "OPENCODE_API_MODEL_PROVIDER",
+    ("llm", "server_url"): "OPENCODE_SERVER_URL",
+    ("llm", "timeout_sec"): "OPENCODE_API_TIMEOUT_SEC",
+    ("pet", "scale"): "pet_scale",
+    ("pet", "opacity"): "pet_opacity",
+    ("pet", "speed_multiplier"): "pet_speed_multiplier",
+    ("pet", "chattiness"): "chattiness",
+    ("pet", "id"): "pet_id",
+    ("tts", "enabled"): "tts_enabled",
+    ("tts", "rate"): "tts_rate",
+    ("tts", "volume"): "tts_volume",
+    ("tts", "voice_id"): "tts_voice_id",
+    ("tts", "pitch"): "tts_pitch",
+    ("consent", "allow_intrusive_animations"): "allow_intrusive_animations",
+    ("consent", "allow_audio_disruptions"): "allow_audio_disruptions",
+    ("consent", "allow_browser_redirection"): "allow_browser_redirection",
+    ("consent", "allow_clipboard_hijacking"): "allow_clipboard_hijacking",
+    ("consent", "allow_mouse_interference"): "allow_mouse_interference",
+    ("consent", "allow_window_management"): "allow_window_management",
+    ("consent", "allow_keyboard_injection"): "allow_keyboard_injection",
+    ("window", "monitor"): "window_monitor",
+    ("firebase", "api_key"): "FIREBASE_API_KEY",
+}
+
+# Keep _CONFIG_PATH for test compatibility
+_CONFIG_PATH = CONFIG_PATH
+
+
+def _deep_merge(target: dict, source: dict) -> None:
+    """Recursively merge source dict into target dict in-place, filtering by target keys."""
+    for k, v in source.items():
+        if k in target:
+            if isinstance(v, dict) and isinstance(target[k], dict):
+                _deep_merge(target[k], v)
+            else:
+                target[k] = v
 
 
 def load_config() -> dict:
-    defaults = {k: getattr(_c, k) for k in _OVERRIDABLE if hasattr(_c, k)}
-    defaults["window_monitor"] = False   # opt-in, off by default
-    defaults["pet_scale"] = 1.0
-    defaults["pet_opacity"] = 0.85
-    defaults["pet_speed_multiplier"] = 1.0
-    defaults["tts_rate"] = 220
-    defaults["tts_volume"] = 1.0
-    defaults["tts_pitch"] = 1.0
-    defaults["chattiness"] = 1.0
-    defaults["pet_id"] = "kenny"
-    defaults["allow_intrusive_animations"] = True
-    defaults["allow_audio_disruptions"] = False
-    defaults["allow_browser_redirection"] = False
-    defaults["allow_clipboard_hijacking"] = False
-    defaults["allow_mouse_interference"] = False
-    defaults["allow_window_management"] = False
-    defaults["allow_keyboard_injection"] = False
+    """Load config from CONFIG_PATH, deep-merge with defaults, and return nested dict."""
+    cfg = copy.deepcopy(DEFAULT_CONFIG)
     try:
-        data = json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
-        defaults.update({k: v for k, v in data.items() if k in _OVERRIDABLE})
-    except FileNotFoundError:
-        logger.info("Config not found at %s — creating with defaults", _CONFIG_PATH)
-        save_config(defaults)
+        # Resolve path dynamically in case it's patched in tests
+        p = Path(_CONFIG_PATH)
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            # If the loaded data is flat, unflatten it first
+            is_flat = not any(isinstance(v, dict) for v in data.values())
+            if is_flat:
+                data = unflatten_config(data)
+            _deep_merge(cfg, data)
+        else:
+            logger.info("Config not found at %s — creating with defaults", p)
+            save_config(cfg)
     except Exception as e:
         logger.warning("Failed to load config from %s: %s", _CONFIG_PATH, e)
-    return defaults
+    return cfg
 
 
 def save_config(config: dict) -> bool:
-    """Persist user-facing keys to ~/.daemon_config.json. Returns True on success."""
-    filtered = {k: v for k, v in config.items() if k in _USER_FACING}
+    """Persist nested config to CONFIG_PATH. Accepts flat or nested dict."""
+    is_nested = any(k in config and isinstance(config[k], dict) for k in DEFAULT_CONFIG.keys())
+    if is_nested:
+        nested = config
+    else:
+        nested = unflatten_config(config)
+
     try:
-        _CONFIG_PATH.write_text(json.dumps(filtered, indent=2), encoding="utf-8")
+        p = Path(_CONFIG_PATH)
+        p.parent.mkdir(exist_ok=True)
+        p.write_text(json.dumps(nested, indent=2), encoding="utf-8")
         return True
     except Exception as e:
         logger.warning("Failed to save config: %s", e)
         return False
+
+
+def flatten_config(nested: dict) -> dict:
+    """Convert nested config dictionary to flat dict for compatibility."""
+    flat = {}
+    for section, subdict in nested.items():
+        if isinstance(subdict, dict):
+            for key, val in subdict.items():
+                flat_key = NESTED_TO_FLAT.get((section, key))
+                if flat_key:
+                    flat[flat_key] = val
+                else:
+                    flat[f"{section}_{key}"] = val
+        else:
+            flat[section] = subdict
+    return flat
+
+
+def unflatten_config(flat: dict) -> dict:
+    """Convert flat dict to nested dictionary structure."""
+    nested = copy.deepcopy(DEFAULT_CONFIG)
+    for flat_key, val in flat.items():
+        if flat_key in FLAT_TO_NESTED:
+            sec, subkey = FLAT_TO_NESTED[flat_key]
+            nested[sec][subkey] = val
+        else:
+            # Keep other keys at top-level
+            nested[flat_key] = val
+    return nested

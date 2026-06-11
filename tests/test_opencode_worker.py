@@ -44,11 +44,11 @@ def test_boredom_timeout_constant():
 
 
 def test_api_constants_present():
-    from src import constants
-    assert constants.OPENCODE_SERVER_URL.startswith("http")
-    assert constants.OPENCODE_API_MODEL_ID == "deepseek-v4-flash-free"
-    assert constants.OPENCODE_API_MODEL_PROVIDER == "opencode"
-    assert isinstance(constants.OPENCODE_API_TIMEOUT_SEC, int)
+    from src.config import DEFAULT_CONFIG
+    assert DEFAULT_CONFIG["llm"]["server_url"].startswith("http")
+    assert DEFAULT_CONFIG["llm"]["model_id"] == "north-mini-code-free"
+    assert DEFAULT_CONFIG["llm"]["provider"] == "opencode"
+    assert isinstance(DEFAULT_CONFIG["llm"]["timeout_sec"], int)
 
 
 def test_persona_hint_constant_exists():

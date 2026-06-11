@@ -11,10 +11,6 @@ APM_WINDOW_SECONDS         = 60
 SPEECH_BUBBLE_DURATION_MS  = 8000
 OPENCODE_TIMEOUT_SECONDS   = 90
 OPENCODE_SCRIPT_PATH       = str(Path(__file__).parent.parent / "opencode-query.ps1")
-OPENCODE_SERVER_URL        = "http://127.0.0.1:4096"
-OPENCODE_API_MODEL_PROVIDER = "opencode"
-OPENCODE_API_MODEL_ID       = "deepseek-v4-flash-free"
-OPENCODE_API_TIMEOUT_SEC    = 180
 WANDER_SPEED_PX            = 2
 HYPER_SPEED_MULTIPLIER     = 3.0
 GRAVITY_ACCELERATION       = 0.5
@@ -80,7 +76,7 @@ MEMORY_PATH = str(STORAGE_DIR / ".daemon_memory.json")
 HISTORY_PATH = str(STORAGE_DIR / ".daemon_history.json")
 DIARY_PATH = str(STORAGE_DIR / ".daemon_diary.json")
 STATE_PATH = str(STORAGE_DIR / ".daemon_state.json")
-CONFIG_PATH = STORAGE_DIR / ".daemon_config.json"
+CONFIG_PATH = STORAGE_DIR / "daemon_config.json"
 RESPONSE_CACHE_PATH = str(STORAGE_DIR / ".daemon_response_cache.json")
 
 _PERSONA_HINT = "You are Daemon, the user's desktop pet. Continue in character. Keep responses brief."
@@ -100,11 +96,6 @@ SHORT_BUBBLE_CHAR_LIMIT = 40
 DEBUG: bool = False
 THOUGHTS_LOG_PATH = STORAGE_DIR / ".daemon_thoughts.log"
 
-TTS_ENABLED: bool = True
-TTS_BASE_RATE: int = 120
-TTS_VOICE_ID: str = "en-US-GuyNeural"
-TTS_PITCH_FACTOR: float = 1.15
-
 SQUASH_STRETCH_DURATION_MS: int = 400
 MIN_CHASE_DURATION_MS: int = 500
 
@@ -120,15 +111,10 @@ SETTINGS_SPEED_MIN: float = 0.5
 SETTINGS_SPEED_MAX: float = 2.0
 
 # --- Firebase Admin SDK ---
-# Obtain firebase-credentials.json from: Firebase Console > Project Settings > Service Accounts >
-# "Generate new private key". Save the downloaded JSON to data/firebase-credentials.json.
-# Only needed for Firestore persistence (brain sync, diary). Daemon runs fine without it
-# (graceful degradation to local-only memory + history).
 FIREBASE_CREDENTIALS_PATH: Path = STORAGE_DIR / "firebase-credentials.json"
 FIREBASE_PROJECT_ID: str = "daemon-87f81"
 
 # --- Firebase Auth REST API (user identity) ---
-FIREBASE_API_KEY: str = "AIzaSyAX0n85NY4F7WycIYfVwEjfM25hSkDt33U"
 AUTH_TOKEN_PATH: Path = STORAGE_DIR / ".daemon_auth.json"
 
 RISKY_KEYWORDS: Final[dict[str, list[dict]]] = {
@@ -198,4 +184,3 @@ STRUCTURED_SCHEMA = {
     "minItems": 1,
     "maxItems": 5,
 }
-
