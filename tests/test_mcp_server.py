@@ -414,3 +414,125 @@ def test_tools_call_search_codebase():
     results = json.loads(text)
     assert len(results) >= 1
     assert any("pet_window.py" in r["file"] for r in results)
+
+
+# ── Consent gating tests (Phase 44.5 Gap 1) ────────────────────────────────
+
+def _consent_handler(overrides: dict[str, bool] | None = None, bridge=None):
+    """Build a handler with a consent dict. All gates default False."""
+    consent = {
+        "allow_intrusive_animations": False,
+        "allow_audio_disruptions": False,
+        "allow_clipboard_hijacking": False,
+        "allow_window_management": False,
+    }
+    if overrides:
+        consent.update(overrides)
+    handler = object.__new__(MCPHandler)
+    handler.fsm_bridge = bridge if bridge is not None else MagicMock()
+    handler.memory = None
+    handler.diary_store = None
+    handler.consent = consent
+    return handler
+
+
+def test_consent_block_change_visual_state():
+    handler = _consent_handler()
+    response = handler._handle_tools_call({
+        "name": "change_visual_state",
+        "arguments": {"action": "shake"}
+    })
+    assert "error" in response
+    assert response["error"]["code"] == -32001
+    assert "denied permission" in response["error"]["message"]
+    assert "allow_intrusive_animations" in response["error"]["message"]
+
+
+def test_consent_allow_change_visual_state():
+    handler = _consent_handler({"allow_intrusive_animations": True})
+    response = handler._handle_tools_call({
+        "name": "change_visual_state",
+        "arguments": {"action": "shake"}
+    })
+    assert "result" in response
+    handler.fsm_bridge.emit_request.assert_called_once_with("shake", None, None)
+
+
+def test_consent_block_read_clipboard():
+    handler = _consent_handler()
+    response = handler._handle_tools_call({
+        "name": "read_clipboard",
+        "arguments": {}
+    })
+    assert "error" in response
+    assert response["error"]["code"] == -32001
+    assert "allow_clipboard_hijacking" in response["error"]["message"]
+
+
+@patch("src.mcp_server._read_clipboard", return_value="Clipboard: test")
+def test_consent_allow_read_clipboard(mock_read):
+    handler = _consent_handler({"allow_clipboard_hijacking": True})
+    response = handler._handle_tools_call({
+        "name": "read_clipboard",
+        "arguments": {}
+    })
+    assert "result" in response
+    assert "Clipboard: test" in response["result"]["content"][0]["text"]
+
+
+def test_consent_block_capture_screenshot():
+    handler = _consent_handler()
+    response = handler._handle_tools_call({
+        "name": "capture_blackmail_evidence",
+        "arguments": {}
+    })
+    assert "error" in response
+    assert "allow_window_management" in response["error"]["message"]
+
+
+def test_consent_block_send_system_toast():
+    handler = _consent_handler()
+    response = handler._handle_tools_call({
+        "name": "send_system_toast",
+        "arguments": {}
+    })
+    assert "error" in response
+    assert "allow_audio_disruptions" in response["error"]["message"]
+
+
+def test_consent_read_only_tools_not_blocked():
+    """Read-only tools (list_directory, read_file, etc) should pass without consent."""
+    handler = _consent_handler()
+    # These tools don't need consent — pass minimal valid args
+    for name, args in (
+        ("list_directory", {"relative_path": "src"}),
+        ("get_memory", {}),
+        ("get_diary", {}),
+    ):
+        response = handler._handle_tools_call({"name": name, "arguments": args})
+        assert "error" not in response, f"Tool '{name}' blocked by consent"
+
+
+def test_consent_parse_raw_blocks_gated_tool():
+    consent = {k: False for k in ("allow_intrusive_animations", "allow_audio_disruptions",
+                                   "allow_clipboard_hijacking", "allow_window_management")}
+    body = json.dumps({
+        "method": "tools/call",
+        "params": {"name": "change_visual_state", "arguments": {"action": "shake"}},
+        "id": 1,
+    })
+    response = MCPHandler.parse_raw(body, consent)
+    assert "error" in response
+    assert response["error"]["code"] == -32001
+
+
+def test_consent_parse_raw_allows_with_permission():
+    consent = {k: True for k in ("allow_intrusive_animations", "allow_audio_disruptions",
+                                  "allow_clipboard_hijacking", "allow_window_management")}
+    body = json.dumps({
+        "method": "tools/call",
+        "params": {"name": "change_visual_state", "arguments": {"action": "shake"}},
+        "id": 1,
+    })
+    response = MCPHandler.parse_raw(body, consent)
+    assert "result" in response

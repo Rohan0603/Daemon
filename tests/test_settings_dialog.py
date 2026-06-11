@@ -67,3 +67,31 @@ class TestSettingsDialog:
         dialog.value_changed.connect(lambda: emitted.append(None))
         dialog._size_slider.setValue(130)
         assert len(emitted) >= 1
+
+    def test_get_values_includes_consent_keys(self):
+        _ = app()
+        dialog = SettingsDialog()
+        values = dialog.get_values()
+        assert values["allow_intrusive_animations"] is True
+        assert values["allow_audio_disruptions"] is False
+        assert values["allow_browser_redirection"] is False
+        assert values["allow_clipboard_hijacking"] is False
+        assert values["allow_mouse_interference"] is False
+        assert values["allow_window_management"] is False
+        assert values["allow_keyboard_injection"] is False
+
+    def test_consent_toggle_changes_get_values(self):
+        _ = app()
+        dialog = SettingsDialog()
+        dialog._cb_intrusive_animations.setChecked(False)
+        dialog._cb_audio_disruptions.setChecked(True)
+        dialog._cb_browser_redirection.setChecked(True)
+        dialog._cb_window_management.setChecked(True)
+        values = dialog.get_values()
+        assert values["allow_intrusive_animations"] is False
+        assert values["allow_audio_disruptions"] is True
+        assert values["allow_browser_redirection"] is True
+        assert values["allow_window_management"] is True
+        assert values["allow_clipboard_hijacking"] is False
+        assert values["allow_mouse_interference"] is False
+        assert values["allow_keyboard_injection"] is False

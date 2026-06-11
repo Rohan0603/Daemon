@@ -28,7 +28,10 @@ from src.constants import (
     SHORT_BUBBLE_DURATION_MS, SHORT_BUBBLE_CHAR_LIMIT,
     TTS_ENABLED, TTS_BASE_RATE, TTS_VOICE_ID,
     SQUASH_STRETCH_DURATION_MS, PERIMETER_FALL_CHANCE,
+    THROW_VELOCITY_THRESHOLD, THROW_FRICTION,
     RISKY_KEYWORDS,
+    EMOTION_TICK_SEC, RAPID_WINDOW_SWITCH_THRESHOLD,
+    TASK_MANAGER_KEYWORDS, PROCRASTINATION_DOMAINS,
 )
 from src.pet_fsm import PetFSM, PetState, FSMContext
 from src.pet_renderer import PetRenderer, RenderContext
@@ -51,6 +54,7 @@ from src.response_manager import AutonomousResponseManager
 
 from src.fsm_bridge import FSMActionBridge
 from src.mcp_server import MCPServer
+from src.animator import EmotionAnimator, Emotion
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +107,11 @@ class PetWindow(QWidget):
         self._land_time: float = 0.0
         self._drag_offset = QPoint(0, 0)
         self._drag_velocity_x = 0.0
+        self._drag_velocity_y = 0.0
+        self._drag_start_time = 0.0
+        self._throw_vx: float = 0.0
+        self._throw_vy: float = 0.0
+        self._is_thrown: bool = False
         self._last_drag_pos = QPoint(0, 0)
         self._wander_target_x: int | None = None
         self._wander_direction = 1
@@ -127,6 +136,10 @@ class PetWindow(QWidget):
 
         self._fsm = PetFSM()
         self._renderer = PetRenderer()
+        self._animator = EmotionAnimator()
+        self._emotion_timer_sec = 0
+        self._window_switch_count = 0
+        self._last_evaluated_window = ""
 
         self._pinned = False
 
@@ -169,7 +182,7 @@ class PetWindow(QWidget):
         self._diary_path = DIARY_PATH
 
         self._diary_store = DiaryStore(self._diary_path)
-        self._mcp_server = MCPServer(self._fsm_bridge, memory=self._memory, diary_store=self._diary_store)
+        self._mcp_server = MCPServer(self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, config=self._config)
         self._write_coalescer = WriteCoalescer(
             memory=self._memory, history=self._history,
             memory_manager=self._firebase_mem,
@@ -425,6 +438,44 @@ class PetWindow(QWidget):
                     is_autonomous=True,
                 )
 
+    def _evaluate_emotion(self) -> Emotion:
+        """Determine current emotion from OS context. Stateless pure function."""
+        window = get_active_window_title().lower()
+
+        # FEAR: Task manager / activity monitor
+        for kw in TASK_MANAGER_KEYWORDS:
+            if kw.lower() in window:
+                return Emotion.FEAR
+
+        # DISGUST: Procrastination sites
+        for domain in PROCRASTINATION_DOMAINS:
+            if domain in window:
+                return Emotion.DISGUST
+
+        # WONDER: Rapid window switching
+        if self._window_switch_count >= RAPID_WINDOW_SWITCH_THRESHOLD:
+            return Emotion.WONDER
+
+        # ANGER: Risky keyword match detected via typing buffer
+        if hasattr(self, '_last_risky_match') and self._last_risky_match:
+            return Emotion.ANGER
+
+        # DEVOTION: High APM (> 60)
+        if self._current_apm > 60:
+            return Emotion.DEVOTION
+
+        # PATHOS: Stale idle (>= 120s, no APM)
+        if self._idle_seconds >= 120 and self._current_apm == 0:
+            return Emotion.PATHOS
+
+        # TRANQUILITY: Steady coding in IDE
+        win_title = get_active_window_title()
+        if self._current_apm > 0 and self._current_apm <= 60 and ("code" in (win_title or "").lower()):
+            return Emotion.TRANQUILITY
+
+        # MIRTH: Default
+        return Emotion.MIRTH
+
     def _master_tick(self) -> None:
         """Centralized behavioral tick — runs every BEHAVIOR_TICK_MS."""
         try:
@@ -433,6 +484,22 @@ class PetWindow(QWidget):
             # SLEEP guard: freeze all behavioral timers
             if self._fsm.current_state == PetState.SLEEP:
                 return
+
+            # Window switch tracking for WONDER
+            current_window = get_active_window_title()
+            if current_window and current_window != self._last_evaluated_window:
+                self._window_switch_count += 1
+                self._last_evaluated_window = current_window
+
+            # Emotion evaluation every EMOTION_TICK_SEC seconds
+            self._emotion_timer_sec += 1
+            if self._emotion_timer_sec >= EMOTION_TICK_SEC:
+                self._emotion_timer_sec = 0
+                emotion = self._evaluate_emotion()
+                self._animator.set_emotion(emotion, self._animator._elapsed_ms)
+                self._window_switch_count = 0
+                if emotion == Emotion.FEAR:
+                    self._fsm.transition_to(PetState.FALLING)
 
             # 1. Accumulate time
             self._chat_timer_sec += 1
@@ -577,6 +644,17 @@ class PetWindow(QWidget):
         self._saved_tts_volume = self._tts.volume if self._tts else 1.0
         self._saved_tts_voice_id = self._tts.voice_id if self._tts else None
         self._saved_chattiness = self._chattiness
+        self._saved_consent = {
+            k: self._config.get(k, v) for k, v in {
+                "allow_intrusive_animations": True,
+                "allow_audio_disruptions": False,
+                "allow_browser_redirection": False,
+                "allow_clipboard_hijacking": False,
+                "allow_mouse_interference": False,
+                "allow_window_management": False,
+                "allow_keyboard_injection": False,
+            }.items()
+        }
 
         dialog = SettingsDialog(
             pet_scale=self._pet_scale,
@@ -587,6 +665,7 @@ class PetWindow(QWidget):
             tts_volume=self._saved_tts_volume,
             tts_voice_id=self._saved_tts_voice_id,
             chattiness=self._chattiness,
+            **self._saved_consent,
             parent=self,
         )
         dialog.value_changed.connect(lambda: self._apply_settings(dialog.get_values()))
@@ -617,6 +696,12 @@ class PetWindow(QWidget):
 
     def _save_settings(self, values: dict) -> None:
         from src.config import save_config
+        consent_keys = ("allow_intrusive_animations", "allow_audio_disruptions",
+                        "allow_browser_redirection", "allow_clipboard_hijacking",
+                        "allow_mouse_interference", "allow_window_management",
+                        "allow_keyboard_injection")
+        consent_state = {k: values.get(k, False) for k in consent_keys}
+        logger.info("Consent Matrix updated by user: %s", consent_state)
         save_config(values)
 
     def _restore_settings(self) -> None:
@@ -627,6 +712,7 @@ class PetWindow(QWidget):
             "tts_rate": self._saved_tts_rate,
             "tts_volume": self._saved_tts_volume,
             "chattiness": self._saved_chattiness,
+            **self._saved_consent,
         })
 
     def _tick(self) -> None:
@@ -678,6 +764,7 @@ class PetWindow(QWidget):
                     self._last_boredom_fsm_time = time.time()
                     self._boredom_timer_ms = BOREDOM_TIMEOUT_SEC * 1000
             self._apply_physics(new_state, FSM_TICK_MS)
+            self._animator.update(FSM_TICK_MS, self._pet_x, self._pet_y)
             self.update()
         except Exception as e:
             logger.critical("CRASH in _tick: %s", e, exc_info=True)
@@ -745,13 +832,25 @@ class PetWindow(QWidget):
             return
 
         if state == PetState.FALLING:
-            self._fall_velocity += GRAVITY_ACCELERATION
-            self._pet_y += int(self._fall_velocity)
-            if self._pet_y >= self._ground_y:
-                self._pet_y = self._ground_y
-                self._fall_velocity = 0.0
-                self._land_time = time.time()
-                self._fsm.current_state = PetState.IDLE
+            if self._is_thrown:
+                self._throw_vy += GRAVITY_ACCELERATION
+                self._throw_vx *= THROW_FRICTION
+                self._pet_x += int(self._throw_vx * dt / 33.0)
+                self._pet_y += int(self._throw_vy * dt / 33.0)
+                if self._pet_y >= self._ground_y and abs(self._throw_vx) < 1.0:
+                    self._pet_y = self._ground_y
+                    self._fall_velocity = 0.0
+                    self._is_thrown = False
+                    self._land_time = time.time()
+                    self._fsm.current_state = PetState.IDLE
+            else:
+                self._fall_velocity += GRAVITY_ACCELERATION
+                self._pet_y += int(self._fall_velocity)
+                if self._pet_y >= self._ground_y:
+                    self._pet_y = self._ground_y
+                    self._fall_velocity = 0.0
+                    self._land_time = time.time()
+                    self._fsm.current_state = PetState.IDLE
 
         elif state == PetState.PERIMETER:
             self._tick_perimeter()
@@ -837,6 +936,9 @@ class PetWindow(QWidget):
                 self._fsm.current_state = PetState.DRAGGED
                 self._drag_offset = local - QPoint(self._pet_x, self._pet_y)
                 self._last_drag_pos = local
+                self._drag_velocity_x = 0.0
+                self._drag_velocity_y = 0.0
+                self._drag_start_time = time.time()
                 self._idle_backoff_seconds = 0.0
                 self._last_context_snapshot = None
 
@@ -847,8 +949,14 @@ class PetWindow(QWidget):
         self._last_context_snapshot = None
         if self._fsm.current_state == PetState.DRAGGED:
             local = event.position().toPoint()
-            self._drag_velocity_x = local.x() - self._last_drag_pos.x()
+            now = time.time()
+            dt = max(0.001, now - self._drag_start_time)
+            dx = local.x() - self._last_drag_pos.x()
+            dy = local.y() - self._last_drag_pos.y()
+            self._drag_velocity_x = dx / dt
+            self._drag_velocity_y = dy / dt
             self._last_drag_pos = local
+            self._drag_start_time = now
             new_pos = local - self._drag_offset
             self._pet_x = new_pos.x()
             self._pet_y = new_pos.y()
@@ -857,7 +965,15 @@ class PetWindow(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             if self._fsm.current_state == PetState.DRAGGED:
-                if self._pet_y < self._ground_y:
+                speed = (self._drag_velocity_x**2 + self._drag_velocity_y**2)**0.5
+                if speed > THROW_VELOCITY_THRESHOLD:
+                    self._throw_vx = self._drag_velocity_x
+                    self._throw_vy = self._drag_velocity_y
+                    self._is_thrown = True
+                    self._fsm.current_state = PetState.FALLING
+                    logger.debug("Pet thrown. Initial velocity: X=%.2f, Y=%.2f",
+                                 self._throw_vx, self._throw_vy)
+                elif self._pet_y < self._ground_y:
                     self._fsm.current_state = PetState.FALLING
                 else:
                     self._fsm.current_state = PetState.IDLE
@@ -895,6 +1011,8 @@ class PetWindow(QWidget):
                 edge=self._perimeter_edge,
                 facing=self._perimeter_facing,
                 screen_rect=QApplication.primaryScreen().availableGeometry(),
+                emotion=self._animator.current_emotion,
+                animator=self._animator,
             )
             self._renderer.render(painter, ctx)
             self._bubble_rect = ctx.bubble_rect
