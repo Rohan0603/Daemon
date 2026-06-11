@@ -8,20 +8,42 @@ from PyQt6.QtCore import QObject, pyqtSignal
 logger = logging.getLogger(__name__)
 
 
-class ResponsePool(QObject):
-    refill_needed = pyqtSignal(str)
+class ThoughtPool(QObject):
+    refill_needed = pyqtSignal()
     pool_refilled = pyqtSignal()
     refill_failed = pyqtSignal(str)
 
-    def __init__(self, pool_type: str, max_size: int, threshold: int,
+    def __init__(self, max_size: int, threshold: int,
                  refill_count: int, parent=None):
         super().__init__(parent)
-        self._pool_type = pool_type
         self._max_size = max_size
         self._threshold = threshold
         self._refill_count = refill_count
         self._items: list[dict] = []
         self._refilling = False
+
+    def draw_by_type(self, target_type: str, current_context_hash: str = None) -> list[dict]:
+        if not self._items:
+            if not self._refilling:
+                self._request_refill()
+            return []
+        if len(self._items) < self._threshold:
+            if not self._refilling:
+                self._request_refill()
+        candidates = sorted(self._items, key=lambda x: x.get("priority", 3), reverse=True)
+        for item in candidates:
+            if item.get("type") != target_type:
+                continue
+            item_hash = item.get("context_hash")
+            if item_hash is not None and current_context_hash is not None and item_hash != current_context_hash:
+                self._items.remove(item)
+                continue
+            self._items.remove(item)
+            item["last_used"] = datetime.now().isoformat()
+            return [item]
+        if not self._refilling:
+            self._request_refill()
+        return []
 
     def draw(self, count: int = 1) -> list[dict]:
         if not self._items:
@@ -34,7 +56,10 @@ class ResponsePool(QObject):
         weights = [max(1, item.get("priority", 3)) for item in self._items]
         total = sum(weights)
         if total == 0:
-            return [item for item, _ in pool_copy][:count]
+            pool_copy = list(self._items)
+            result = pool_copy[:count]
+            self._items = self._items[count:]
+            return result
         selected = []
         pool_copy = list(zip(self._items, weights))
         for _ in range(min(count, len(pool_copy))):
@@ -64,7 +89,6 @@ class ResponsePool(QObject):
                 "action": item.get("action", "idle"),
                 "target_x": item.get("target_x"),
                 "priority": item.get("priority", 3),
-                "pool_type": self._pool_type,
             })
         self._items.extend(tagged)
         if len(self._items) > self._max_size:
@@ -81,17 +105,16 @@ class ResponsePool(QObject):
         if self._refilling:
             return
         self._refilling = True
-        self.refill_needed.emit(self._pool_type)
+        self.refill_needed.emit()
 
     def on_refill_result(self, items: list[dict] | None):
         self._refilling = False
         if not items:
-            logger.warning("Refill for %s returned no items", self._pool_type)
-            self.refill_failed.emit(f"{self._pool_type}: empty response")
+            logger.warning("Refill returned no items")
+            self.refill_failed.emit("empty response")
             return
         self.add_items(items)
-        logger.info("Refill %s: added %d items (pool now %d)",
-                     self._pool_type, len(items), len(self._items))
+        logger.info("Refill: added %d items (pool now %d)", len(items), len(self._items))
         self.pool_refilled.emit()
 
     def load_items(self, items: list[dict]):

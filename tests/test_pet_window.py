@@ -544,7 +544,7 @@ def test_on_brain_update_strips_locked(app, tmp_path):
         window._memory.remember.assert_not_called()
 
 
-def test_constructs_response_manager_with_two_pools(app, tmp_path):
+def test_constructs_response_manager_with_single_thought_pool(app, tmp_path):
     from src.pet_window import PetWindow
     mem_path = str(tmp_path / "mem.json")
     hist_path = str(tmp_path / "hist.json")
@@ -554,8 +554,7 @@ def test_constructs_response_manager_with_two_pools(app, tmp_path):
          patch("src.pet_window.MemoryManager"):
         pw = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
     assert hasattr(pw, "_response_manager")
-    assert "jokes_blackmail" in pw._response_manager._pools
-    assert "system" in pw._response_manager._pools
+    assert hasattr(pw._response_manager, "thought_pool")
 
 
 def test_active_chat_tick_dispatches_trigger(app, tmp_path):
@@ -623,11 +622,11 @@ def test_should_fire_autonomous_checks_correct_pool(app, tmp_path):
          patch("src.pet_window.MemoryManager"):
         pw = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
         pw._opencode_worker = object()
-        pw._response_manager._pools["jokes_blackmail"]._items = []
-        # boredom still draws from pool
+        pw._response_manager.thought_pool._items = []
+        # boredom checks thought pool
         assert pw._should_fire_autonomous("boredom") is False
-        pw._response_manager._pools["jokes_blackmail"]._items = [
-            {"dialogue": "a", "action": "idle", "priority": 3}
+        pw._response_manager.thought_pool._items = [
+            {"dialogue": "a", "action": "idle", "priority": 3, "type": "idle_thought"}
         ]
         assert pw._should_fire_autonomous("boredom") is True
         # active_chat/joke require opencode
@@ -711,8 +710,8 @@ def test_structured_multiplexed_bickering_pair(qtbot):
         window._on_structured_multiplexed(items)
         assert window._dispatch_structured.call_count == 1
         call_args = window._dispatch_structured.call_args
-        assert call_args[0][0] == "Kenny roast!"
-        assert call_args[0][1] == "shake"
+        assert call_args[0][0]["dialogue"] == "Kenny roast!"
+        assert call_args[0][0]["action"] == "shake"
 
 
 def test_structured_multiplexed_standard_path(qtbot):
@@ -733,7 +732,7 @@ def test_structured_multiplexed_standard_path(qtbot):
         window._on_structured_multiplexed(items)
         assert window._dispatch_structured.call_count == 1
         call_args = window._dispatch_structured.call_args
-        assert call_args[0][0] == "First"
+        assert call_args[0][0]["dialogue"] == "First"
         assert window._response_manager.add_items.called
 
 

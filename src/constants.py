@@ -14,7 +14,7 @@ OPENCODE_SCRIPT_PATH       = str(Path(__file__).parent.parent / "opencode-query.
 OPENCODE_SERVER_URL        = "http://127.0.0.1:4096"
 OPENCODE_API_MODEL_PROVIDER = "opencode-go"
 OPENCODE_API_MODEL_ID       = "deepseek-v4-flash"
-OPENCODE_API_TIMEOUT_SEC    = 90
+OPENCODE_API_TIMEOUT_SEC    = 180
 WANDER_SPEED_PX            = 2
 HYPER_SPEED_MULTIPLIER     = 3.0
 GRAVITY_ACCELERATION       = 0.5
@@ -84,18 +84,9 @@ RESPONSE_CACHE_PATH = str(STORAGE_DIR / ".daemon_response_cache.json")
 _PERSONA_HINT = "You are Daemon, the user's desktop pet. Continue in character. Keep responses brief."
 
 # Pool configuration
-JOKES_BLACKMAIL_POOL_SIZE = 5
-JOKES_BLACKMAIL_POOL_THRESHOLD = 3
-JOKES_BLACKMAIL_POOL_REFILL_COUNT = 3
-
-SYSTEM_POOL_SIZE = 2
-SYSTEM_POOL_THRESHOLD = 1
-SYSTEM_POOL_REFILL_COUNT = 2
-
-# Typing reaction pool (zero-latency, API-refilled)
-TYPING_POOL_MAX = 20
-TYPING_POOL_LOW_WATERMARK = 5
-TYPING_POOL_REFILL_COUNT = 5
+THOUGHT_POOL_SIZE = 20
+THOUGHT_POOL_THRESHOLD = 5
+THOUGHT_POOL_REFILL_COUNT = 5
 
 POOL_DECAY_INTERVAL_SEC = 120       # priority -1 every 2 min
 POOL_REFILL_PERIODIC_SEC = 600      # periodic refill every 10 min

@@ -107,29 +107,20 @@ class ContextManager:
             self._snapshot["active_window"] = context_hint
             self._snapshot["apm_bucket"] = _apm_bucket(apm)
 
-    def build_pool_refill_prompt(self, pool_type: str, apm: int, count: int = 5) -> str:
-        """Build prompt for API-driven pool refill."""
-        if pool_type == "typing_reactions":
-            if apm > 60:
-                vibe = "User is typing frantically. You are panicked by their speed."
-            elif apm < 10:
-                vibe = "User is typing painfully slow. You are bored and condescending."
-            else:
-                vibe = "User is typing at a normal pace. You are easily distracted."
-
-            return (
-                "You are silently restocking your local reaction cache for USER TYPING.\n"
-                f"Context: {vibe}\n"
-                f"APM: {apm}\n\n"
-                f"Generate EXACTLY {count} short, punchy one-liner reactions (max 10 words each) "
-                "to the user's typing. These must be pure Kenny—foul-mouthed, nervous, or snarky. "
-                "No preamble.\n"
-                f"Respond with a JSON array containing EXACTLY {count} objects. "
-                "Every item MUST contain 'thought' and 'dialogue'."
-            )
-        # Fallback for other pool types
+    def build_mixed_bag_prompt(self, count: int = 5) -> str:
+        """Build prompt for unified Mixed-Bag ThoughtPool refill."""
         return (
-            f"Generate {count} autonomous thoughts/jokes as a JSON array. "
-            "Every item MUST contain 'thought' and 'dialogue', "
-            "and may optionally include 'brain_update'."
+            f"Generate EXACTLY {count} items as a JSON array.\n\n"
+            f"Each item MUST have:\n"
+            f"- \"type\": one of [\"typing_reaction\", \"observation\", \"intel_roast\", \"idle_thought\"]\n"
+            f"- \"dialogue\": spoken text (max 100 chars)\n"
+            f"- \"thought\": internal monologue (max 150 chars)\n"
+            f"- \"priority\": integer 1-5\n"
+            f"- \"context_hash\": copy from the Screen Context below if making an observation\n\n"
+            f"Types guide:\n"
+            f"- typing_reaction: short reaction to user typing speed\n"
+            f"- observation: comment on what's on user's screen\n"
+            f"- intel_roast: snarky roast based on known user facts\n"
+            f"- idle_thought: random internal monologue when nothing's happening\n\n"
+            f"Respond ONLY with the JSON array, no preamble."
         )

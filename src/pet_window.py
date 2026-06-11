@@ -9,7 +9,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtWidgets import QWidget, QApplication, QLineEdit, QSystemTrayIcon, QMenu, QDialog
-from PyQt6.QtCore import Qt, QTimer, QPoint, QRect, QEvent
+from PyQt6.QtCore import Qt, QTimer, QPoint, QRect, QEvent, QThread
 from PyQt6.QtGui import QPainter, QPixmap, QIcon, QColor
 
 from src.constants import (
@@ -187,8 +187,7 @@ class PetWindow(QWidget):
             cache_path=RESPONSE_CACHE_PATH,
             write_coalescer=self._write_coalescer,
         )
-        for pool in self._response_manager._pools.values():
-            pool.refill_needed.connect(self._on_refill_needed)
+        self._response_manager.thought_pool.refill_needed.connect(self._on_refill_needed)
         self._response_manager.start()
         self._log_data_state("Startup+Cache")
 
@@ -375,7 +374,8 @@ class PetWindow(QWidget):
         self._chat_timer_sec = 0  # Reset timer
 
         # Zero-latency local reaction
-        local = self._response_manager.draw("typing_reactions", 1)
+        current_hash = self._last_context_snapshot if hasattr(self, "_last_context_snapshot") else None
+        local = self._response_manager.draw("typing_reaction", current_context_hash=current_hash)
         if local:
             self._dispatch_structured(local[0])
 
@@ -502,7 +502,7 @@ class PetWindow(QWidget):
             self._write_coalescer.flush()
         except Exception as e:
             logger.warning("WriteCoalescer flush failed: %s", e)
-        for pool_type, worker in list(self._refill_workers.items()):
+        for worker in list(self._refill_workers.values()):
             if worker.isRunning():
                 worker.quit()
                 worker.wait(15000)
@@ -1172,7 +1172,6 @@ class PetWindow(QWidget):
         prompt = base + f"\nmodes: {json.dumps(modes)}"
         worker = OpencodeWorker(
             user_input="", prompt=prompt, is_autonomous=True,
-            session_id=self._opencode_session_id,
         )
         worker.response_ready.connect(self._on_structured_multiplexed)
         worker.error_occurred.connect(self._on_opencode_error)
@@ -1183,8 +1182,7 @@ class PetWindow(QWidget):
             return
         self._dispatch_structured(items[0], force=True)
         for item in items[1:]:
-            pool_type = item.get("pool_type", "jokes_blackmail")
-            self._response_manager.add_items(pool_type, [item])
+            self._response_manager.add_items([item])
 
     def _maybe_dispatch_bickering(self) -> bool:
         if random.random() < 0.10:
@@ -1212,18 +1210,13 @@ class PetWindow(QWidget):
 
     def _should_fire_autonomous(self, mode: str) -> bool:
         """Return True if autonomous tick is allowed to fire right now."""
-        pool_map = {
-            "boredom": "jokes_blackmail",
-        }
-        pool_type = pool_map.get(mode)
-        if pool_type:
-            if self._response_manager.remaining(pool_type) == 0:
-                logger.debug(f"[{mode}] Skipping: {pool_type} pool empty")
+        if mode == "boredom":
+            if self._response_manager.remaining() == 0:
+                logger.debug(f"[{mode}] Skipping: thought pool empty")
                 return False
-        else:
-            if not self._opencode_enabled:
-                logger.debug(f"[{mode}] Skipping: opencode disabled")
-                return False
+        elif not self._opencode_enabled:
+            logger.debug(f"[{mode}] Skipping: opencode disabled")
+            return False
         if self._autonomous_query_pending:
             logger.debug(f"[{mode}] Skipping: autonomous query pending")
             return False
@@ -1265,7 +1258,10 @@ class PetWindow(QWidget):
         ):
             logger.debug("[boredom] Skipping: FSM state=%s", self._fsm.current_state.name)
             return
-        items = self._response_manager.draw("jokes_blackmail", 1)
+        current_hash = self._last_context_snapshot if hasattr(self, "_last_context_snapshot") else None
+        items = self._response_manager.draw("idle_thought", current_context_hash=current_hash)
+        if not items:
+            items = self._response_manager.draw("observation", current_context_hash=current_hash)
         if items:
             item = items[0]
         else:
@@ -1338,15 +1334,32 @@ class PetWindow(QWidget):
                 idle_seconds=idle_seconds, typing_content=typing_content,
                 screen_text=screen_text,
             )
-        if self._opencode_worker and self._opencode_worker.isRunning():
-            logger.info("Worker busy; deferring '%s' trigger", mode)
-            self._deferred_trigger_params = dict(
-                mode=mode, user_input=user_input,
-                context_hint=context_hint, apm=apm,
-                idle_seconds=idle_seconds, typing_content=typing_content,
-                is_autonomous=is_autonomous,
-            )
-            return
+        if isinstance(self._opencode_worker, QThread) and self._opencode_worker.isRunning():
+            if not is_autonomous:
+                logger.info("User input preempting busy worker (mode='%s')", mode)
+                try:
+                    self._opencode_worker.response_ready.disconnect()
+                except TypeError:
+                    pass
+                try:
+                    self._opencode_worker.error_occurred.disconnect()
+                except TypeError:
+                    pass
+                self._opencode_worker.quit()
+                self._opencode_worker.wait(5000)
+                self._opencode_worker.deleteLater()
+                self._opencode_worker = None
+                self._autonomous_query_pending = False
+                self._deferred_trigger_params = None
+            else:
+                logger.info("Worker busy; deferring '%s' trigger", mode)
+                self._deferred_trigger_params = dict(
+                    mode=mode, user_input=user_input,
+                    context_hint=context_hint, apm=apm,
+                    idle_seconds=idle_seconds, typing_content=typing_content,
+                    is_autonomous=is_autonomous,
+                )
+                return
         worker = OpencodeWorker(
             user_input=user_input, context_hint=context_hint,
             apm=apm, is_autonomous=is_autonomous,
@@ -1357,7 +1370,6 @@ class PetWindow(QWidget):
         worker.error_occurred.connect(self._on_opencode_error)
         worker.session_created.connect(self._on_session_created)
         worker.brain_update_ready.connect(self._on_brain_update)
-        worker.pool_items_ready.connect(self._on_pool_items_ready)
         worker.start()
         self._opencode_worker = worker
 
@@ -1373,8 +1385,7 @@ class PetWindow(QWidget):
             return
         self._dispatch_structured(items[0])
         for item in items[1:]:
-            pool_type = item.get("pool_type", "jokes_blackmail")
-            self._response_manager.add_items(pool_type, [item])
+            self._response_manager.add_items([item])
         self._boredom_timer_ms = AUTONOMOUS_QUERY_INTERVAL_SEC * 1000
         self._fire_deferred_trigger()
 
@@ -1386,7 +1397,7 @@ class PetWindow(QWidget):
         params = self._deferred_trigger_params
         if params is not None:
             self._deferred_trigger_params = None
-            if not (self._opencode_worker and self._opencode_worker.isRunning()):
+            if not (isinstance(self._opencode_worker, QThread) and self._opencode_worker.isRunning()):
                 logger.info("Firing deferred trigger: mode='%s'", params.get("mode", "?"))
                 self._dispatch_trigger(**params)
 
@@ -1458,12 +1469,11 @@ class PetWindow(QWidget):
                 brain_fields = 0
         except Exception:
             brain_fields = 0
-        jokes = self._response_manager.remaining("jokes_blackmail") if hasattr(self, "_response_manager") else 0
-        system = self._response_manager.remaining("system") if hasattr(self, "_response_manager") else 0
+        pool_count = self._response_manager.remaining() if hasattr(self, "_response_manager") else 0
         logger.info(
-            "[DATA] %s | memory=%d facts | history=%d entries | diary=%d entries | brain=%d fields | cache: jokes=%d system=%d",
+            "[DATA] %s | memory=%d facts | history=%d entries | diary=%d entries | brain=%d fields | thought_pool=%d items",
             label, mem_count, hist_count, diary_count,
-            brain_fields, jokes, system,
+            brain_fields, pool_count,
         )
 
     def _add_diary_entry(self, text: str) -> None:
@@ -1509,37 +1519,19 @@ class PetWindow(QWidget):
             is_autonomous=True,
         )
 
-    def _on_refill_needed(self, pool_type: str) -> None:
-        from src.constants import (
-            JOKES_BLACKMAIL_POOL_REFILL_COUNT, SYSTEM_POOL_REFILL_COUNT,
-            TYPING_POOL_REFILL_COUNT,
-        )
-        if pool_type == "typing_reactions":
-            count = TYPING_POOL_REFILL_COUNT
-            prompt = self._context_manager.build_pool_refill_prompt(
-                "typing_reactions", self._current_apm, count
-            )
-        elif pool_type == "jokes_blackmail":
-            count = JOKES_BLACKMAIL_POOL_REFILL_COUNT
-            prompt = (
-                f"You are Daemon, the user's desktop pet. Generate {count} random "
-                f"autonomous thoughts/jokes about the user's desktop habits as a JSON array. "
-                f"Every item MUST contain 'thought' and 'dialogue', and may optionally include 'brain_update'."
-            )
-        else:
-            count = SYSTEM_POOL_REFILL_COUNT
-            prompt = (
-                f"You are Daemon, the user's desktop pet. Generate {count} random "
-                f"autonomous thoughts/jokes about the user's desktop habits as a JSON array. "
-                f"Every item MUST contain 'thought' and 'dialogue', and may optionally include 'brain_update'."
-            )
+    def _on_refill_needed(self) -> None:
+        from src.constants import THOUGHT_POOL_REFILL_COUNT
+        count = THOUGHT_POOL_REFILL_COUNT
+        prompt = self._context_manager.build_mixed_bag_prompt(count)
         window = get_active_window_title() or "unknown"
+        logger.debug("[VERIFY] two-stage agentic refill: window=%s, APM=%d",
+                     window, self._current_apm)
         stage1 = (
             f"INVESTIGATION — DO NOT generate JSON yet.\n"
             f"Investigate the user's current context to understand what they're doing:\n"
             f"- Active window: {window}\n"
             f"- APM: {self._current_apm}\n"
-            f"- Refill type: {pool_type}\n\n"
+            f"- Refill type: thought_pool\n\n"
             f"Use MCP tools (read_file, git_status, etc.) to learn more. "
             f"Report your findings — they will be used to generate appropriate content next."
         )
@@ -1547,44 +1539,37 @@ class PetWindow(QWidget):
             "",
             is_autonomous=True,
             two_stage_prompts=(stage1, prompt),
-            session_id=self._opencode_session_id,
         )
-        worker.response_ready.connect(lambda items, pt=pool_type: self._on_refill_result(items, pt))
-        worker.error_occurred.connect(lambda err, pt=pool_type: self._on_refill_error(pt))
-        self._refill_workers[pool_type] = worker
+        worker.response_ready.connect(lambda items: self._on_refill_result(items))
+        worker.error_occurred.connect(lambda err: self._on_refill_error())
+        self._refill_workers["thought_pool"] = worker
         worker.start()
 
-    def _on_refill_result(self, items: list, pool_type: str) -> None:
-        logger.info("Refill result: %s, %d items", pool_type, len(items) if items else 0)
-        worker = self._refill_workers.pop(pool_type, None)
+    def _on_refill_result(self, items: list) -> None:
+        logger.info("Refill result: %d items", len(items) if items else 0)
+        worker = self._refill_workers.pop("thought_pool", None)
         if worker is not None:
             worker.deleteLater()
         if not items:
-            self._response_manager._pools[pool_type].on_refill_result(None)
+            self._response_manager.thought_pool.on_refill_result(None)
             return
         pool_items = []
         for item in items:
             if isinstance(item, dict):
                 pool_items.append({
+                    "type": item.get("type", "idle_thought"),
                     "dialogue": item.get("dialogue", ""),
                     "action": item.get("action", "idle"),
                     "target_x": item.get("target_x", 0),
                     "priority": item.get("priority", 3),
-                    "pool_type": pool_type,
                 })
-        self._response_manager._pools[pool_type].on_refill_result(pool_items)
+        self._response_manager.thought_pool.on_refill_result(pool_items)
 
-    def _on_refill_error(self, pool_type: str) -> None:
-        worker = self._refill_workers.pop(pool_type, None)
+    def _on_refill_error(self) -> None:
+        worker = self._refill_workers.pop("thought_pool", None)
         if worker is not None:
             worker.deleteLater()
-        self._response_manager._pools[pool_type].on_refill_result(None)
-
-    def _on_pool_items_ready(self, items: dict) -> None:
-        logger.info("Pool items ready from user response: %s", list(items.keys()))
-        joke_items = items.get("jokes_blackmail", [])
-        system_items = items.get("system", [])
-        self._response_manager.prime_from_user_response(joke_items, system_items)
+        self._response_manager.thought_pool.on_refill_result(None)
 
     def _on_session_created(self, session_id: str) -> None:
         self._opencode_session_id = session_id
