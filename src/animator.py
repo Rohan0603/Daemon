@@ -141,6 +141,7 @@ EMOTION_PROFILES: dict[Emotion, EmotionProfile] = {
         brow_angle=20.0,
         overlay_kind="border",
         overlay_color="#E74C3C",
+        overlay_alpha_func=lambda t: 180,
         particle_count=1,
         particle_color="#E74C3C"
     ),
@@ -180,6 +181,10 @@ EMOTION_PROFILES: dict[Emotion, EmotionProfile] = {
         pupil_scale=1.2,
         brow_angle=15.0,
         overlay_kind="aura",
+        overlay_color="#FFD700",
+        overlay_alpha_func=lambda t: 80,
+        particle_count=2,
+        particle_color="#FFD700",
         single_fire_decay_ms=1000
     ),
     Emotion.WONDER: EmotionProfile(
@@ -189,15 +194,13 @@ EMOTION_PROFILES: dict[Emotion, EmotionProfile] = {
         opacity_func=lambda t: 0.0 if 380 < t < 420 else 1.0,
         pupil_scale=1.5,
         overlay_kind="flash",
+        overlay_alpha_func=lambda t: 80,
         single_fire_decay_ms=800
     ),
     Emotion.TRANQUILITY: EmotionProfile(
         name="tranquility",
         opacity_func=lambda t: 0.8,
-        pupil_scale=0.3,
-        # Handled by particle interval logic in the animator update loop
-        particle_count=1, 
-        particle_color="#ADD8E6"
+        pupil_scale=0.3
     )
 }
 
