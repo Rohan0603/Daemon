@@ -201,27 +201,6 @@ EMOTION_PROFILES: dict[Emotion, EmotionProfile] = {
     )
 }
 
-# ── Backward-compatible legacy dicts (derived from registry) ────────────
-
-_SINGLE_FIRE_DECAY: dict[Emotion, int] = {
-    e: p.single_fire_decay_ms
-    for e, p in EMOTION_PROFILES.items()
-    if p.single_fire_decay_ms > 0
-}
-
-_EMOTION_OVERRIDE_COLOR: dict[Emotion, QColor] = {
-    e: QColor(p.color_override)
-    for e, p in EMOTION_PROFILES.items()
-    if p.color_override is not None
-}
-
-_PARTICLE_EMIT: dict[Emotion, tuple[int, QColor, float, float, int]] = {
-    e: (p.particle_count, QColor(p.particle_color), p.particle_spread,
-        p.particle_gravity, p.particle_lifetime_ticks)
-    for e, p in EMOTION_PROFILES.items()
-    if p.particle_count > 0 and p.particle_color is not None
-}
-
 
 class EmotionAnimator:
     """Drives emotion-based transforms, colours, particles, and overlays.
