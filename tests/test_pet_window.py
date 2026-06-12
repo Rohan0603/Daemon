@@ -18,6 +18,18 @@ def app():
         _app = QApplication([])
     return _app
 
+@pytest.fixture(autouse=True)
+def mock_background_workers():
+    with patch("src.pet_window.TTSWorker"), \
+         patch("src.pet_window.MCPServer"), \
+         patch("src.pet_window.TypingBuffer") as mock_tb, \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.OpencodeWorker"):
+        mock_tb.return_value.get_context.return_value = ""
+        yield
+
 def test_force_quit_initial_value(app):
     from src.pet_window import PetWindow
     
@@ -64,7 +76,7 @@ def test_close_event_accepts_when_force_quit(app):
         assert event.isAccepted() is True
         window.hide.assert_not_called()
 
-def test_force_quit_app_stops_apm_and_quits(app):
+def test_force_quit_app_stops_apm_and_quits(app, qtbot):
     from src.pet_window import PetWindow
     
     with patch("src.pet_window.ClickThroughManager") as mock_ctm, \
@@ -73,6 +85,7 @@ def test_force_quit_app_stops_apm_and_quits(app):
          patch("PyQt6.QtWidgets.QApplication.quit") as mock_quit:
         
         window = PetWindow(opencode_enabled=False)
+        qtbot.add_widget(window)
         window._force_quit_app()
         
         assert window._force_quit is True
@@ -212,7 +225,7 @@ def test_firebase_failure_sets_unavailable_flag(app, tmp_path):
         assert len(window._diary_store.get_entries()) == 3
 
 
-def test_force_quit_stops_timers_and_waits_for_worker(app):
+def test_force_quit_stops_timers_and_waits_for_worker(app, qtbot):
     from src.pet_window import PetWindow
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -220,16 +233,17 @@ def test_force_quit_stops_timers_and_waits_for_worker(app):
          patch("PyQt6.QtWidgets.QApplication.quit"), \
          patch.object(PetWindow, "_on_boot_check_auth"):
         window = PetWindow(opencode_enabled=False)
-        window._fsm_timer.stop = MagicMock()
-        window._behavior_timer.stop = MagicMock()
-        window._response_manager.stop = MagicMock()
-        mock_worker = MagicMock()
-        mock_worker.isRunning.return_value = True
-        window._opencode_worker = mock_worker
-        window._force_quit_app()
-        window._fsm_timer.stop.assert_called_once()
-        window._behavior_timer.stop.assert_called_once()
-        window._response_manager.stop.assert_called_once()
+        qtbot.add_widget(window)
+        with patch.object(window._fsm_timer, "stop", wraps=window._fsm_timer.stop) as mock_fsm_stop, \
+             patch.object(window._behavior_timer, "stop", wraps=window._behavior_timer.stop) as mock_behavior_stop, \
+             patch.object(window._response_manager, "stop", wraps=window._response_manager.stop) as mock_resp_stop:
+            mock_worker = MagicMock()
+            mock_worker.isRunning.return_value = True
+            window._opencode_worker = mock_worker
+            window._force_quit_app()
+            mock_fsm_stop.assert_called_once()
+            mock_behavior_stop.assert_called_once()
+            mock_resp_stop.assert_called_once()
         mock_worker.quit.assert_called_once()
         mock_worker.wait.assert_called_once_with(5000)
 
@@ -250,9 +264,8 @@ def test_firebase_crud_sets_available_flag(app, tmp_path, qtbot):
          patch("src.pet_window.MemoryManager"), \
          patch("src.pet_window.QDialog"):
         window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
-
-    qtbot.wait(600)  # Let boot timer fire
-    assert window._firebase_available is True
+        qtbot.wait(600)  # Let boot timer fire
+        assert window._firebase_available is True
 
 
 def test_on_opencode_error_shows_in_character_bubble(app, tmp_path):
@@ -346,7 +359,7 @@ def test_memory_history_use_stored_coalescer(app, tmp_path):
     assert window._write_coalescer._dirty["memory"] is True
 
 
-def test_force_quit_stops_response_manager_and_flushes_writes(app, tmp_path):
+def test_force_quit_stops_response_manager_and_flushes_writes(app, tmp_path, qtbot):
     from src.pet_window import PetWindow
     mem_path = str(tmp_path / "mem.json")
     hist_path = str(tmp_path / "hist.json")
@@ -357,13 +370,14 @@ def test_force_quit_stops_response_manager_and_flushes_writes(app, tmp_path):
          patch("PyQt6.QtWidgets.QApplication.quit"), \
          patch.object(PetWindow, "_on_boot_check_auth"):
         window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
-        window._response_manager.stop = MagicMock()
-        window._write_coalescer.stop = MagicMock()
-        window._write_coalescer.flush = MagicMock()
-        window._force_quit_app()
-        window._response_manager.stop.assert_called_once()
-        window._write_coalescer.stop.assert_called_once()
-        window._write_coalescer.flush.assert_called_once()
+        qtbot.add_widget(window)
+        with patch.object(window._write_coalescer, "stop", wraps=window._write_coalescer.stop) as mock_coal_stop, \
+             patch.object(window._write_coalescer, "flush", wraps=window._write_coalescer.flush) as mock_coal_flush, \
+             patch.object(window._response_manager, "stop", wraps=window._response_manager.stop) as mock_resp_stop:
+            window._force_quit_app()
+            mock_resp_stop.assert_called_once()
+            mock_coal_stop.assert_called_once()
+            mock_coal_flush.assert_called_once()
 
 
 def test_should_fire_autonomous_skips_when_disabled_or_thinking(app, tmp_path):
@@ -596,7 +610,7 @@ def test_joke_tick_dispatches_trigger(app, tmp_path):
         mock_worker.start.assert_called_once()
 
 
-def test_force_quit_stops_response_manager(app, tmp_path):
+def test_force_quit_stops_response_manager(app, tmp_path, qtbot):
     from src.pet_window import PetWindow
     mem_path = str(tmp_path / "mem.json")
     hist_path = str(tmp_path / "hist.json")
@@ -604,8 +618,10 @@ def test_force_quit_stops_response_manager(app, tmp_path):
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
          patch("src.pet_window.APMWorker"), \
          patch("src.pet_window.MemoryManager"), \
-         patch("PyQt6.QtWidgets.QApplication.quit"):
+         patch("PyQt6.QtWidgets.QApplication.quit"), \
+         patch.object(PetWindow, "_on_boot_check_auth"):
         pw = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+        qtbot.add_widget(pw)
         pw._force_quit_app()
         assert pw._response_manager._decay_timer.isActive() is False
         assert pw._response_manager._auto_refill_timer.isActive() is False
@@ -635,7 +651,7 @@ def test_should_fire_autonomous_checks_correct_pool(app, tmp_path):
         assert pw._should_fire_autonomous("active_chat") is True
 
 
-def test_window_accepts_fresh_login_flag(app):
+def test_window_accepts_fresh_login_flag(app, qtbot):
     from src.pet_window import PetWindow
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -643,10 +659,12 @@ def test_window_accepts_fresh_login_flag(app):
          patch("src.pet_window.MemoryManager"), \
          patch("src.pet_window.DiaryStore"):
         window = PetWindow(fresh_login=True)
-    assert window._fresh_login is True
+        qtbot.add_widget(window)
+        assert window._fresh_login is True
+        window._force_quit_app()
 
 
-def test_window_without_explicit_auth(app):
+def test_window_without_explicit_auth(app, qtbot):
     from src.pet_window import PetWindow
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -654,8 +672,10 @@ def test_window_without_explicit_auth(app):
          patch("src.pet_window.MemoryManager"), \
          patch("src.pet_window.DiaryStore"):
         window = PetWindow()
-    assert window._crud is None
-    assert window._firebase_mem is None
+        qtbot.add_widget(window)
+        assert window._crud is None
+        assert window._firebase_mem is None
+        window._force_quit_app()
 
 
 def test_risky_keyword_interrupts_bubble(qtbot):
