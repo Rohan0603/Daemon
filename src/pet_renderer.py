@@ -18,7 +18,7 @@ from src.constants import (
     HYPER_FLASH, SQUASH_STRETCH_DURATION_MS,
 )
 from PyQt6.QtCore import QRectF, QPointF
-from PyQt6.QtGui import QPolygon
+from PyQt6.QtGui import QPainterPath, QPolygon
 
 
 @dataclass
@@ -63,18 +63,16 @@ class PetRenderer:
         painter.translate(cx + ox, cy + oy)
 
         scale_x, scale_y, rotation = self._state_transform(ctx)
-        if ctx.animator:
-            a_sx, a_sy, a_rot = ctx.animator.get_transform(
-                QRect(ctx.pet_x, ctx.pet_y, PET_WIDTH, PET_HEIGHT),
-                0, ctx.state_elapsed_ms)
-            scale_x *= a_sx
-            scale_y *= a_sy
-            rotation += a_rot
         if rotation != 0:
             painter.rotate(rotation)
         painter.scale(scale_x, scale_y)
 
         body_color = self._body_color(ctx)
+
+        # Apply emotion opacity (juice: pulsing, glitch, etc.)
+        if ctx.animator:
+            painter.setOpacity(ctx.animator.get_opacity())
+
         self._draw_body(painter, body_color, ctx.state)
         self._draw_eyes(painter, ctx)
 
@@ -256,7 +254,7 @@ class PetRenderer:
 
         pet_cx = ctx.pet_x + PET_WIDTH / 2
         if state == PetState.LOOK_AWAY:
-            # Look away from cursor — passive aggression
+            # Look away from cursor
             cursor_angle = math.pi if ctx.cursor_x > pet_cx else 0.0
             max_offset = 1.5
             for ex in (-6, 6):
@@ -270,19 +268,62 @@ class PetRenderer:
                 )
             return
 
-        eye_y_screen = ctx.pet_y + PET_HEIGHT // 2 + eye_y  # eye centre in screen Y
-        cursor_angle = math.atan2(ctx.cursor_y - eye_y_screen, ctx.cursor_x - pet_cx)
-        max_offset = 1.5
+        # Default case: apply eye_modifier from Animator
+        eye_mod = ctx.animator.get_eye_modifier() if ctx.animator else {}
+        
+        pupil_scale = eye_mod.get("pupil_scale", 1.0)
+        pupil_shape = eye_mod.get("pupil_shape", "circle")
+        
+        pupil_color = QColor(EYE_PUPIL)
+        if "pupil_color_override" in eye_mod and eye_mod["pupil_color_override"]:
+            pupil_color = QColor(eye_mod["pupil_color_override"])
+            
+        pupil_offset_x = eye_mod.get("pupil_offset_x", 0.0)
+        brow_angle = eye_mod.get("brow_angle", 0.0)
 
+        # Draw left (-6) and right (6) eye
         for ex in (-6, 6):
+            is_right_eye = (ex == 6)
+            
+            # 1. Draw Sclera (Perfectly round, size 4x4)
             painter.setBrush(QBrush(QColor(EYE_WHITE)))
             painter.setPen(Qt.PenStyle.NoPen)
             painter.drawEllipse(QPointF(ex, eye_y), 4, 4)
-            painter.setBrush(QBrush(QColor(EYE_PUPIL)))
-            painter.drawEllipse(
-                QPointF(ex + max_offset * math.cos(cursor_angle), eye_y + max_offset * math.sin(cursor_angle)),
-                2, 2,
-            )
+            
+            # 2. Draw Pupil
+            painter.setBrush(QBrush(pupil_color))
+            pupil_r = 2 * pupil_scale
+            
+            # Cursor tracking
+            eye_y_screen = ctx.pet_y + PET_HEIGHT // 2 + eye_y
+            cursor_angle = math.atan2(ctx.cursor_y - eye_y_screen, ctx.cursor_x - pet_cx)
+            max_offset = 1.5
+            
+            pupil_center_x = ex + max_offset * math.cos(cursor_angle) + pupil_offset_x
+            pupil_center_y = eye_y + max_offset * math.sin(cursor_angle)
+            
+            if pupil_shape == "heart":
+                path = QPainterPath()
+                y_offset = pupil_center_y - pupil_r + 1
+                path.moveTo(pupil_center_x, y_offset + pupil_r)
+                path.cubicTo(pupil_center_x - pupil_r, y_offset, pupil_center_x, y_offset - pupil_r, pupil_center_x, y_offset)
+                path.cubicTo(pupil_center_x, y_offset - pupil_r, pupil_center_x + pupil_r, y_offset, pupil_center_x, y_offset + pupil_r)
+                painter.drawPath(path)
+            else:
+                painter.drawEllipse(QPointF(pupil_center_x, pupil_center_y), pupil_r, pupil_r)
+                
+            # 3. Draw Eyebrows (Symmetric Rotation)
+            if abs(brow_angle) > 0.5:
+                painter.setPen(QPen(QColor("#111111"), 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                painter.save()
+                painter.translate(ex, eye_y - 6) # Float slightly above the eyeball
+                
+                # Invert angle for the right eye to maintain facial symmetry
+                actual_angle = -brow_angle if is_right_eye else brow_angle
+                painter.rotate(actual_angle)
+                
+                painter.drawLine(-4, 0, 4, 0)
+                painter.restore()
 
     def _draw_state_overlay(self, painter: QPainter, ctx: RenderContext) -> None:
         state = ctx.state
