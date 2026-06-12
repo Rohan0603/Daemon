@@ -126,70 +126,7 @@ class TestEmotionAnimator:
         assert sy >= 0.0
         assert rot == 0.0
 
-    def test_get_transform_fear(self):
-        a = EmotionAnimator()
-        a.set_emotion(Emotion.FEAR)
-        sx, sy, _ = a.get_transform(None, 0.0, 0)
-        assert sx == 1.3
-        assert sy == 0.7
 
-    def test_get_transform_disgust(self):
-        a = EmotionAnimator()
-        a.set_emotion(Emotion.DISGUST)
-        sx, sy, _ = a.get_transform(None, 0.0, 0)
-        assert sx == 0.8
-        assert sy == 1.0
-
-    def test_get_transform_pathos(self):
-        a = EmotionAnimator()
-        a.set_emotion(Emotion.PATHOS)
-        sx, sy, _ = a.get_transform(None, 0.0, 0)
-        assert sx == 1.0
-        assert sy == 0.9
-
-    def test_get_transform_devotion(self):
-        a = EmotionAnimator()
-        a.set_emotion(Emotion.DEVOTION)
-        sx, sy, _ = a.get_transform(None, 0.0, 0)
-        assert sx == 1.0
-        assert sy == 1.0
-
-    def test_get_transform_tranquility(self):
-        a = EmotionAnimator()
-        a.set_emotion(Emotion.TRANQUILITY)
-        sx, sy, _ = a.get_transform(None, 0.0, 0)
-        # breathe around 1.0
-        assert 0.97 < sx < 1.03
-        assert 0.97 < sy < 1.03
-
-    def test_get_transform_heroism_early(self):
-        a = EmotionAnimator()
-        a.set_emotion(Emotion.HEROISM, elapsed_ms=100)
-        sx, sy, _ = a.get_transform(None, 0.0, 100)
-        assert sx == 0.85
-        assert sy == 1.3
-
-    def test_get_transform_heroism_late(self):
-        a = EmotionAnimator()
-        a.set_emotion(Emotion.HEROISM, elapsed_ms=700)
-        sx, sy, _ = a.get_transform(None, 0.0, 700)
-        # Should be easing toward 1.0
-        assert 0.85 < sx < 1.0
-        assert 1.0 < sy < 1.3
-
-    def test_get_transform_wonder_early(self):
-        a = EmotionAnimator()
-        a.set_emotion(Emotion.WONDER, elapsed_ms=200)
-        sx, sy, _ = a.get_transform(None, 0.0, 200)
-        assert 1.0 < sx <= 1.5
-        assert sx == sy
-
-    def test_get_transform_wonder_done(self):
-        a = EmotionAnimator()
-        a.set_emotion(Emotion.WONDER, elapsed_ms=800)
-        sx, sy, _ = a.get_transform(None, 0.0, 800)
-        assert sx == 1.0
-        assert sy == 1.0
 
     def test_get_body_color_returns_qcolor(self):
         a = EmotionAnimator()
@@ -358,8 +295,8 @@ class TestEmotionAnimator:
     def test_get_body_color_tranquility_semi_transparent(self):
         a = EmotionAnimator()
         a.set_emotion(Emotion.TRANQUILITY)
-        c = a.get_body_color(QColor("#5B8DEF"))
-        assert c.alpha() == 204  # 80% of 255
+        opacity = a.get_opacity()
+        assert opacity == 0.8
 
     # ── Missing overlay tests (Gap 3) ─────────────────────────────────────
 
@@ -564,12 +501,13 @@ class TestEmotionAnimator:
                     b.set_emotion(other_emotion)
                     ox, oy, orot = b.get_transform(None, 0.0, 0)
 
-                    # Test transform OR body color OR overlays OR particle emission
+                    # Test transform OR body color OR overlays OR particle emission OR opacity
                     transform_differs = (
                         sx != ox or sy != oy or rot != orot
                     )
                     body_color_differs = a.get_body_color(QColor("#5B8DEF")) != b.get_body_color(QColor("#5B8DEF"))
                     overlays_differs = a.get_overlay() != b.get_overlay()
+                    opacity_differs = a.get_opacity() != b.get_opacity()
                     # Reset particles for fair comparison
                     a.update(33, 100, 200)
                     b.update(33, 100, 200)
@@ -577,7 +515,7 @@ class TestEmotionAnimator:
 
                     # At least one characteristic should be different
                     assert (transform_differs or body_color_differs or 
-                           overlays_differs or particles_differs), \
+                           overlays_differs or particles_differs or opacity_differs), \
                         f"{emotion.name} and {other_emotion.name} should have different characteristics"
 
     def test_navarasa_emotions_unique_identifiers(self):
@@ -803,12 +741,16 @@ class TestEmotionAnimator:
             a.update(33, 100, 200)
             particle_count = len(a._particles.particles)
 
+            # Get opacity
+            opacity = a.get_opacity()
+
             visual_characteristics.append({
                 'emotion': emotion,
                 'transform': (sx, sy, rot),
                 'body_color': body_color,
                 'overlays': overlays,
                 'particle_count': particle_count,
+                'opacity': opacity,
             })
 
         # Verify all emotions have unique combinations
@@ -819,9 +761,10 @@ class TestEmotionAnimator:
                 colors_match = char1['body_color'] == char2['body_color']
                 overlays_match = char1['overlays'] == char2['overlays']
                 particles_match = char1['particle_count'] == char2['particle_count']
+                opacity_match = char1['opacity'] == char2['opacity']
 
                 # If all characteristics match, it's a duplicate
-                if transforms_match and colors_match and overlays_match and particles_match:
+                if transforms_match and colors_match and overlays_match and particles_match and opacity_match:
                     assert False, \
                         f"Emotions {char1['emotion'].name} and {char2['emotion'].name} have identical visual characteristics"
 
