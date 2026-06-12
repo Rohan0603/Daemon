@@ -1,6 +1,6 @@
 # Daemon Desktop Pet — Complete Architecture
 
-> Generated 2026-06-11. Covers all phases through Phase 39.
+> Generated 2026-06-13. Covers all phases through Phase 46.
 
 ---
 
@@ -13,7 +13,7 @@
 │                                                                     │
 │  TIER 3: CLOUD (Firestore) — Source of Truth                       │
 │  ─────────────────────────────────────────────────────────────      │
-│  • users/{uid}/pets/{pet_id}             → 26-field brain schema      │
+│  • users/{uid}/pets/{pet_id}             → 22-field brain schema      │
 │  • users/{uid}/pets/{pet_id}/diary       → 200-entry capped diary     │
 │  • FirebaseCRUD (REST API)             → 3-attempt retry + fallback │
 │  • FirebaseAuth (REST API)             → Email/password + refresh   │
@@ -33,7 +33,7 @@
 │  • Memory (data/.daemon_memory.json)     → 50 key-value facts       │
 │  • History (data/.daemon_history.json)   → 100 conversation entries │
 │  • DiaryStore (data/.daemon_diary.json)  → 200 entries + synced idx │
-│  • ResponseManager (data/.daemon_response_cache.json) → 3 pools    │
+│  • ResponseManager (data/.daemon_response_cache.json) → single ThoughtPool (max 20) │
 │  • WriteCoalescer (8s batched flush)     → Atomic tmp+replace + .bak│
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -74,13 +74,13 @@ QUIT (daemon.py finally block):
 | `.daemon_memory.json` | `Memory` | 50 key-value facts (seeded from core_brain) | Atomic tmp+replace, .bak |
 | `.daemon_history.json` | `History` | 100 conversation entries | Atomic tmp+replace, .bak |
 | `.daemon_diary.json` | `DiaryStore` | 200 entries + `synced` count | Atomic + creates .bak on first write |
-| `.daemon_response_cache.json` | `AutonomousResponseManager` | 3 pools (jokes=5, system=2, typing=20) + priorities | Atomic + version=2 |
+| `.daemon_response_cache.json` | `AutonomousResponseManager` | Single unified ThoughtPool (max 20 items, 4 types) + priorities | Atomic + 7-day TTL |
 | `.daemon_state.json` | `persistence` | mood, interactions, runtime, first_run_done | JSON |
-| `.daemon_config.json` | `config` | User overrides (scale, opacity, speed_multiplier, voice, chattiness, pet_id) | JSON |
+| `daemon_config.json` | `config` | Nested config: llm/pet/tts/consent sections | JSON |
 | `.daemon_auth.json` | `FirebaseAuth` | uid, email, idToken, refreshToken, expires_at | JSON |
 | `.daemon_{pet_id}.lock` | PID lock | Per-pet single-instance guard | Plain text PID |
-| `codebase_map.json` | `generate_ast_map.py` | 29 classes, 33 functions for self-awareness | JSON |
-| `thoughts.log` | `PetWindow._log_thought()` | Rotating 1000 lines, keeps 500 | Text (--verbose only) |
+| `codebase_map.json` | `generate_ast_map.py` | AST index of all classes/functions for self-awareness | JSON |
+| `.daemon_thoughts.log` | `PetWindow._log_thought()` | Rotating 1000 lines, keeps 500 | Text (always written) |
 
 ---
 
@@ -123,27 +123,47 @@ QUIT (daemon.py finally block):
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 Key SKILL.md Contract
+### 2.2 Key SKILL.md Contract (Phase 46)
 
 ```yaml
-Output Contract (STRICT JSON):
-- MUST return ONLY raw JSON array
-- NO MARKDOWN. NO CODE FENCES. NO PREAMBLES.
-- Each item: {thought, dialogue, brain_update?}
-- DO NOT output `action` or `mode` keys — FORBIDDEN
+Profanity Level (runtime parameter, injected per trigger):
+  full     → uncensored (default)
+  moderate → mild expletives only
+  sfw      → zero profanity, preserve catchphrases
 
-MCP Tools (called BEFORE JSON output):
-1. change_visual_state — 11 states
-2. read_clipboard
-3. capture_blackmail_evidence
-4. send_system_toast
-5. list_directory
-6. read_file (max 500 lines)
-7. search_codebase (grep across src/ + tests/)
+Output Contract — Two Modes:
+  Stage 1 (Investigation): natural language, MCP tools only, NO JSON
+  Stage 2 (Generation): STRICT raw JSON array, no markdown, no preamble
+
+Schema A (direct response / autonomous monologue):
+  [{thought(200), dialogue(150), brain_update?(dict of string arrays)}]
+  - Forbidden output keys: `action`, `mode`
+  - Locked brain fields (validator rejects): user_name, user_profession,
+    pet_name, pet_personality, pet_role, pet_origin, pet_appearance,
+    pet_system_awareness, mission_directive
+
+Schema B (Mixed-Bag pool refill):
+  [{type, thought(150), dialogue(100), priority(1-5), context_hash?}]
+  - type: typing_reaction | observation | intel_roast | idle_thought
+  - observation/typing_reaction: MUST be screen-specific (spatial TTL)
+
+MCP Tools (12 total, called BEFORE JSON output):
+  Surveillance:  change_visual_state, read_clipboard,
+                 capture_blackmail_evidence, send_system_toast
+  Codebase:      list_directory, read_file (max 500 lines),
+                 search_codebase, get_memory, get_diary
+  Chaos (gated): simulate_keystroke (max 50 chars),
+                 move_mouse, browser_navigation (http/https only)
+  Consent gate: -32001 error = permission denied; roast user in dialogue
+
+FSM vs Emotion boundary:
+  LLM controls: change_visual_state (physical animations)
+  System controls: EmotionAnimator (colors, particles, eye modifiers)
+                   — evaluated autonomously every 5s, not LLM-driven
 
 Self-Awareness:
-- codebase_map.json injected at startup (29 classes, 33 functions)
-- Read-only cage: writes ONLY to data/ via is_safe_write_path()
+  - codebase_map.json AST index available at startup
+  - Write cage: data/ only via is_safe_write_path()
 ```
 
 ### 2.3 Historical: Phase 17-35 (Legacy Skill Loading)
@@ -213,10 +233,15 @@ build_autonomous_trigger (internal monologue):
    He is thinking to himself — NOT responding to the user.
    Generate exactly 5 items as a JSON array."
 
-build_pool_refill_prompt (typing_reactions):
-  "You are silently restocking your local reaction cache...
-   Context: User is typing frantically.
-   Generate EXACTLY 5 short, punchy one-liner reactions..."
+build_mixed_bag_prompt (unified pool refill):
+  "Generate EXACTLY 5 items as a JSON array.
+   Each item MUST have: type, dialogue, thought, priority, context_hash?
+   Types: typing_reaction | observation | intel_roast | idle_thought
+   Respond ONLY with the JSON array, no preamble."
+
+Two-Stage agentic refill (OpencodeWorker._send_two_stage):
+  Stage 1: Investigation prompt (no schema) → LLM calls MCP tools
+  Stage 2: Mixed-bag prompt + Stage 1 results (with schema) → JSON array
 ```
 
 ---
@@ -245,17 +270,24 @@ P4: Boredom (APM == 0, idle ≥ 60s) → FSM action + API every 3rd tick
      - 2 engaged → reset to 15s base
 ```
 
-### 4.3 Response Pools
+### 4.3 Response Pool (Phase 42+)
 
-| Pool | Size | Threshold | Refill | Source |
-|------|------|-----------|--------|--------|
-| `jokes_blackmail` | 5 | 3 | 3 | API-generated |
-| `system` | 2 | 1 | 2 | API-generated |
-| `typing_reactions` | 20 | 5 | 5 | 15 hardcoded Kenny 1-liners |
+Single unified `ThoughtPool` with 4 typed item categories:
 
-- Priority-weighted random draw (fresh items start at 3-5)
-- 2-min priority decay (-1 every tick)
-- Cache-first → API fallback when pool drops below threshold
+| Type | Drawn by | Spatial TTL |
+|------|---------|-------------|
+| `typing_reaction` | active chat timer | Yes — screen-specific |
+| `observation` | boredom timer | Yes — context_hash pinned |
+| `intel_roast` | randomly | No — always valid |
+| `idle_thought` | boredom timer | No — always valid |
+
+- **Size:** 20 items max, threshold 5, refill batch 5
+- **Seeded:** 15 hardcoded Kenny typing reactions on boot
+- **Priority-weighted** random draw (fresh items start at 3-5)
+- **Decay:** priority -1 every 120s (min 1)
+- **Spatial TTL:** items with mismatched `context_hash` discarded after 3 stale draws
+- **Persistence:** `data/.daemon_response_cache.json`, 7-day TTL cleanup on load
+- **Two-stage refill:** Stage 1 MCP investigation → Stage 2 Mixed-Bag JSON generation
 
 ---
 
@@ -309,6 +341,9 @@ HTTP Server (daemon thread) + JSON-RPC 2.0 + SSE
 | `search_codebase` | search_term (regex) | file:line:snippet results |
 | `get_memory` | key? | All facts or specific fact value |
 | `get_diary` | limit? | Recent diary entry texts |
+| `simulate_keystroke` | keys (max 50 chars) | HID injection — type text on user keyboard (consent: keyboard_injection) |
+| `move_mouse` | x, y, click? | HID injection — move cursor + optional click (consent: mouse_interference) |
+| `browser_navigation` | url (http/https only) | Open URL in default browser (consent: browser_redirection) |
 
 ### 6.3 Security
 
@@ -370,15 +405,18 @@ AUTONOMOUS TICK (master_tick)
 |----------|-----------|
 | **3-tier memory (Firestore → Bridge → Local)** | Offline-first, fast reads, durable writes, graceful degradation |
 | **WriteCoalescer (8s batch + atomic)** | Prevents disk thrashing during high-frequency autonomous chatter |
-| **noReply context injection** | ~95% token savings after first query; session reuse |
 | **Native OpenCode skill loading** | No prompt inlining; skill always available; versioned with code |
 | **Structured JSON output (schema)** | Eliminates parsing errors; strict contract; no markdown cleanup |
-| **MCP tools for FSM + surveillance** | LLM controls visual state + reads codebase; no JSON action field |
-| **Response pools + priority decay** | Cache-first eliminates API latency for routine chatter |
-| **Trigger coalescing (2.5s)** | Batches autonomous triggers → single API call |
-| **Engagement tracker + backoff** | Adaptive silence prevents annoyance |
-| **PID lock + crash recovery hook** | Single instance; flush on crash; .bak fallback on corrupt reads |
+| **Two-stage agentic refill** | Stage 1 MCP investigation (no schema) → Stage 2 generation (strict JSON); fixes fake-agency hallucination |
+| **MCP tools for FSM + surveillance** | LLM controls physical animations; EmotionAnimator controls colors/particles autonomously |
+| **Unified ThoughtPool + spatial TTL** | Single pool with type filtering; screen-pinned items discard on context change |
+| **Profanity parameter** | Runtime `full`/`moderate`/`sfw` injected per trigger; SKILL.md enforces SFW swap rules |
+| **Locked brain fields** | 9 fields (identity/persona) rejected by `apply_brain_update()` — LLM cannot overwrite identity |
+| **Consent matrix (7 tiers)** | Chaos tools (keyboard/mouse/browser/clipboard) gated; -32001 on violation |
+| **Engagement tracker + backoff** | Adaptive silence prevents annoyance; 5 silent → exponential (max 120s) |
+| **PID lock + crash recovery hook** | Single instance per pet_id; flush on crash; .bak fallback on corrupt reads |
 | **Firebase Auth REST (no Admin SDK)** | Works in PyInstaller --onefile; per-user isolation via Security Rules |
+| **EmotionProfile registry (Phase 46)** | Declarative dataclass replaces procedural if/elif; 9 profiles with Juice enhancements (heart pupils, comet trails, elastic pop) |
 
 ---
 
@@ -403,11 +441,12 @@ AUTONOMOUS TICK (master_tick)
 
 | Area | Current | Suggested |
 |------|---------|-----------|
-| **PetWindow** | ~1600 lines, single class | Split into PetWindowCore, PetWindowBehavior, PetWindowOpencode, PetWindowStorage |
-| **MCP read tools** | 9 tools | Add `get_fsm_state` |
-| **TTS** | pyttsx3 + winsound | Migrate to edge-tts for better quality |
-| **Screen reading** | UIA + WM_GETTEXT | Add OCR fallback for non-text apps |
-| **Codebase map** | Blocks startup | Background generation with file mtime cache |
+| **PetWindow** | ~1756 lines, single class | Split into PetWindowCore, PetWindowBehavior, PetWindowOpencode, PetWindowStorage |
+| **MCP tools** | 12 tools | Add `get_fsm_state` for LLM state awareness |
+| **TTS** | edge_tts primary + pyttsx3 fallback | Improve pitch-shift quality; reduce temp file I/O |
+| **Screen reading** | UIA + WM_GETTEXT | Add OCR fallback for non-text apps (games, terminals) |
+| **Codebase map** | Blocks startup (AST parse) | Background generation with file mtime cache |
+| **SKILL.md profanity** | Level injected per trigger | Persist user preference in `daemon_config.json` consent section |
 
 ---
 
@@ -417,10 +456,10 @@ AUTONOMOUS TICK (master_tick)
 daemon.py                              # Entry point, PID lock, crash hook, auth gate
 src/
   constants.py                         # All tunable values
-  brain_schema.py                      # 26-field brain schema + DEFAULT_BRAIN
+  brain_schema.py                      # 22-field brain schema + DEFAULT_BRAIN
   pet_fsm.py                           # 15-state PetFSM, FSMContext dataclass
   pet_renderer.py                      # Stateless QPainter renderer
-  pet_window.py                        # Main window, all wiring (1609 lines)
+  pet_window.py                        # Main window, all wiring (1756 lines, ~77KB)
   click_through.py                     # Win32 WS_EX_TRANSPARENT toggle
   apm_worker.py                        # pynput APM tracking QThread
   typing_buffer.py                     # pynput keystroke capture, deque ring buffer
@@ -438,6 +477,10 @@ src/
   mcp_server.py                        # In-process JSON-RPC 2.0 MCP server
   screen_reader.py                     # UIA text extraction via comtypes
   tts_worker.py                        # pyttsx3 + pitch shift + winsound playback
+  animator.py                          # EmotionAnimator, ParticleSystem — 9 emotions, body color, transform, particles
+  response_pool.py                     # ThoughtPool(QObject) — priority-weighted draw, spatial TTL, decay, type filtering
+  thought_log_dialog.py                # ThoughtLogDialog(QDialog) — Matrix-style monologue viewer, 1s auto-refresh
+  system_dialogs.json                  # 21 pre-baked Kenny system event responses
   settings_dialog.py                   # Settings sliders (scale/opacity/speed/voice)
   login_dialog.py                      # Persona-infused auth modal
   context_menu.py                      # Right-click menu (6 actions)
@@ -453,5 +496,5 @@ scripts/
 .opencode/
   skills/kenny/SKILL.md                # Kenny persona + action matrix + output contract
 data/                                  # All local storage (gitignored)
-tests/                                 # ~417 tests across 28 test files
+tests/                                 # ~450+ tests across 49 test files
 ```
