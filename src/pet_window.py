@@ -157,6 +157,7 @@ class PetWindow(QWidget):
         self._context_menu.signals.pin_toggle.connect(self._on_pin_toggle)
         self._context_menu.signals.restart_brain.connect(self._on_restart_brain)
         self._context_menu.signals.thought_log.connect(self._open_thought_log)
+        self._context_menu.signals.settings_requested.connect(self._open_settings)
 
         self._apm_worker = APMWorker()
         self._apm_worker.apm_updated.connect(self._on_apm_updated)

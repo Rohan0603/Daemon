@@ -28,7 +28,6 @@ class SettingsDialog(QDialog):
                  allow_mouse_interference: bool = False,
                  allow_window_management: bool = False,
                  allow_keyboard_injection: bool = False,
-                 allow_desktop_vandalism: bool = False,
                  parent=None):
         super().__init__(parent)
         self.setWindowTitle("Daemon Settings")
@@ -130,10 +129,6 @@ class SettingsDialog(QDialog):
         self._cb_mouse_interference.setChecked(allow_mouse_interference)
         self._cb_mouse_interference.toggled.connect(self.value_changed.emit)
         tier2_layout.addWidget(self._cb_mouse_interference)
-        self._cb_desktop_vandalism = QCheckBox("Allow desktop vandalism")
-        self._cb_desktop_vandalism.setChecked(allow_desktop_vandalism)
-        self._cb_desktop_vandalism.toggled.connect(self.value_changed.emit)
-        tier2_layout.addWidget(self._cb_desktop_vandalism)
         tab3_layout.addWidget(tier2)
 
         tier3 = QGroupBox("Tier 3: OS Write Access (High Risk - EXPERIMENTAL)")
@@ -260,5 +255,4 @@ class SettingsDialog(QDialog):
             "allow_mouse_interference": self._cb_mouse_interference.isChecked(),
             "allow_window_management": self._cb_window_management.isChecked(),
             "allow_keyboard_injection": self._cb_keyboard_injection.isChecked(),
-            "allow_desktop_vandalism": self._cb_desktop_vandalism.isChecked(),
         }
