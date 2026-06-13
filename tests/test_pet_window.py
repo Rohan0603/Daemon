@@ -767,7 +767,7 @@ def test_health_timer_initialized(app, tmp_path):
         window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
     assert hasattr(window, "_health_timer")
     assert window._health_timer.isActive()
-    assert window._health_timer.interval() == 10000
+    assert window._health_timer.interval() == 3000
 
 
 def test_health_check_disconnect_shows_devastated(app, tmp_path):
@@ -952,3 +952,27 @@ def test_window_switch_tracking(app, tmp_path):
         with patch('src.pet_window.get_active_window_title', return_value="NewWindow"):
             window._master_tick()
         assert window._window_switch_count == count_before + 1
+
+def test_pet_window_lsp_debounce(app, qtbot, tmp_path):
+    from src.pet_window import PetWindow
+    from PyQt6.QtCore import QTimer
+    from unittest.mock import patch
+    
+    mem_path = str(tmp_path / "mem.json")
+    hist_path = str(tmp_path / "hist.json")
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MemoryManager"):
+        window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
+        qtbot.add_widget(window)
+        
+        assert hasattr(window, '_lsp_debounce_timer')
+        
+        # Simulate an LSP error
+        window._event_worker.lsp_error_detected.emit({"diagnostics": []})
+        assert window._lsp_debounce_timer.isActive()
+        
+        # Simulate clearing the error
+        window._event_worker.lsp_error_cleared.emit()
+        assert not window._lsp_debounce_timer.isActive()

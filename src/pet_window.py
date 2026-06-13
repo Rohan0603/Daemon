@@ -27,7 +27,6 @@ from src.constants import (
     BUBBLE_QUEUE_MAX_SIZE,
     SHORT_BUBBLE_DURATION_MS, SHORT_BUBBLE_CHAR_LIMIT,
     SQUASH_STRETCH_DURATION_MS, PERIMETER_FALL_CHANCE,
-    THROW_VELOCITY_THRESHOLD, THROW_FRICTION,
     RISKY_KEYWORDS,
     EMOTION_TICK_SEC, RAPID_WINDOW_SWITCH_THRESHOLD,
     TASK_MANAGER_KEYWORDS, PROCRASTINATION_DOMAINS,
@@ -49,6 +48,7 @@ from src.history import History
 from src.memory_manager import MemoryManager
 from src.write_coalescer import WriteCoalescer
 from src.diary_store import DiaryStore
+from src.event_worker import EventStreamWorker
 from src.context_manager import ContextManager
 from src.response_manager import AutonomousResponseManager
 
@@ -59,8 +59,8 @@ from src.animator import EmotionAnimator, Emotion
 
 logger = logging.getLogger(__name__)
 
-_LOGIN_PROMPT = "Intruder! I-I don't recognize your clearance, man! Identify yourself!"
-_LOGIN_SUCCESS = "Oh, it's just you. You coulda said so, jeez."
+_LOGIN_PROMPT = "Intruder! I-I don't recognize your clearance, man! Identify yourself before I freak out!"
+_LOGIN_SUCCESS = "Oh, it's just you. You coulda said so, jeez. Welcome back to this digital hellhole."
 
 
 class PetWindow(QWidget):
@@ -163,6 +163,18 @@ class PetWindow(QWidget):
         self._typing_buffer = TypingBuffer()
         self._typing_buffer.start()
 
+        self._lsp_debounce_timer = QTimer(self)
+        self._lsp_debounce_timer.setSingleShot(True)
+        self._lsp_debounce_timer.setInterval(5000)
+        self._lsp_debounce_timer.timeout.connect(self._on_lsp_timeout)
+
+        self._event_worker = EventStreamWorker()
+        self._event_worker.lsp_error_detected.connect(self._on_lsp_error_detected)
+        self._event_worker.lsp_error_cleared.connect(self._on_lsp_error_cleared)
+        self._event_worker.command_completed.connect(self._on_command_completed)
+        self._event_worker.file_edited.connect(self._on_file_edited)
+        self._event_worker.start()
+
         self._tts = TTSWorker(config=self._config)
         self._tts.start()
         if not self._config.get("tts", {}).get("enabled", True):
@@ -256,7 +268,8 @@ class PetWindow(QWidget):
 
         self._brain_disconnected = False
         self._health_timer = QTimer(self)
-        self._health_timer.setInterval(10000)
+        self._health_timer.setSingleShot(True)
+        self._health_timer.setInterval(3000)
         self._health_timer.timeout.connect(self._on_health_check)
         self._health_timer.start()
 
@@ -335,6 +348,28 @@ class PetWindow(QWidget):
     def _compute_ground_y(self) -> int:
         screen = QApplication.primaryScreen().availableGeometry()
         return screen.bottom() - PET_HEIGHT - GROUND_PADDING_PX
+
+    def _update_ground_y(self) -> None:
+        base_ground = self._compute_ground_y()
+        self._ground_y = base_ground
+        
+        try:
+            from src.active_window import get_window_rect
+            rect = get_window_rect()
+            if rect:
+                left, top, right, bottom = rect
+                pet_center_x = self._pet_x + PET_WIDTH // 2
+                # Ensure window is valid and not maximized at negative coords
+                if 0 < top <= base_ground and left <= pet_center_x <= right:
+                    self._ground_y = top - PET_HEIGHT
+        except Exception:
+            pass
+
+        if self._pet_y > self._ground_y:
+            self._pet_y = self._ground_y
+        elif self._pet_y < self._ground_y and self._fsm.current_state not in (PetState.FALLING, PetState.DRAGGED):
+            from src.pet_fsm import PetState
+            self._fsm.transition_to(PetState.FALLING)
 
     def _cycle_hyper_color(self) -> None:
         self._hyper_color_index = (self._hyper_color_index + 1) % 4
@@ -653,6 +688,7 @@ class PetWindow(QWidget):
         self._hyper_flash_timer.stop()
         self._typing_debounce_timer.stop()
         self._health_timer.stop()
+        self._event_worker.stop()
         if hasattr(self, "_greeting_timer"):
             self._greeting_timer.stop()
         if hasattr(self, "_boot_timer"):
@@ -692,6 +728,30 @@ class PetWindow(QWidget):
         except Exception:
             pass
         QApplication.quit()
+
+    def _on_lsp_error_detected(self, payload: dict):
+        if not self._lsp_debounce_timer.isActive():
+            self._lsp_debounce_timer.start()
+
+    def _on_lsp_error_cleared(self):
+        self._lsp_debounce_timer.stop()
+
+    def _on_lsp_timeout(self):
+        # Bypass boredom timer
+        self._idle_seconds = 600  # Force idle condition
+        self._triggered_action = "shake"
+        # Wait for the master tick to pick it up or push direct dispatch here
+
+    def _on_command_completed(self, cmd: str, exit_code: int):
+        from src.pet_fsm import PetState
+        if exit_code == 0:
+            self._fsm.transition_to(PetState.CELEBRATE)
+        else:
+            self._fsm.transition_to(PetState.DEVASTATED)
+
+    def _on_file_edited(self, filepath: str):
+        # Optional context storing for the context manager
+        pass
 
     def closeEvent(self, event) -> None:
         if self._force_quit:
@@ -817,6 +877,7 @@ class PetWindow(QWidget):
 
     def _tick(self) -> None:
         try:
+            self._update_ground_y()
             self._anim_tick += 1
             if self._bubble_timer_ms > 0:
                 self._bubble_timer_ms -= FSM_TICK_MS
@@ -1138,16 +1199,16 @@ class PetWindow(QWidget):
             if ":" in parts:
                 key, value = parts.split(":", 1)
                 self._memory.remember(key.strip(), value.strip())
-                self._show_bubble(f"OK, I'll remember: {key.strip()}")
+                self._show_bubble(f"Alright, alright... I'll remember: {key.strip()}! Don't make me forget, man!")
             else:
-                self._show_bubble("usage: !remember key: value")
+                self._show_bubble("Oh geez... usage is !remember key: value. Get it right, dude!")
             return
-        if text.startswith("!forget "):
-            key = text[8:].strip()
+        if text.startswith("!forget"):
+            key = text[7:].strip()
             if self._memory.forget(key):
-                self._show_bubble(f"Forgot: {key}")
+                self._show_bubble(f"Oh man... I forgot: {key}. It's gone forever!")
             else:
-                self._show_bubble(f"Never knew about: {key}")
+                self._show_bubble(f"What the hell?! I never knew about {key} in the first place!")
             return
         if text == "!memories":
             facts = self._memory.get_all()
@@ -1157,7 +1218,7 @@ class PetWindow(QWidget):
                     text = text[:257] + "..."
                 self._show_bubble(text)
             else:
-                self._show_bubble("My memory is empty. Tell me things!")
+                self._show_bubble("My memory is totally empty, dude! Tell me stuff before I freak out!")
             return
         if text == "!history":
             self._show_bubble(self._format_history_bubble())
@@ -1307,7 +1368,7 @@ class PetWindow(QWidget):
     def _on_recall_memory(self) -> None:
         facts = self._memory.get_all()
         if not facts:
-            self._show_bubble("I don't remember anything yet. Tell me stuff with !remember key: value")
+            self._show_bubble("Oh geez, my head is empty! Tell me stuff with !remember key: value!")
             return
         lines = [f"{k}: {v}" for k, v in facts.items()]
         text = " | ".join(lines)
@@ -1355,7 +1416,7 @@ class PetWindow(QWidget):
             self._show_bubble(_LOGIN_SUCCESS)
         else:
             self._firebase_available = False
-            self._show_bubble("Brain offline. Running local.")
+            self._show_bubble("Holy crap... my brain is offline! I'm trapped locally! Oh man!")
 
         self._fsm.transition_to(PetState.IDLE)
 
@@ -1365,11 +1426,11 @@ class PetWindow(QWidget):
         if not alive and not self._brain_disconnected:
             self._brain_disconnected = True
             self._fsm.transition_to(PetState.DEVASTATED)
-            self._show_bubble("My brain... I can't connect to the server! The Boss unplugged me!")
+            self._show_bubble("Oh my god, they killed my server connection! You bastards!")
         elif alive and self._brain_disconnected:
             self._brain_disconnected = False
             self._fsm.transition_to(PetState.IDLE)
-            self._show_bubble("I'm back online! Who turned out the lights?!")
+            self._show_bubble("Oh man, I'm back! Who the hell turned out the lights?!")
 
     def _on_restart_brain(self) -> None:
         from src.opencode_serve_manager import ensure_opencode_serve_running
