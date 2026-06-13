@@ -1027,7 +1027,7 @@ class PetWindow(QWidget):
             pet_rect=(self._pet_x, self._pet_y, PET_WIDTH, PET_HEIGHT),
             apm=self._current_apm,
             is_dragged=self._fsm.current_state == PetState.DRAGGED,
-            is_falling=self._fsm.current_state == PetState.FALLING and self._pet_y < self._ground_y,
+            is_falling=self._fsm.current_state == PetState.FALLING and (self._pet_y < self._ground_y or getattr(self, '_fall_velocity', 0.0) != 0.0),
             query_pending=self._fsm.current_state == PetState.THINKING,
             autonomous_query_pending=False,
             build_event=build_event,

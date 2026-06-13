@@ -1312,3 +1312,15 @@ After each completed task, update:
 - Maximize check (WS_MAXIMIZE) ensures the pet doesn't get trapped offscreen on maximized game windows.
 
 ---
+
+### Phase 48 - Opencode SSE and Config Stability (Hotfixes)
+
+**Commit:** 5c09708
+
+**What was fixed:**
+- **Opencode 404 Fix:** Updated src/mcp_server.py to accept requests at / in addition to /sse and /message to resolve 404 errors during opencode server-sent event connections.
+- **Config Migration Crashes:** Resolved missing imports and config mismatches during startup by porting OPENCODE_SERVER_URL over to the new unified config loader.
+- **UnboundLocalError:** Fixed a scope issue where PetState was imported locally inside an if block, causing an UnboundLocalError when attempting to evaluate the condition.
+
+**Key Decisions:**
+- Ensuring robust BaseHTTPRequestHandler paths (/ and explicit paths) resolves tooling misconfigurations from client side without complex proxies.
