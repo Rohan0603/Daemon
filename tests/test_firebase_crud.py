@@ -7,207 +7,159 @@ from src.firebase_crud import FirebaseCRUD
 
 
 @pytest.fixture
-def crud() -> FirebaseCRUD:
+def mock_firestore():
+    with patch("src.firebase_crud.firestore.client") as mock_client:
+        yield mock_client
+
+
+@pytest.fixture
+def mock_credentials():
+    with patch("src.firebase_crud.credentials.Certificate") as mock_cert:
+        yield mock_cert
+
+
+@pytest.fixture
+def mock_firebase_admin():
+    with patch("src.firebase_crud.firebase_admin") as mock_admin:
+        yield mock_admin
+
+
+@pytest.fixture
+def crud(mock_credentials, mock_firebase_admin, mock_firestore) -> FirebaseCRUD:
+    # Set a small retry delay for tests so they don't block
+    FirebaseCRUD._RETRY_BASE_DELAY = 0.01
     return FirebaseCRUD(creds_path="dummy/path")
-
-
-# ── Field flattening ────────────────────────────────────────────────────────
-
-def test_flatten_fields(crud: FirebaseCRUD) -> None:
-    fields = {
-        "name": {"stringValue": "Daemon"},
-        "age": {"integerValue": "42"},
-        "score": {"doubleValue": 3.14},
-        "active": {"booleanValue": True},
-        "tags": {"arrayValue": {"values": [{"stringValue": "a"}, {"stringValue": "b"}]}},
-        "nothing": {"nullValue": None},
-    }
-    flat = crud._flatten_fields(fields)
-    assert flat["name"] == "Daemon"
-    assert flat["age"] == 42
-    assert flat["score"] == 3.14
-    assert flat["active"] is True
-    assert flat["tags"] == ["a", "b"]
-    assert flat["nothing"] is None
-
-
-def test_unflatten_fields(crud: FirebaseCRUD) -> None:
-    data = {"name": "Daemon", "age": 42, "score": 3.14, "active": True}
-    fields = crud._unflatten_fields(data)
-    assert fields["name"]["stringValue"] == "Daemon"
-    assert fields["age"]["integerValue"] == "42"
-
-
-def test_flatten_document(crud: FirebaseCRUD) -> None:
-    doc = {"fields": {"x": {"stringValue": "y"}}}
-    result = crud._flatten_document(doc)
-    assert result["x"] == "y"
 
 
 # ── get ─────────────────────────────────────────────────────────────────────
 
-def test_get_document_exists(crud: FirebaseCRUD) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "fields": {"key": {"stringValue": "val"}},
-    }
-    with patch("requests.get", return_value=mock_resp):
-        result = crud.get("c", "d")
+def test_get_document_exists(crud: FirebaseCRUD, mock_firestore) -> None:
+    mock_doc = MagicMock()
+    mock_doc.exists = True
+    mock_doc.to_dict.return_value = {"key": "val"}
+
+    mock_client_instance = mock_firestore.return_value
+    mock_client_instance.collection.return_value.document.return_value.get.return_value = mock_doc
+
+    result = crud.get("c", "d")
     assert result == {"key": "val"}
+    mock_client_instance.collection.assert_called_with("c")
+    mock_client_instance.collection().document.assert_called_with("d")
 
 
-def test_get_document_not_found(crud: FirebaseCRUD) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 404
-    with patch("requests.get", return_value=mock_resp):
-        result = crud.get("c", "missing")
+def test_get_document_not_found(crud: FirebaseCRUD, mock_firestore) -> None:
+    mock_doc = MagicMock()
+    mock_doc.exists = False
+
+    mock_client_instance = mock_firestore.return_value
+    mock_client_instance.collection.return_value.document.return_value.get.return_value = mock_doc
+
+    result = crud.get("c", "missing")
     assert result is None
 
 
-def test_get_network_error_sets_unavailable(crud: FirebaseCRUD) -> None:
-    with patch("requests.get", side_effect=Exception("timeout")):
-        result = crud.get("c", "d")
-    assert result is None
-    assert not crud.available
+def test_get_network_error_returns_none(crud: FirebaseCRUD, mock_firestore) -> None:
+    mock_client_instance = mock_firestore.return_value
+    mock_client_instance.collection.return_value.document.return_value.get.side_effect = Exception("timeout")
 
-
-def test_get_401_sets_unavailable(crud: FirebaseCRUD) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 401
-    with patch("requests.get", return_value=mock_resp):
-        result = crud.get("c", "d")
+    result = crud.get("c", "d")
     assert result is None
-    assert not crud.available
+    # In the firebase-admin implementation, a network error during retry doesn't set available to False.
+    assert crud.available
 
 
 # ── set ─────────────────────────────────────────────────────────────────────
 
-def test_set_no_merge(crud: FirebaseCRUD) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    with patch("requests.patch", return_value=mock_resp) as mock_patch:
-        ok = crud.set("c", "d", {"key": "val"}, merge=False)
+def test_set_no_merge(crud: FirebaseCRUD, mock_firestore) -> None:
+    mock_client_instance = mock_firestore.return_value
+    ok = crud.set("c", "d", {"key": "val"}, merge=False)
     assert ok is True
-    body = mock_patch.call_args[1]["json"]
-    assert body["fields"]["key"]["stringValue"] == "val"
+    mock_client_instance.collection.return_value.document.return_value.set.assert_called_once_with({"key": "val"}, merge=False)
 
 
-def test_set_with_merge_preserves_existing(crud: FirebaseCRUD) -> None:
-    get_resp = MagicMock()
-    get_resp.status_code = 200
-    get_resp.json.return_value = {
-        "fields": {"existing": {"stringValue": "e"}, "key": {"stringValue": "old"}},
-    }
-    patch_resp = MagicMock()
-    patch_resp.status_code = 200
-
-    with patch("requests.get", return_value=get_resp), \
-         patch("requests.patch", return_value=patch_resp) as mock_patch:
-        ok = crud.set("c", "d", {"key": "new"}, merge=True)
+def test_set_with_merge_preserves_existing(crud: FirebaseCRUD, mock_firestore) -> None:
+    mock_client_instance = mock_firestore.return_value
+    ok = crud.set("c", "d", {"key": "new"}, merge=True)
     assert ok is True
-    body = mock_patch.call_args[1]["json"]
-    assert body["fields"]["existing"]["stringValue"] == "e"
-    assert body["fields"]["key"]["stringValue"] == "new"
-
-
-def test_set_merge_when_doc_missing(crud: FirebaseCRUD) -> None:
-    get_resp = MagicMock()
-    get_resp.status_code = 404
-    patch_resp = MagicMock()
-    patch_resp.status_code = 200
-
-    with patch("requests.get", return_value=get_resp), \
-         patch("requests.patch", return_value=patch_resp) as mock_patch:
-        ok = crud.set("c", "d", {"key": "val"}, merge=True)
-    assert ok is True
-    body = mock_patch.call_args[1]["json"]
-    assert body["fields"]["key"]["stringValue"] == "val"
+    mock_client_instance.collection.return_value.document.return_value.set.assert_called_once_with({"key": "new"}, merge=True)
 
 
 # ── add ─────────────────────────────────────────────────────────────────────
 
-def test_add_document(crud: FirebaseCRUD) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {"name": "projects/p/databases/d/documents/c/auto123"}
-    with patch("requests.post", return_value=mock_resp) as mock_post:
-        doc_id = crud.add("c", {"text": "hello"})
+def test_add_document(crud: FirebaseCRUD, mock_firestore) -> None:
+    mock_client_instance = mock_firestore.return_value
+    mock_result = MagicMock()
+    mock_result.id = "auto123"
+    mock_client_instance.collection.return_value.add.return_value = (None, mock_result)
+
+    doc_id = crud.add("c", {"text": "hello"})
     assert doc_id == "auto123"
-    mock_post.assert_called_once()
+    mock_client_instance.collection.return_value.add.assert_called_once_with({"text": "hello"})
 
 
 # ── delete ──────────────────────────────────────────────────────────────────
 
-def test_delete_document(crud: FirebaseCRUD) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    with patch("requests.delete", return_value=mock_resp):
-        ok = crud.delete("c", "d")
+def test_delete_document(crud: FirebaseCRUD, mock_firestore) -> None:
+    mock_client_instance = mock_firestore.return_value
+    ok = crud.delete("c", "d")
     assert ok is True
-
-
-def test_delete_missing(crud: FirebaseCRUD) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 404
-    with patch("requests.delete", return_value=mock_resp):
-        ok = crud.delete("c", "missing")
-    assert ok is False
+    mock_client_instance.collection.return_value.document.return_value.delete.assert_called_once()
 
 
 # ── query ───────────────────────────────────────────────────────────────────
 
-def test_query_collection(crud: FirebaseCRUD) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "documents": [
-            {"fields": {"x": {"stringValue": "a"}}},
-            {"fields": {"x": {"stringValue": "b"}}},
-        ]
-    }
-    with patch("requests.get", return_value=mock_resp):
-        docs = crud.query("c")
+def test_query_collection(crud: FirebaseCRUD, mock_firestore) -> None:
+    mock_doc1 = MagicMock()
+    mock_doc1.to_dict.return_value = {"x": "a"}
+    mock_doc2 = MagicMock()
+    mock_doc2.to_dict.return_value = {"x": "b"}
+
+    mock_client_instance = mock_firestore.return_value
+    mock_client_instance.collection.return_value.stream.return_value = [mock_doc1, mock_doc2]
+
+    docs = crud.query("c")
     assert len(docs) == 2
     assert docs[0]["x"] == "a"
+    assert docs[1]["x"] == "b"
 
 
-def test_query_empty_collection(crud: FirebaseCRUD) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {}
-    with patch("requests.get", return_value=mock_resp):
-        docs = crud.query("c")
+def test_query_empty_collection(crud: FirebaseCRUD, mock_firestore) -> None:
+    mock_client_instance = mock_firestore.return_value
+    mock_client_instance.collection.return_value.stream.return_value = []
+
+    docs = crud.query("c")
     assert docs == []
 
 
 # ── read_all_text ───────────────────────────────────────────────────────────
 
-def test_read_all_text(crud: FirebaseCRUD) -> None:
-    mock_resp = MagicMock()
-    mock_resp.status_code = 200
-    mock_resp.json.return_value = {
-        "documents": [
-            {"fields": {"text": {"stringValue": "hello"}}},
-            {"fields": {"text": {"stringValue": "world"}}},
-        ]
-    }
-    with patch("requests.get", return_value=mock_resp):
-        texts = crud.read_all_text("c")
+def test_read_all_text(crud: FirebaseCRUD, mock_firestore) -> None:
+    mock_doc1 = MagicMock()
+    mock_doc1.to_dict.return_value = {"text": "hello"}
+    mock_doc2 = MagicMock()
+    mock_doc2.to_dict.return_value = {"text": "world"}
+
+    mock_client_instance = mock_firestore.return_value
+    mock_client_instance.collection.return_value.stream.return_value = [mock_doc1, mock_doc2]
+
+    texts = crud.read_all_text("c")
     assert texts == ["hello", "world"]
 
 
 # ── retry ───────────────────────────────────────────────────────────────────
 
-def test_retry_succeeds_on_second_attempt(crud: FirebaseCRUD) -> None:
-    fail_resp = MagicMock()
-    fail_resp.status_code = 500
-    ok_resp = MagicMock()
-    ok_resp.status_code = 200
-    ok_resp.json.return_value = {"fields": {"x": {"stringValue": "y"}}}
+def test_retry_succeeds_on_second_attempt(crud: FirebaseCRUD, mock_firestore) -> None:
+    mock_doc = MagicMock()
+    mock_doc.exists = True
+    mock_doc.to_dict.return_value = {"x": "y"}
 
-    with patch("requests.get", side_effect=[fail_resp, ok_resp]) as mock_get:
-        result = crud.get("c", "d")
+    # First call fails, second succeeds
+    mock_get = MagicMock(side_effect=[Exception("fail"), mock_doc])
+
+    mock_client_instance = mock_firestore.return_value
+    mock_client_instance.collection.return_value.document.return_value.get = mock_get
+
+    result = crud.get("c", "d")
     assert result == {"x": "y"}
     assert mock_get.call_count == 2
 
@@ -215,7 +167,6 @@ def test_retry_succeeds_on_second_attempt(crud: FirebaseCRUD) -> None:
 # ── unavailable recovery ────────────────────────────────────────────────────
 
 def test_available_resets_on_new_crud() -> None:
-    """A new instance should start as available."""
     c = FirebaseCRUD(creds_path="dummy/path")
     assert c.available
 

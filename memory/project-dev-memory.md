@@ -6,10 +6,10 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-12 (Phase 45 — The Puppeteer)
+**Date updated:** 2026-06-13 (Phase 47 — SKILL.md Complete Rewrite + Doc Sync)
 **Current branch:** `master`
-**Latest commit:** `e0b0d0b` feat(config): migrate to unified nested configuration
-**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45
+**Latest commit:** `a97b55b` docs(skill): incorporate Phase 46 alignment — 15-point complete rewrite
+**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46
 **Git root:** `C:\Users\ponna\Project\Daemon`
 **Python command:** `py` (Windows py launcher — not `python` or `python3`)
 **Test command:** `py -m pytest tests/ -v --ignore=tests/test_output.txt --ignore=tests/test_firebase_crud.py`
@@ -806,6 +806,40 @@ Collapsed the legacy 3-pool system (jokes_blackmail, system, typing_reactions) i
 
 ---
 
+### Phase 47 — SKILL.md Complete Rewrite + Doc Sync (2026-06-13)
+
+**Commits:** `2d85587` (initial rewrite) → `a97b55b` (15-point Phase 46 alignment)
+
+**What was done:**
+
+`.opencode/skills/kenny/SKILL.md` — fully rewritten from 113 lines to 280+ lines. All 15 deficiencies from the Phase 46 architecture audit addressed:
+
+| # | Gap | Fix |
+|---|-----|-----|
+| 1 | Only 7 of 12 MCP tools documented | All 12 tools listed with params, consent keys, and hard constraints |
+| 2 | Hardcoded "UNCENSORED" profanity | Runtime `full`/`moderate`/`sfw` param with per-level rules and SFW swap table |
+| 3 | No Mixed-Bag item types in schema | Schema B added: `type` field required (`typing_reaction`/`observation`/`intel_roast`/`idle_thought`) |
+| 4 | Thin stutter guidance | Full phonetics section: syllable split, word repeat, consonant catch, vowel stretch, sibilant emphasis |
+| 5 | Outdated brain_update schema | Explicit writable/locked field tables; values = arrays of strings only |
+| 6 | Locked fields not named | All 9 locked fields explicitly listed with validator-rejection warning |
+| 7 | Tool constraints missing | `simulate_keystroke` max 50 chars; `browser_navigation` http/https only |
+| 8 | No FSM vs Emotion boundary | Critical Boundary blockquote: LLM owns `change_visual_state`, system owns EmotionAnimator |
+| 9 | Two-Stage contradiction | Stage 1 (INVESTIGATION) = natural language; Stage 2 (Generate N items) = strict JSON; explicit section |
+| 10 | Spatial TTL not explained | Spatial TTL Warning block in Schema B; per-type TTL column; specificity requirement |
+| 11 | Consent error not handled | -32001 → in-character roast in `dialogue`, log in `thought`, never surface to UI |
+| 12 | No emotion-to-dialogue map | Full 9-emotion vocal style table; trigger conditions for each |
+| 13 | `assets/daemon-skill.md` refs | All stale references removed |
+| 14 | Missing codebase module map | Full module table with file/class/purpose for all 13 core files |
+| 15 | No brain_update guidance on `get_memory` first | Explicit rule: call `get_memory` before personalizing dialogue |
+
+**Docs also updated:**
+- `docs/architecture.md` — Phase 46 coverage, SKILL.md contract section (2.2) fully rewritten, response pools → unified ThoughtPool, key decisions table expanded, TTS note corrected, recommended improvements updated
+- `AGENTS.md` — Phase 46 Juice/EmotionProfile registry table added to Emotion Engine section; SKILL.md file map description expanded; 5 new pitfall rows (Stage 1/2 confusion, locked fields, spatial TTL, -32001 handling, EmotionProfile registry)
+
+**Files changed:** `.opencode/skills/kenny/SKILL.md`, `docs/architecture.md`, `AGENTS.md`
+
+---
+
 ## Git Workflow (ALWAYS follow this)
 
 ```
@@ -1202,6 +1236,49 @@ README.md                ← Comprehensive architecture documentation
 - `pet_speed` → `pet_speed_multiplier` rename to match internal variable name
 
 **Test count:** 416 pass, 1 pre-existing pet_window failure (test_active_chat_tick_dispatches_trigger)
+
+### Documentation Overhaul (2026-06-12)
+
+**What was done:**
+- **AGENTS.md** — Complete rewrite with exhaustive end-to-end architecture documentation. Based on deep analysis of all 35 source files, 49 test files, and all existing docs via 6 parallel research agents.
+- **README.md** — 12 targeted fixes: MCP tools 7→12, test count 522/28→450+/49, deps corrected (openai/edge-tts not requests/pyttsx3), config flat→nested, brain schema 26→22 fields, TTS engine updated, response pool 3→unified ThoughtPool, 4 missing files added to file map.
+- **docs/architecture.md** — 7 targeted fixes: phase coverage 39→45, brain schema 26→22, pool 3→single, MCP tools 9→12 (+3 new), test count updated, PetWindow lines 1609→1756, 4 missing files added.
+
+**Cross-doc inconsistencies resolved:**
+| Topic | Before | After |
+|-------|--------|-------|
+| MCP tools | 7/8/9 (varied) | 12 (all docs) |
+| Test files | 28 | 49 |
+| Brain fields | 26 | 22 |
+| Response pools | 3 separate | 1 unified ThoughtPool |
+| TTS engine | pyttsx3 only | edge_tts primary + pyttsx3 fallback |
+| Config format | flat JSON | nested (llm/pet/tts/consent) |
+
+**Files undocumented before, now documented:**
+- `src/animator.py`, `src/response_pool.py`, `src/thought_log_dialog.py`, `src/system_dialogs.json`
+
+### Phase 46 — EmotionProfile & Eye Modifier Architecture (2026-06-13)
+
+**What was done:**
+- **`src/animator.py`** — Replaced all procedural `if/elif` chains with a declarative `EmotionProfile` dataclass and `EMOTION_PROFILES` registry. All 9 emotion profiles defined with "Juice" enhancements:
+  - **MIRTH**: micro-tilt rotation (`2.0 * sin(t/200)`), sclera squish 0.8x
+  - **ANGER**: jitter transform, red comet trail particles (`drift_x=-0.5`), angry brows (20°), squint (sclera 0.5x)
+  - **FEAR**: stretched (1.3, 0.7), tiny pupils (0.3x), wide sclera (1.2x)
+  - **DISGUST**: squished (0.8, 1.0), hue shift -30°, eye roll (pupil_offset_x=2.0)
+  - **PATHOS**: flattened (1.0, 0.9), grayscale, opacity pulsing 0.6→0.9, sad brows (-15°)
+  - **DEVOTION**: heart pupils, pink floating animation, pink hearts particles
+  - **HEROISM**: golden aura pulsing 80→20→80→20, gold pupils (full sclera), easing transform
+  - **WONDER**: elastic pop 1.5→1.0, 1-frame glitch (opacity=0 @ t=400ms), white screen flash
+  - **TRANQUILITY**: slow breathe, zen squint (sclera 0.1x), 80% alpha
+- **`src/pet_renderer.py`** — Added emotion opacity pipeline (`painter.setOpacity`) for pulsing/glitch effects. Eye modifier pipeline: sclera scale, pupil scale/shape/color/offset, and brow angle rendering with proper cursor-tracking integration.
+- **`ParticleSystem.emit()`** — Added `drift_x` parameter for comet trail effects (ANGER).
+- **Legacy dicts** (`_SINGLE_FIRE_DECAY`, `_EMOTION_OVERRIDE_COLOR`, `_PARTICLE_EMIT`) — Preserved as derived properties from the registry for full backward compatibility.
+
+**Files changed:**
+- `src/animator.py` — 156 lines added (EmotionProfile, EMOTION_PROFILES registry, helper functions, refactored EmotionAnimator)
+- `src/pet_renderer.py` — 45 lines added (opacity + eye modifier pipelines)
+
+**Test count:** All 68 animator tests + 5 renderer tests pass with zero modifications to test files.
 
 ---
 

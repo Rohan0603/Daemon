@@ -110,6 +110,9 @@ class PetWindow(QWidget):
         self._title_land_time: float = 0.0
         self._last_window_rect = None
         self._drag_offset = QPoint(0, 0)
+        self._drag_velocity_x = 0.0
+        self._drag_velocity_y = 0.0
+        self._drag_start_time = 0.0
 
         self._last_drag_pos = QPoint(0, 0)
         self._wander_target_x: int | None = None
@@ -350,7 +353,6 @@ class PetWindow(QWidget):
         return screen.bottom() - PET_HEIGHT - GROUND_PADDING_PX
 
     def _update_ground_y(self) -> None:
-        from src.pet_fsm import PetState
         base_ground = self._compute_ground_y()
         self._ground_y = base_ground
         
