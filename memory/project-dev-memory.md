@@ -1218,3 +1218,20 @@ After each completed task, update:
 ## Agent Instructions
 
 **CLAUDE.md and GEMINI.md have been replaced by `AGENTS.md`.** All agent instructions now live in that single file. Update it when adding new pitfalls, changing the file map, or modifying workflows.
+### Phase 47 — Window Perching & The Super Jump ? COMPLETE
+
+**Commit:** e1617ff
+
+**What was built:**
+- **DWM-Accurate Geometry:** ctive_window.py uses DwmGetWindowAttribute(DWMWA_EXTENDED_FRAME_BOUNDS) to get true visual pixels without drop-shadow bounds, skipping maximized/full-screen apps.
+- **Sticky Drag & Perching:** pet_window.py tracks _last_window_rect. When the active window moves, the pet seamlessly rides the title bar (dx/dy applied to _pet_x and _pet_y).
+- **Seeking & The Drop:** Pet wanders to the edge of the screen using PERIMETER if outside horizontal bounds. Drops to the active window title bar if aligned horizontally but above it.
+- **The Super Jump:** Pet performs an arcing kinematic leap (y = -sqrt(2 * g * d)) from the taskbar up to the active window title bar.
+- **Animation Polish:** Added 	akeoff_elapsed_ms (200ms stretch) and 	itle_land_elapsed_ms (200ms squash) to RenderContext directly evaluated in pet_renderer.py, bypassing the EmotionProfile to keep them purely physical.
+
+**Key Decisions:**
+- DWM allows frame precision, solving the floating issue on Windows 10/11.
+- Gravity logic works by setting the precise _fall_velocity needed to reach exactly the window's top edge at the apex.
+- Maximize check (WS_MAXIMIZE) ensures the pet doesn't get trapped offscreen on maximized game windows.
+
+---
