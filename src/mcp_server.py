@@ -290,13 +290,13 @@ class MCPHandler(BaseHTTPRequestHandler):
     consent: dict[str, bool] | None = None
 
     def do_GET(self):
-        if self.path == "/sse":
+        if self.path in ("/sse", "/"):
             self._handle_sse()
         else:
             self.send_error(404)
 
     def do_POST(self):
-        if self.path == "/message":
+        if self.path in ("/message", "/"):
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode("utf-8")
             msg = json.loads(body)

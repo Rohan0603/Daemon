@@ -226,7 +226,7 @@ class PetWindow(QWidget):
         self._typing_debounce_timer.timeout.connect(self._on_typing_debounce)
         self._typing_buffer.text_updated.connect(self._typing_debounce_timer.start)
 
-        self._write_coalescer.start(self)
+        self._write_coalescer.start()
 
         self._install_crash_recovery_hook()
 
@@ -2021,10 +2021,14 @@ class PetWindow(QWidget):
         if not self._opencode_session_id:
             return
         import requests as _req
-        from src.constants import OPENCODE_SERVER_URL
+        from src.config import load_config
+        
+        cfg = load_config()
+        opencode_server_url = cfg.get("llm", {}).get("server_url", "http://127.0.0.1:4096")
+        
         try:
             _req.delete(
-                f"{OPENCODE_SERVER_URL}/session/{self._opencode_session_id}",
+                f"{opencode_server_url}/session/{self._opencode_session_id}",
                 timeout=5,
             )
             logger.info("Opencode API session closed: %s", self._opencode_session_id)
