@@ -31,6 +31,8 @@ from src.constants import (
     RISKY_KEYWORDS,
     EMOTION_TICK_SEC, RAPID_WINDOW_SWITCH_THRESHOLD,
     TASK_MANAGER_KEYWORDS, PROCRASTINATION_DOMAINS,
+    APM_PANIC_THRESHOLD_LOW, APM_PANIC_THRESHOLD_HIGH, APM_PANIC_COOLDOWN_SEC,
+    APM_STATE_CHANGE_COOLDOWN,
 )
 from src.pet_fsm import PetFSM, PetState, FSMContext
 from src.pet_renderer import PetRenderer, RenderContext
@@ -123,10 +125,15 @@ class PetWindow(QWidget):
         self._hyper_sustained = 0.0
         self._hyper_cooldown = 0.0
         self._hyper_color_index = 0
-        self._hyper_flash_timer = QTimer()
+        self._hyper_flash_timer = QTimer(self)
         self._hyper_flash_timer.setInterval(125)
         self._hyper_flash_timer.timeout.connect(self._cycle_hyper_color)
         self._hyper_flash_timer.start()
+
+        # APM Hysteresis state
+        self._apm_state = "normal"
+        self._last_apm_state_change = 0.0
+        self._last_apm = 0
 
         self._last_mode = ""
         self._idle_seconds = 0.0
@@ -200,13 +207,13 @@ class PetWindow(QWidget):
         self._log_data_state("Startup+Cache")
 
         self._typing_last_len = 0
-        self._typing_debounce_timer = QTimer()
+        self._typing_debounce_timer = QTimer(self)
         self._typing_debounce_timer.setSingleShot(True)
         self._typing_debounce_timer.setInterval(2000)
         self._typing_debounce_timer.timeout.connect(self._on_typing_debounce)
         self._typing_buffer.text_updated.connect(self._typing_debounce_timer.start)
 
-        self._write_coalescer.start()
+        self._write_coalescer.start(self)
 
         self._install_crash_recovery_hook()
 
@@ -216,16 +223,20 @@ class PetWindow(QWidget):
                 "Double-click me to ask opencode anything.",
                 "Right-click for options.",
             ]
-            QTimer.singleShot(1500, lambda: self._bubble_queue and self._show_bubble(self._bubble_queue.pop(0)))
+            self._greeting_timer = QTimer(self)
+            self._greeting_timer.setSingleShot(True)
+            self._greeting_timer.setInterval(1500)
+            self._greeting_timer.timeout.connect(self._show_greeting_bubble)
+            self._greeting_timer.start()
 
 
-        self._fsm_timer = QTimer()
+        self._fsm_timer = QTimer(self)
         self._fsm_timer.setInterval(FSM_TICK_MS)
         self._fsm_timer.timeout.connect(self._tick)
         self._fsm_timer.start()
 
         from src.constants import BEHAVIOR_TICK_MS
-        self._behavior_timer = QTimer()
+        self._behavior_timer = QTimer(self)
         self._behavior_timer.setInterval(BEHAVIOR_TICK_MS)
         self._behavior_timer.timeout.connect(self._master_tick)
         self._behavior_timer.start()
@@ -246,7 +257,7 @@ class PetWindow(QWidget):
         self._deferred_trigger_params: dict | None = None
 
         self._brain_disconnected = False
-        self._health_timer = QTimer()
+        self._health_timer = QTimer(self)
         self._health_timer.setInterval(10000)
         self._health_timer.timeout.connect(self._on_health_check)
         self._health_timer.start()
@@ -269,6 +280,9 @@ class PetWindow(QWidget):
         self._chat_timer_sec = 0
         self._joke_timer_sec = 0
         self._chattiness = 1.0
+        self._last_boredom_trigger_time = 0.0
+        self._last_refill_attempt = 0.0
+        self._refill_failed_count = 0
 
         self._input_field = QLineEdit(self)
         self._input_field.setFixedSize(INPUT_WIDTH, INPUT_HEIGHT)
@@ -287,7 +301,11 @@ class PetWindow(QWidget):
         if skill_ready and not initial_state.get("skill_greeted", False):
             self._show_bubble("dae: memory active.")
 
-        QTimer.singleShot(500, self._on_boot_check_auth)
+        self._boot_timer = QTimer(self)
+        self._boot_timer.setSingleShot(True)
+        self._boot_timer.setInterval(500)
+        self._boot_timer.timeout.connect(self._on_boot_check_auth)
+        self._boot_timer.start()
         self._mcp_server.start()
 
     def _setup_window(self) -> None:
@@ -330,6 +348,50 @@ class PetWindow(QWidget):
             self._idle_backoff_seconds = 0.0
             self._last_context_snapshot = None
             self._last_boredom_fsm_time = time.time()
+
+        # APM Hysteresis - prevent overreactions to normal variations
+        current_time = time.time()
+        apm_state_changed = False
+
+        if apm <= APM_PANIC_THRESHOLD_LOW:
+            if self._apm_state != "low":
+                self._apm_state = "low"
+                apm_state_changed = True
+        elif apm >= APM_PANIC_THRESHOLD_HIGH:
+            if self._apm_state != "high":
+                self._apm_state = "high"
+                apm_state_changed = True
+        else:
+            if self._apm_state not in ("low", "high"):
+                self._apm_state = "normal"
+                apm_state_changed = True
+
+        if apm_state_changed:
+            self._last_apm_state_change = current_time
+
+        # Only trigger panic reactions if enough time has passed since last state change
+        if (current_time - self._last_apm_state_change) < APM_PANIC_COOLDOWN_SEC:
+            return
+
+        # React to significant APM changes only
+        if apm <= APM_PANIC_THRESHOLD_LOW and hasattr(self, "_last_apm"):
+            if apm < self._last_apm * 0.5:  # 50% drop threshold
+                self._trigger_apm_panic("low")
+        elif apm >= APM_PANIC_THRESHOLD_HIGH and hasattr(self, "_last_apm"):
+            if apm > self._last_apm * 1.5:  # 50% increase threshold
+                self._trigger_apm_panic("high")
+
+        self._last_apm = apm
+
+    def _trigger_apm_panic(self, panic_type: str) -> None:
+        """Trigger panic reaction to significant APM changes."""
+        from src.pet_fsm import PetState
+        if panic_type == "low":
+            self._show_bubble("Why is my APM so low? I can't even think!")
+            self._fsm.transition_to(PetState.THINKING)
+        elif panic_type == "high":
+            self._show_bubble("My APM just spiked! I'm hyperventilating!")
+            self._fsm.transition_to(PetState.HYPER)
 
     def _calculate_joke_modifier(self) -> float:
         """Inverse APM scaling: low APM = frequent jokes, high APM = rare jokes."""
@@ -387,8 +449,16 @@ class PetWindow(QWidget):
         if local:
             self._dispatch_structured(local[0])
 
-        # Background API call
+        # Background API call - respect failure recovery
         if not self._autonomous_query_pending and self._opencode_enabled:
+            # Check if we should skip API call due to recent failures
+            current_time = time.time()
+            if hasattr(self, "_last_refill_attempt") and hasattr(self, "_refill_failed_count"):
+                time_since_last_refill = current_time - self._last_refill_attempt
+                if self._refill_failed_count >= 3 and time_since_last_refill < 300:
+                    logger.info("Skipping chat API call due to recent failures")
+                    return
+            
             self._dispatch_trigger(
                 mode="active_chat",
                 context_hint=get_active_window_title(),
@@ -402,7 +472,16 @@ class PetWindow(QWidget):
         """Handle joke trigger: background API call."""
         self._joke_timer_sec = 0  # Reset timer
 
+        # Background API call - respect failure recovery
         if not self._autonomous_query_pending and self._opencode_enabled:
+            # Check if we should skip API call due to recent failures
+            current_time = time.time()
+            if hasattr(self, "_last_refill_attempt") and hasattr(self, "_refill_failed_count"):
+                time_since_last_refill = current_time - self._last_refill_attempt
+                if self._refill_failed_count >= 3 and time_since_last_refill < 300:
+                    logger.info("Skipping joke API call due to recent failures")
+                    return
+            
             self._dispatch_trigger(
                 mode="joke",
                 context_hint=get_active_window_title(),
@@ -421,9 +500,17 @@ class PetWindow(QWidget):
         target_state = getattr(PetState, action)
         self._fsm.transition_to(target_state)
 
-        # API call every 3rd-4th boredom tick
+        # API call every 3rd-4th boredom tick - respect failure recovery
         self._boredom_tick_count = (self._boredom_tick_count + 1) % 4
         if self._boredom_tick_count == 0 and self._opencode_enabled:
+            # Check if we should skip API call due to recent failures
+            current_time = time.time()
+            if hasattr(self, "_last_refill_attempt") and hasattr(self, "_refill_failed_count"):
+                time_since_last_refill = current_time - self._last_refill_attempt
+                if self._refill_failed_count >= 3 and time_since_last_refill < 300:
+                    logger.info("Skipping boredom API call due to recent failures")
+                    return
+            
             if not self._autonomous_query_pending:
                 self._dispatch_trigger(
                     mode="boredom",
@@ -528,6 +615,13 @@ class PetWindow(QWidget):
 
             # P4: Boredom (APM == 0, Idle >= 60s) — WITH EXPONENTIAL BACKOFF
             if self._idle_seconds >= 60 and self._current_apm == 0:
+                # Debounce boredom triggers to prevent rapid state changes
+                current_time = time.time()
+                if hasattr(self, "_last_boredom_trigger_time"):
+                    time_since_last_boredom = current_time - self._last_boredom_trigger_time
+                    if time_since_last_boredom < 30:  # 30 second cooldown between boredom triggers
+                        return
+
                 # 1. Update stability and base timer first
                 if not self._is_context_stable():
                     self._idle_backoff_seconds = self._base_boredom_interval
@@ -539,6 +633,7 @@ class PetWindow(QWidget):
                 if elapsed >= self._idle_backoff_seconds:
                     self._trigger_boredom_fsm()
                     self._last_boredom_fsm_time = time.time()
+                    self._last_boredom_trigger_time = current_time
 
                     # 3. ONLY increase backoff AFTER we've fired
                     if self._idle_backoff_seconds == 0:
@@ -557,6 +652,13 @@ class PetWindow(QWidget):
         self._mcp_server.stop()
         self._fsm_timer.stop()
         self._behavior_timer.stop()
+        self._hyper_flash_timer.stop()
+        self._typing_debounce_timer.stop()
+        self._health_timer.stop()
+        if hasattr(self, "_greeting_timer"):
+            self._greeting_timer.stop()
+        if hasattr(self, "_boot_timer"):
+            self._boot_timer.stop()
         self._log_data_state("Shutdown")
         self._response_manager.stop()
         try:
@@ -1142,6 +1244,20 @@ class PetWindow(QWidget):
             self._opencode_worker.deleteLater()
             self._opencode_worker = None
 
+        # Enhanced error recovery - handle API timeouts gracefully
+        if "timeout" in error.lower():
+            logger.info("API timeout detected - attempting recovery")
+            # Don't immediately try to refill - wait a bit and check if service is back
+            self._last_refill_attempt = time.time()
+            self._refill_failed_count = getattr(self, "_refill_failed_count", 0) + 1
+            
+            # If multiple timeouts, reduce refill frequency
+            if self._refill_failed_count >= 3:
+                logger.info("Multiple API timeouts - reducing refill frequency")
+                self._response_manager.thought_pool.refill_threshold = min(
+                    self._response_manager.thought_pool.refill_threshold + 5, 20
+                )
+
 
     def _bubble_duration(self, text: str) -> int:
         return SHORT_BUBBLE_DURATION_MS if len(text) <= SHORT_BUBBLE_CHAR_LIMIT else SPEECH_BUBBLE_DURATION_MS
@@ -1152,6 +1268,10 @@ class PetWindow(QWidget):
         self._bubble_timer_ms = 0
         self._tts.clear()
         self.update()
+
+    def _show_greeting_bubble(self) -> None:
+        if self._bubble_queue:
+            self._show_bubble(self._bubble_queue.pop(0))
 
     def _show_bubble(self, text: str) -> None:
         if self._bubble_timer_ms > 0:
@@ -1224,7 +1344,6 @@ class PetWindow(QWidget):
     def _on_boot_check_auth(self) -> None:
         from src.firebase_auth import FirebaseAuth
         from src.firebase_crud import FirebaseCRUD
-        from src.memory_manager import MemoryManager
 
         self._crud = FirebaseCRUD()
         uid = "default"
@@ -1465,9 +1584,21 @@ class PetWindow(QWidget):
                     self._opencode_worker.error_occurred.disconnect()
                 except TypeError:
                     pass
+                
+                self._opencode_worker.abort()
                 self._opencode_worker.quit()
-                self._opencode_worker.wait(5000)
+                
+                if not hasattr(self, '_zombie_workers'):
+                    self._zombie_workers = set()
+                self._zombie_workers.add(self._opencode_worker)
+                
+                def _cleanup_zombie(w=self._opencode_worker):
+                    if hasattr(self, '_zombie_workers'):
+                        self._zombie_workers.discard(w)
+                
+                self._opencode_worker.finished.connect(_cleanup_zombie)
                 self._opencode_worker.deleteLater()
+                
                 self._opencode_worker = None
                 self._autonomous_query_pending = False
                 self._deferred_trigger_params = None
@@ -1642,6 +1773,16 @@ class PetWindow(QWidget):
 
     def _on_refill_needed(self) -> None:
         from src.constants import THOUGHT_POOL_REFILL_COUNT
+        
+        # Check if we should skip refill due to recent failures
+        current_time = time.time()
+        if hasattr(self, "_last_refill_attempt") and hasattr(self, "_refill_failed_count"):
+            time_since_last_refill = current_time - self._last_refill_attempt
+            if self._refill_failed_count >= 3 and time_since_last_refill < 300:
+                logger.info("Skipping refill due to recent failures - threshold: %d, time since: %.1f seconds",
+                           self._response_manager.thought_pool.refill_threshold, time_since_last_refill)
+                return
+        
         count = THOUGHT_POOL_REFILL_COUNT
         prompt = self._context_manager.build_mixed_bag_prompt(count)
         window = get_active_window_title() or "unknown"
@@ -1665,6 +1806,7 @@ class PetWindow(QWidget):
         worker.error_occurred.connect(lambda err: self._on_refill_error())
         self._refill_workers["thought_pool"] = worker
         worker.start()
+        self._last_refill_attempt = current_time
 
     def _on_refill_result(self, items: list) -> None:
         logger.info("Refill result: %d items", len(items) if items else 0)
@@ -1691,6 +1833,22 @@ class PetWindow(QWidget):
         if worker is not None:
             worker.deleteLater()
         self._response_manager.thought_pool.on_refill_result(None)
+        
+        # Enhanced error recovery for refill failures
+        current_time = time.time()
+        if hasattr(self, "_last_refill_attempt"):
+            time_since_last_refill = current_time - self._last_refill_attempt
+            if time_since_last_refill < 300:  # Less than 5 minutes since last attempt
+                self._refill_failed_count = getattr(self, "_refill_failed_count", 0) + 1
+                
+                # If multiple consecutive failures, reduce refill frequency
+                if self._refill_failed_count >= 3:
+                    logger.info("Multiple consecutive refill failures - reducing refill frequency")
+                    self._response_manager.thought_pool.refill_threshold = min(
+                        self._response_manager.thought_pool.refill_threshold + 5, 20
+                    )
+                    # Reset counter after reducing threshold
+                    self._refill_failed_count = 0
 
     def _on_session_created(self, session_id: str) -> None:
         self._opencode_session_id = session_id
