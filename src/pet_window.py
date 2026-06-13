@@ -110,9 +110,7 @@ class PetWindow(QWidget):
         self._drag_velocity_x = 0.0
         self._drag_velocity_y = 0.0
         self._drag_start_time = 0.0
-        self._throw_vx: float = 0.0
-        self._throw_vy: float = 0.0
-        self._is_thrown: bool = False
+
         self._last_drag_pos = QPoint(0, 0)
         self._wander_target_x: int | None = None
         self._wander_direction = 1
@@ -934,25 +932,13 @@ class PetWindow(QWidget):
             return
 
         if state == PetState.FALLING:
-            if self._is_thrown:
-                self._throw_vy += GRAVITY_ACCELERATION
-                self._throw_vx *= THROW_FRICTION
-                self._pet_x += int(self._throw_vx * dt / 33.0)
-                self._pet_y += int(self._throw_vy * dt / 33.0)
-                if self._pet_y >= self._ground_y and abs(self._throw_vx) < 1.0:
-                    self._pet_y = self._ground_y
-                    self._fall_velocity = 0.0
-                    self._is_thrown = False
-                    self._land_time = time.time()
-                    self._fsm.current_state = PetState.IDLE
-            else:
-                self._fall_velocity += GRAVITY_ACCELERATION
-                self._pet_y += int(self._fall_velocity)
-                if self._pet_y >= self._ground_y:
-                    self._pet_y = self._ground_y
-                    self._fall_velocity = 0.0
-                    self._land_time = time.time()
-                    self._fsm.current_state = PetState.IDLE
+            self._fall_velocity += GRAVITY_ACCELERATION
+            self._pet_y += int(self._fall_velocity)
+            if self._pet_y >= self._ground_y:
+                self._pet_y = self._ground_y
+                self._fall_velocity = 0.0
+                self._land_time = time.time()
+                self._fsm.current_state = PetState.IDLE
 
         elif state == PetState.PERIMETER:
             self._tick_perimeter()
@@ -1067,15 +1053,7 @@ class PetWindow(QWidget):
     def mouseReleaseEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
             if self._fsm.current_state == PetState.DRAGGED:
-                speed = (self._drag_velocity_x**2 + self._drag_velocity_y**2)**0.5
-                if speed > THROW_VELOCITY_THRESHOLD:
-                    self._throw_vx = self._drag_velocity_x
-                    self._throw_vy = self._drag_velocity_y
-                    self._is_thrown = True
-                    self._fsm.current_state = PetState.FALLING
-                    logger.debug("Pet thrown. Initial velocity: X=%.2f, Y=%.2f",
-                                 self._throw_vx, self._throw_vy)
-                elif self._pet_y < self._ground_y:
+                if self._pet_y < self._ground_y:
                     self._fsm.current_state = PetState.FALLING
                 else:
                     self._fsm.current_state = PetState.IDLE
