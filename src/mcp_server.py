@@ -289,6 +289,12 @@ class MCPHandler(BaseHTTPRequestHandler):
     diary_store = None
     consent: dict[str, bool] | None = None
 
+    def handle(self):
+        try:
+            super().handle()
+        except ConnectionResetError:
+            pass
+
     def do_GET(self):
         if self.path in ("/sse", "/"):
             self._handle_sse()
