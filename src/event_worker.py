@@ -1,7 +1,10 @@
 import json
 import time
 import requests
+import logging
 from PyQt6.QtCore import QThread, pyqtSignal
+
+logger = logging.getLogger(__name__)
 
 class EventStreamWorker(QThread):
     lsp_error_detected = pyqtSignal(dict)
@@ -13,29 +16,38 @@ class EventStreamWorker(QThread):
         super().__init__()
         self.server_url = server_url
         self._running = True
+        self._response = None
 
     def run(self):
         backoff = 3
         while self._running:
             try:
-                with requests.get(f"{self.server_url}/event", stream=True, timeout=5) as r:
-                    r.raise_for_status()
-                    backoff = 3
-                    for line in r.iter_lines():
-                        if not self._running:
-                            break
-                        if line:
-                            decoded = line.decode('utf-8')
-                            if decoded.startswith('data: '):
-                                try:
-                                    event_data = json.loads(decoded[6:])
-                                    self._handle_event(event_data)
-                                except json.JSONDecodeError:
-                                    pass
-            except Exception:
+                self._response = requests.get(f"{self.server_url}/event", stream=True, timeout=60)
+                self._response.raise_for_status()
+                backoff = 3
+                for line in self._response.iter_lines():
+                    if not self._running:
+                        break
+                    if line:
+                        decoded = line.decode('utf-8')
+                        if decoded.startswith('data: '):
+                            try:
+                                event_data = json.loads(decoded[6:])
+                                self._handle_event(event_data)
+                            except json.JSONDecodeError as e:
+                                logger.warning(f"Failed to parse SSE JSON: {e}")
+            except Exception as e:
                 if self._running:
+                    logger.error(f"EventStreamWorker network error: {e}")
                     time.sleep(backoff)
                     backoff = min(backoff * 2, 15)
+            finally:
+                if self._response is not None:
+                    try:
+                        self._response.close()
+                    except Exception:
+                        pass
+                    self._response = None
 
     def _handle_event(self, data: dict):
         if "EventLspUpdated" in data:
@@ -47,10 +59,18 @@ class EventStreamWorker(QThread):
                 self.lsp_error_cleared.emit()
         elif "EventCommandExecuted" in data:
             payload = data["EventCommandExecuted"]
-            self.command_completed.emit(payload.get("command", ""), payload.get("exit_code", 0))
+            exit_code = payload.get("exit_code")
+            if exit_code is None:
+                exit_code = 0
+            self.command_completed.emit(payload.get("command", ""), exit_code)
         elif "EventFileEdited" in data:
             self.file_edited.emit(data["EventFileEdited"].get("filepath", ""))
 
     def stop(self):
         self._running = False
+        if self._response:
+            try:
+                self._response.close()
+            except Exception:
+                pass
         self.wait()
