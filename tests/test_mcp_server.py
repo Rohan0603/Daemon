@@ -13,6 +13,59 @@ def _handler(bridge=None, memory=None, diary_store=None):
     return handler
 
 
+from src.constants import THOUGHTS_LOG_PATH
+from pathlib import Path
+import urllib.request
+
+def test_post_log_writes_to_thoughts_and_logger(mcp_server):
+    mcp_server.start()
+    host, port = mcp_server.server_address
+    url = f"http://{host}:{port}/log"
+    
+    payload = {
+        "service": "opencode",
+        "level": "ERROR",
+        "message": "Connection reset",
+        "extra": {"retries": 3}
+    }
+    
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST")
+    req.add_header("Content-Type", "application/json")
+    
+    with urllib.request.urlopen(req) as response:
+        assert response.status == 200
+        res_body = json.loads(response.read().decode("utf-8"))
+        assert res_body.get("success") is True
+        
+    # Verify thoughts log was written
+    content = Path(THOUGHTS_LOG_PATH).read_text(encoding="utf-8")
+    assert "[opencode] Connection reset" in content
+
+
+def test_post_session_summarize(mcp_server):
+    mcp_server.start()
+    host, port = mcp_server.server_address
+    url = f"http://{host}:{port}/session/1234/summarize"
+    
+    # Mock the signal emit
+    mcp_server.server.fsm_bridge.emit_summarize_requested = MagicMock()
+    
+    payload = {
+        "providerID": "openai",
+        "modelID": "gpt-4"
+    }
+    
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST")
+    req.add_header("Content-Type", "application/json")
+    
+    with urllib.request.urlopen(req) as response:
+        assert response.status == 200
+        res_body = json.loads(response.read().decode("utf-8"))
+        assert res_body.get("success") is True
+        assert "events" in res_body
+    mcp_server.server.fsm_bridge.emit_summarize_requested.assert_called_once_with("openai", "gpt-4")
+
+
 from src.mcp_server import _read_clipboard, _capture_screenshot
 
 
@@ -177,7 +230,7 @@ def test_tools_call_send_system_toast_defaults():
 
 @pytest.fixture
 def mcp_server():
-    server = MCPServer(MagicMock())
+    server = MCPServer(MagicMock(), port=0)
     yield server
     server.stop()
 

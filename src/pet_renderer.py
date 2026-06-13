@@ -71,10 +71,6 @@ class PetRenderer:
 
         body_color = self._body_color(ctx)
 
-        # Apply emotion opacity (juice: pulsing, glitch, etc.)
-        if ctx.animator:
-            painter.setOpacity(ctx.animator.get_opacity())
-
         self._draw_body(painter, body_color, ctx.state)
         self._draw_eyes(painter, ctx)
 
@@ -203,27 +199,19 @@ class PetRenderer:
         if state == PetState.HYPER:
             return QColor(HYPER_FLASH[ctx.hyper_color_index % 4])
         if state == PetState.DEVASTATED:
-            c = QColor(BODY_BLUE)
-            gray = int(c.red() * 0.3 + c.green() * 0.59 + c.blue() * 0.11)
-            return QColor(gray, gray, gray)
+            return QColor(BODY_BLUE)
         if state == PetState.THINKING:
-            return QColor("#7B9EC7")
+            return QColor("#7B9EC7")  # blue
         if state == PetState.AUTONOMOUS_THINKING:
             return QColor("#9B7EC8")  # muted purple
         if state == PetState.SLEEP:
-            c = QColor(BODY_BLUE)
-            c.setAlpha(204)  # 80% opacity
-            return c
+            return QColor(BODY_BLUE)
         if state == PetState.SHAKING:
             return QColor("#E87722")  # orange panic
-        if state == PetState.BOUNCING:
-            return QColor(BODY_BLUE)
         if state == PetState.SPINNING:
             return QColor(ACCENT_YELLOW)  # yellow mind-blown
         if state == PetState.LOOK_AWAY:
-            c = QColor(BODY_BLUE)
-            c.setAlpha(220)
-            return c
+            return QColor(BODY_BLUE)
         if ctx.animator:
             return ctx.animator.get_body_color(QColor(BODY_BLUE))
         return QColor(BODY_BLUE)

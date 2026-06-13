@@ -13,6 +13,7 @@ class _Signals(QObject):
     pin_toggle    = pyqtSignal()
     restart_brain = pyqtSignal()
     thought_log   = pyqtSignal()
+    settings_requested = pyqtSignal()
 
 
 class PetContextMenu(QMenu):
@@ -28,6 +29,7 @@ class PetContextMenu(QMenu):
         self.addAction("View Brain Scan", self.signals.thought_log.emit)
         self._pin_action = self.addAction("Pin position", self.signals.pin_toggle.emit)
         self._pin_action.setCheckable(True)
+        self.addAction("Settings...", self.signals.settings_requested.emit)
         self.addSeparator()
         self.addAction("Quit Daemon", self.signals.quit_requested.emit)
 

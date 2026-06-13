@@ -86,7 +86,8 @@ def test_force_quit_app_stops_apm_and_quits(app, qtbot):
         
         window = PetWindow(opencode_enabled=False)
         qtbot.add_widget(window)
-        window._force_quit_app()
+        with patch.object(window, "_trigger_ghost_summarization", side_effect=lambda on_complete=None: on_complete() if on_complete else None):
+            window._force_quit_app()
         
         assert window._force_quit is True
         window._apm_worker.stop.assert_called_once()
@@ -240,7 +241,8 @@ def test_force_quit_stops_timers_and_waits_for_worker(app, qtbot):
             mock_worker = MagicMock()
             mock_worker.isRunning.return_value = True
             window._opencode_worker = mock_worker
-            window._force_quit_app()
+            with patch.object(window, "_trigger_ghost_summarization", side_effect=lambda on_complete=None: on_complete() if on_complete else None):
+                window._force_quit_app()
             mock_fsm_stop.assert_called_once()
             mock_behavior_stop.assert_called_once()
             mock_resp_stop.assert_called_once()
@@ -374,7 +376,8 @@ def test_force_quit_stops_response_manager_and_flushes_writes(app, tmp_path, qtb
         with patch.object(window._write_coalescer, "stop", wraps=window._write_coalescer.stop) as mock_coal_stop, \
              patch.object(window._write_coalescer, "flush", wraps=window._write_coalescer.flush) as mock_coal_flush, \
              patch.object(window._response_manager, "stop", wraps=window._response_manager.stop) as mock_resp_stop:
-            window._force_quit_app()
+            with patch.object(window, "_trigger_ghost_summarization", side_effect=lambda on_complete=None: on_complete() if on_complete else None):
+                window._force_quit_app()
             mock_resp_stop.assert_called_once()
             mock_coal_stop.assert_called_once()
             mock_coal_flush.assert_called_once()
@@ -622,7 +625,8 @@ def test_force_quit_stops_response_manager(app, tmp_path, qtbot):
          patch.object(PetWindow, "_on_boot_check_auth"):
         pw = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
         qtbot.add_widget(pw)
-        pw._force_quit_app()
+        with patch.object(pw, "_trigger_ghost_summarization", side_effect=lambda on_complete=None: on_complete() if on_complete else None):
+            pw._force_quit_app()
         assert pw._response_manager._decay_timer.isActive() is False
         assert pw._response_manager._auto_refill_timer.isActive() is False
 
@@ -637,7 +641,7 @@ def test_should_fire_autonomous_checks_correct_pool(app, tmp_path):
          patch("src.pet_window.APMWorker"), \
          patch("src.pet_window.MemoryManager"):
         pw = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)
-        pw._opencode_worker = object()
+        pw._opencode_worker = MagicMock()
         pw._response_manager.thought_pool._items = []
         # boredom checks thought pool
         assert pw._should_fire_autonomous("boredom") is False
@@ -661,7 +665,8 @@ def test_window_accepts_fresh_login_flag(app, qtbot):
         window = PetWindow(fresh_login=True)
         qtbot.add_widget(window)
         assert window._fresh_login is True
-        window._force_quit_app()
+        with patch.object(window, "_trigger_ghost_summarization", side_effect=lambda on_complete=None: on_complete() if on_complete else None):
+            window._force_quit_app()
 
 
 def test_window_without_explicit_auth(app, qtbot):
@@ -675,7 +680,8 @@ def test_window_without_explicit_auth(app, qtbot):
         qtbot.add_widget(window)
         assert window._crud is None
         assert window._firebase_mem is None
-        window._force_quit_app()
+        with patch.object(window, "_trigger_ghost_summarization", side_effect=lambda on_complete=None: on_complete() if on_complete else None):
+            window._force_quit_app()
 
 
 def test_risky_keyword_interrupts_bubble(qtbot):
@@ -976,3 +982,38 @@ def test_pet_window_lsp_debounce(app, qtbot, tmp_path):
         # Simulate clearing the error
         window._event_worker.lsp_error_cleared.emit()
         assert not window._lsp_debounce_timer.isActive()
+
+
+@patch("src.pet_window.QApplication.quit")
+def test_ghost_mode_on_quit_triggers_summary(mock_quit, qtbot):
+    from src.pet_window import PetWindow
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False)
+        qtbot.addWidget(window)
+        
+        with patch.object(window, "hide") as mock_hide, \
+             patch.object(window._tray_icon, "hide") as mock_tray_hide, \
+             patch("src.opencode_worker.OpencodeWorker") as mock_worker_class:
+                 
+            mock_worker_instance = MagicMock()
+            mock_worker_class.return_value = mock_worker_instance
+            
+            window._force_quit_app()
+            
+            # Verify UI is hidden instantly
+            mock_hide.assert_called_once()
+            mock_tray_hide.assert_called_once()
+            
+            # Verify quit is NOT called yet
+            mock_quit.assert_not_called()
+            
+            # Verify worker is started
+            mock_worker_instance.start.assert_called_once()
+            
+            # Simulate worker finishing
+            window._on_summary_ready([{"type": "observation", "content": "Rohan was coding"}])
+            
+            # Now quit should be called
+            mock_quit.assert_called_once()

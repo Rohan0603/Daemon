@@ -14,7 +14,7 @@ GWL_EXSTYLE          = -20
 WS_EX_TRANSPARENT    = 0x00000020
 WS_EX_LAYERED        = 0x00080000
 
-_TOGGLE_DEBOUNCE_SEC = 0.5
+_TOGGLE_DEBOUNCE_SEC = 0.05
 _HYSTERESIS_MARGIN_PX = 15
 
 
@@ -63,14 +63,14 @@ class ClickThroughManager:
 
         if self._transparent:
             hit_geom = geom.adjusted(
-                -_HYSTERESIS_MARGIN_PX, -_HYSTERESIS_MARGIN_PX,
                 _HYSTERESIS_MARGIN_PX, _HYSTERESIS_MARGIN_PX,
+                -_HYSTERESIS_MARGIN_PX, -_HYSTERESIS_MARGIN_PX,
             )
             cursor_over = hit_geom.contains(cursor)
         else:
             hit_geom = geom.adjusted(
-                _HYSTERESIS_MARGIN_PX, _HYSTERESIS_MARGIN_PX,
                 -_HYSTERESIS_MARGIN_PX, -_HYSTERESIS_MARGIN_PX,
+                _HYSTERESIS_MARGIN_PX, _HYSTERESIS_MARGIN_PX,
             )
             cursor_over = hit_geom.contains(cursor)
 

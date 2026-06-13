@@ -79,6 +79,8 @@ class OpencodeWorker(QThread):
             )
             if r.status_code >= 400:
                 logger.warning("API message failed: %s %s", r.status_code, r.text[:200])
+                if not self._is_autonomous:
+                    self.error_occurred.emit(f"API failed with HTTP {r.status_code}")
                 return None
 
             data = r.json()
@@ -91,9 +93,13 @@ class OpencodeWorker(QThread):
             return text
         except requests.exceptions.ConnectionError as e:
             logger.warning("API connection error: %s", e)
+            if not self._is_autonomous:
+                self.error_occurred.emit("Lost connection to opencode server.")
             return None
         except requests.exceptions.Timeout as e:
             logger.warning("API timeout: %s", e)
+            if not self._is_autonomous:
+                self.error_occurred.emit("OpenCode API timed out. Rate limit exceeded?")
             return None
         except requests.exceptions.RequestException as e:
             logger.warning("API request error: %s", e)

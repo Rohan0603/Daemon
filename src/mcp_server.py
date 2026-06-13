@@ -5,7 +5,7 @@ import re
 import ctypes
 from ctypes import wintypes
 from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 
 from src.utils.security import get_safe_data_path
@@ -302,6 +302,65 @@ class MCPHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
+        if self.path == "/log":
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode("utf-8")
+            
+            try:
+                msg = json.loads(body)
+            except json.JSONDecodeError:
+                self.send_error(400, "Invalid JSON payload")
+                return
+            
+            service = msg.get("service", "unknown")
+            level_str = msg.get("level", "INFO").upper()
+            message = msg.get("message", "")
+            extra = msg.get("extra", {})
+            
+            # Map level to logging module
+            level_map = {
+                "DEBUG": logging.DEBUG,
+                "INFO": logging.INFO,
+                "WARNING": logging.WARNING,
+                "ERROR": logging.ERROR
+            }
+            level = level_map.get(level_str, logging.INFO)
+            
+            logger.log(level, f"[{service}] {message} - Extra: {extra}")
+            
+            # Write to thoughts log for visual output if INFO or above
+            if level >= logging.INFO:
+                from src.constants import THOUGHTS_LOG_PATH
+                from pathlib import Path
+                try:
+                    with open(THOUGHTS_LOG_PATH, "a", encoding="utf-8") as f:
+                        f.write(f"[{service}] {message}\n")
+                except Exception as e:
+                    logger.error(f"Failed to write to thoughts log: {e}")
+            
+            self._send_json({"success": True})
+            return
+
+        match = re.match(r"^/session/([^/]+)/summarize$", self.path)
+        if match:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length).decode("utf-8")
+            
+            try:
+                msg = json.loads(body)
+            except json.JSONDecodeError:
+                self.send_error(400, "Invalid JSON payload")
+                return
+            
+            provider_id = msg.get("providerID", "")
+            model_id = msg.get("modelID", "")
+            
+            if hasattr(self.server, "fsm_bridge") and self.server.fsm_bridge:
+                self.server.fsm_bridge.emit_summarize_requested(provider_id, model_id)
+                
+            self._send_json({"success": True, "events": []})
+            return
+
         if self.path in ("/message", "/"):
             content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length).decode("utf-8")
@@ -309,8 +368,12 @@ class MCPHandler(BaseHTTPRequestHandler):
             method = msg.get("method", "")
             params = msg.get("params", {})
             response = self._handle_request(method, params)
-            response["id"] = msg.get("id")
-            self._send_json(response)
+            if response is not None:
+                if "id" in msg:
+                    response["id"] = msg["id"]
+                self._send_json(response)
+            else:
+                self._send_json({})
         else:
             self.send_error(404)
 
@@ -360,13 +423,27 @@ class MCPHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _handle_request(self, method, params):
-        if method == "tools/list":
+        logger.debug("MCP received method: %s", method)
+        if method == "initialize":
+            return {
+                "jsonrpc": "2.0",
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "DaemonMCP", "version": "1.0.0"}
+                }
+            }
+        elif method == "notifications/initialized":
+            return None
+        elif method == "ping":
+            return {"jsonrpc": "2.0", "result": {}}
+        elif method == "tools/list":
             return self._handle_tools_list()
         elif method == "tools/call":
             return self._handle_tools_call(params)
         else:
             logger.debug("MCP unknown method: %s", method)
-            return {"jsonrpc": "2.0", "id": None, "error": {"code": -32601, "message": "Method not found"}}
+            return {"jsonrpc": "2.0", "error": {"code": -32601, "message": "Method not found"}}
 
     def _handle_tools_list(self):
         return {"jsonrpc": "2.0", "id": 1, "result": {"tools": MCP_TOOLS}}
@@ -617,6 +694,14 @@ class MCPServer:
         self._server = None
         self._thread = None
 
+    @property
+    def server(self):
+        return self._server
+
+    @property
+    def server_address(self):
+        return self._server.server_address if self._server else (self._host, self._port)
+
     def start(self):
         consent = {
             k: self._config.get(k, False) for k in _CONSENT_TOOL_MAP.values()
@@ -630,7 +715,8 @@ class MCPServer:
             handler.consent = consent
             return handler
 
-        self._server = HTTPServer((self._host, self._port), handler_factory)
+        self._server = ThreadingHTTPServer((self._host, self._port), handler_factory)
+        self._server.fsm_bridge = self._fsm_bridge
         self._port = self._server.server_address[1]
         self._thread = Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()

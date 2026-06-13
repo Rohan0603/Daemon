@@ -187,6 +187,8 @@ class PetWindow(QWidget):
         self._fsm_bridge = FSMActionBridge()
         self._fsm_bridge.request.connect(self._on_mcp_fsm_action)
         self._fsm_bridge.toast_request.connect(self._on_toast_requested)
+        if hasattr(self._fsm_bridge, "summarize_requested"):
+            self._fsm_bridge.summarize_requested.connect(self._handle_summarize_request)
         self._bubble_queue: list[str] = []
 
         self._memory = Memory(path=memory_path)
@@ -342,31 +344,46 @@ class PetWindow(QWidget):
 
     def _get_click_geometry(self) -> QRect:
         rect = QRect(self._pet_x, self._pet_y, PET_WIDTH, PET_HEIGHT)
-        if self._bubble_text:
-            rect = rect.united(self._bubble_rect)
-        if self._input_field.isVisible():
-            rect = rect.united(self._input_field.geometry())
+        top_left = self.mapToGlobal(rect.topLeft())
+        bottom_right = self.mapToGlobal(rect.bottomRight())
+        rect = QRect(top_left, bottom_right)
+        if self._bubble_text and hasattr(self, '_bubble_rect') and not self._bubble_rect.isEmpty():
+            bubble_tl = self.mapToGlobal(self._bubble_rect.topLeft())
+            bubble_br = self.mapToGlobal(self._bubble_rect.bottomRight())
+            rect = rect.united(QRect(bubble_tl, bubble_br))
+        if hasattr(self, '_input_field') and self._input_field.isVisible():
+            input_geom = self._input_field.geometry()
+            input_tl = self.mapToGlobal(input_geom.topLeft())
+            input_br = self.mapToGlobal(input_geom.bottomRight())
+            rect = rect.united(QRect(input_tl, input_br))
         return rect
 
     def _compute_ground_y(self) -> int:
         screen = QApplication.primaryScreen().availableGeometry()
         return screen.bottom() - PET_HEIGHT - GROUND_PADDING_PX
 
+    def _get_logical_window_rect(self):
+        try:
+            from src.active_window import get_window_rect
+            r = get_window_rect(int(self.winId()))
+            if r:
+                s = self._scale if hasattr(self, '_scale') and self._scale > 0 else 1.0
+                return (int(r[0]/s), int(r[1]/s), int(r[2]/s), int(r[3]/s))
+        except Exception:
+            pass
+        return None
+
     def _update_ground_y(self) -> None:
         base_ground = self._compute_ground_y()
         self._ground_y = base_ground
         
-        try:
-            from src.active_window import get_window_rect
-            rect = get_window_rect()
-            if rect:
-                left, top, right, bottom = rect
-                pet_center_x = self._pet_x + PET_WIDTH // 2
-                # Ensure window is valid and not maximized at negative coords
-                if 0 < top <= base_ground and left <= pet_center_x <= right:
-                    self._ground_y = top - PET_HEIGHT
-        except Exception:
-            pass
+        rect = self._get_logical_window_rect()
+        if rect:
+            left, top, right, bottom = rect
+            pet_center_x = self._pet_x + PET_WIDTH // 2
+            # Ensure window is valid and not maximized at negative coords
+            if 0 < top <= base_ground and left <= pet_center_x <= right:
+                self._ground_y = top - PET_HEIGHT
 
         if self._pet_y > self._ground_y:
             self._pet_y = self._ground_y
@@ -681,9 +698,66 @@ class PetWindow(QWidget):
             logger.critical("CRASH in _master_tick: %s", e, exc_info=True)
             raise
 
+    def _handle_summarize_request(self, provider_id: str, model_id: str) -> None:
+        self._trigger_ghost_summarization()
+
     def _force_quit_app(self) -> None:
-        logger.info("_force_quit_app called - shutting down")
+        if self._force_quit:
+            return
         self._force_quit = True
+        logger.info("Initiating Ghost Mode shutdown sequence...")
+        
+        # Hide UI immediately
+        self.hide()
+        if hasattr(self, '_tray_icon') and self._tray_icon:
+            self._tray_icon.hide()
+            
+        # Trigger summarization
+        self._trigger_ghost_summarization(on_complete=self._finalize_quit)
+
+    def _trigger_ghost_summarization(self, on_complete=None) -> None:
+        self._summary_on_complete = on_complete
+        
+        # Failsafe timer (15 seconds)
+        from PyQt6.QtCore import QTimer
+        self._shutdown_timer = QTimer(self)
+        self._shutdown_timer.setSingleShot(True)
+        if on_complete:
+            self._shutdown_timer.timeout.connect(on_complete)
+        self._shutdown_timer.start(15000)
+        
+        import time
+        history_text = "\n".join([f"{item.get('role', 'unknown')}: {item.get('content', '')}" for item in self._history.get_recent(50)])
+        prompt = f"Summarize this session strictly into a single observation about the user's habits:\n{history_text}"
+        
+        from src.opencode_worker import OpencodeWorker
+        self._summary_worker = OpencodeWorker(
+            user_input="",
+            prompt=prompt,
+            session_id=self._opencode_session_id,
+            is_autonomous=True
+        )
+        self._summary_worker.response_ready.connect(self._on_summary_ready)
+        self._summary_worker.start()
+
+    def _on_summary_ready(self, items: list[dict]) -> None:
+        if items and "content" in items[0]:
+            import time
+            summary = items[0]["content"]
+            # Save to DiaryStore
+            if hasattr(self, '_diary_store'):
+                self._diary_store.add_diary_entry(summary, int(time.time()))
+            # Push to Firebase
+            if hasattr(self, '_firebase_mem') and self._firebase_mem and hasattr(self, '_diary_store'):
+                self._firebase_mem.push_pending_diaries(self._diary_store)
+            logger.info("Session summarized and saved.")
+            
+        if hasattr(self, "_summary_on_complete") and self._summary_on_complete:
+            if hasattr(self, '_shutdown_timer') and self._shutdown_timer.isActive():
+                self._shutdown_timer.stop()
+            self._summary_on_complete()
+
+    def _finalize_quit(self) -> None:
         self._mcp_server.stop()
         self._fsm_timer.stop()
         self._behavior_timer.stop()
@@ -717,7 +791,6 @@ class PetWindow(QWidget):
         self._typing_buffer.stop()
         self._tts.stop()
         self._apm_worker.stop()
-        self._tray_icon.hide()
         if hasattr(self, "_thought_log_dialog") and self._thought_log_dialog is not None:
             try:
                 self._thought_log_dialog.close()
@@ -841,7 +914,7 @@ class PetWindow(QWidget):
             int(PET_WIDTH * self._pet_scale),
             int(PET_HEIGHT * self._pet_scale),
         )
-        self.setWindowOpacity(self._pet_opacity)
+        self.setWindowOpacity(1.0)
         if self._tts:
             self._tts.set_enabled(values.get("tts_enabled", True))
             if "tts_rate" in values:
@@ -900,58 +973,54 @@ class PetWindow(QWidget):
                 if self._boredom_timer_ms <= 0:
                     self._trigger_boredom_query()
 
-            try:
-                from src.active_window import get_window_rect
-                current_rect = get_window_rect()
+            current_rect = self._get_logical_window_rect()
+            
+            # Sticky Drag
+            is_perched = False
+            if current_rect and hasattr(self, '_last_window_rect') and self._last_window_rect:
+                if self._pet_y == self._ground_y and self._ground_y == self._last_window_rect[1] - PET_HEIGHT:
+                    dx = current_rect[0] - self._last_window_rect[0]
+                    dy = current_rect[1] - self._last_window_rect[1]
+                    if dx != 0 or dy != 0:
+                        self._pet_x += dx
+                        self._pet_y += dy
+                        self._ground_y += dy
+                    is_perched = True
+                elif self._pet_y == self._ground_y and self._ground_y == current_rect[1] - PET_HEIGHT:
+                    is_perched = True
+            elif current_rect:
+                if self._pet_y == self._ground_y and self._ground_y == current_rect[1] - PET_HEIGHT:
+                    is_perched = True
+            
+            # Wandering Constraints
+            if is_perched and current_rect and self._fsm.current_state in (PetState.IDLE, PetState.PERIMETER):
+                w_left, _, w_right, _ = current_rect
+                if self._pet_x < w_left:
+                    self._pet_x = w_left
+                elif self._pet_x > w_right - PET_WIDTH:
+                    self._pet_x = w_right - PET_WIDTH
+            
+            # Seeking & The Super Jump
+            if current_rect and self._fsm.current_state not in (PetState.DRAGGED, PetState.FALLING):
+                w_left, w_top, w_right, w_bottom = current_rect
+                pet_center_x = self._pet_x + PET_WIDTH // 2
                 
-                # Sticky Drag
-                is_perched = False
-                if current_rect and hasattr(self, '_last_window_rect') and self._last_window_rect:
-                    if self._pet_y == self._ground_y and self._ground_y == self._last_window_rect[1] - PET_HEIGHT:
-                        dx = current_rect[0] - self._last_window_rect[0]
-                        dy = current_rect[1] - self._last_window_rect[1]
-                        if dx != 0 or dy != 0:
-                            self._pet_x += dx
-                            self._pet_y += dy
-                            self._ground_y += dy
-                        is_perched = True
-                    elif self._pet_y == self._ground_y and self._ground_y == current_rect[1] - PET_HEIGHT:
-                        is_perched = True
-                elif current_rect:
-                    if self._pet_y == self._ground_y and self._ground_y == current_rect[1] - PET_HEIGHT:
-                        is_perched = True
-                
-                # Wandering Constraints
-                if is_perched and current_rect and self._fsm.current_state in (PetState.IDLE, PetState.PERIMETER):
-                    w_left, _, w_right, _ = current_rect
-                    if self._pet_x < w_left:
-                        self._pet_x = w_left
-                    elif self._pet_x > w_right - PET_WIDTH:
-                        self._pet_x = w_right - PET_WIDTH
-                
-                # Seeking & The Super Jump
-                if current_rect and self._fsm.current_state not in (PetState.DRAGGED, PetState.FALLING):
-                    w_left, w_top, w_right, w_bottom = current_rect
-                    pet_center_x = self._pet_x + PET_WIDTH // 2
-                    
-                    if pet_center_x < w_left or pet_center_x > w_right:
-                        self._fsm.transition_to(PetState.PERIMETER)
-                        self._perimeter_edge = "bottom"
-                        self._perimeter_facing = "right" if pet_center_x < w_left else "left"
-                    else:
-                        if self._pet_y < w_top and not is_perched:
+                if pet_center_x < w_left or pet_center_x > w_right:
+                    self._fsm.transition_to(PetState.PERIMETER)
+                    self._perimeter_edge = "bottom"
+                    self._perimeter_facing = "right" if pet_center_x < w_left else "left"
+                else:
+                    if self._pet_y < w_top and not is_perched:
+                        self._fsm.transition_to(PetState.FALLING)
+                    elif self._pet_y > w_top + PET_HEIGHT and not is_perched:
+                        d = self._pet_y - (w_top - PET_HEIGHT)
+                        if d > 0:
+                            import math
+                            self._fall_velocity = -math.sqrt(2 * GRAVITY_ACCELERATION * d)
                             self._fsm.transition_to(PetState.FALLING)
-                        elif self._pet_y > w_top + PET_HEIGHT and not is_perched:
-                            d = self._pet_y - (w_top - PET_HEIGHT)
-                            if d > 0:
-                                import math
-                                self._fall_velocity = -math.sqrt(2 * GRAVITY_ACCELERATION * d)
-                                self._fsm.transition_to(PetState.FALLING)
-                                self._takeoff_time = time.time()
+                            self._takeoff_time = time.time()
 
-                self._last_window_rect = current_rect
-            except Exception:
-                pass
+            self._last_window_rect = current_rect
 
             old_state = self._fsm.current_state
             ctx = self._build_fsm_context()
@@ -972,6 +1041,16 @@ class PetWindow(QWidget):
                             except TypeError:
                                 pass
                             worker.quit()
+                            if not hasattr(self, '_zombie_workers'):
+                                self._zombie_workers = set()
+                            self._zombie_workers.add(worker)
+                            
+                            def _cleanup_refill_zombie(w=worker):
+                                if hasattr(self, '_zombie_workers'):
+                                    self._zombie_workers.discard(w)
+                                    
+                            worker.finished.connect(_cleanup_refill_zombie)
+                            worker.finished.connect(worker.deleteLater)
                     self._refill_workers.clear()
                 # Handle SLEEP state exit
                 if old_state == PetState.SLEEP and new_state != PetState.SLEEP:
@@ -1052,20 +1131,16 @@ class PetWindow(QWidget):
             self._pet_y += int(self._fall_velocity)
             
             landed = False
-            try:
-                from src.active_window import get_window_rect
-                w_rect = get_window_rect()
-                if w_rect and self._fall_velocity >= 0:
-                    w_left, w_top, w_right, w_bottom = w_rect
-                    pet_center_x = self._pet_x + PET_WIDTH // 2
-                    if w_left <= pet_center_x <= w_right and abs((self._pet_y + PET_HEIGHT) - w_top) <= 5.0:
-                        self._pet_y = w_top - PET_HEIGHT
-                        self._fall_velocity = 0.0
-                        self._ground_y = w_top - PET_HEIGHT
-                        landed = True
-                        self._title_land_time = time.time()
-            except Exception:
-                pass
+            w_rect = self._get_logical_window_rect()
+            if w_rect and self._fall_velocity >= 0:
+                w_left, w_top, w_right, w_bottom = w_rect
+                pet_center_x = self._pet_x + PET_WIDTH // 2
+                if w_left <= pet_center_x <= w_right and abs((self._pet_y + PET_HEIGHT) - w_top) <= 5.0:
+                    self._pet_y = w_top - PET_HEIGHT
+                    self._fall_velocity = 0.0
+                    self._ground_y = w_top - PET_HEIGHT
+                    landed = True
+                    self._title_land_time = time.time()
 
             if not landed and self._pet_y >= self._ground_y:
                 self._pet_y = self._ground_y
@@ -1532,12 +1607,20 @@ class PetWindow(QWidget):
             mode=modes[0], apm=self._current_apm, idle_seconds=self._idle_seconds,
         )
         prompt = base + f"\nmodes: {json.dumps(modes)}"
+        
+        if isinstance(self._opencode_worker, QThread) and self._opencode_worker.isRunning():
+            logger.info("Worker busy; dropping multiplexed trigger")
+            return
+            
         worker = OpencodeWorker(
             user_input="", prompt=prompt, is_autonomous=True,
+            session_id=self._opencode_session_id,
         )
-        worker.response_ready.connect(self._on_structured_multiplexed)
-        worker.error_occurred.connect(self._on_opencode_error)
-        worker.start()
+        self._opencode_worker = worker
+        self._opencode_worker.response_ready.connect(self._on_structured_multiplexed)
+        self._opencode_worker.error_occurred.connect(self._on_opencode_error)
+        self._opencode_worker.session_created.connect(self._on_session_created)
+        self._opencode_worker.start()
 
     def _on_structured_multiplexed(self, items: list[dict]) -> None:
         if not items:
@@ -1607,8 +1690,6 @@ class PetWindow(QWidget):
     ]
 
     def _trigger_boredom_query(self) -> None:
-        if self._maybe_dispatch_bickering():
-            return
         self._boredom_timer_ms = BOREDOM_TIMEOUT_SEC * 1000
         logger.info("Boredom query triggered.")
         if self._autonomous_query_pending:
@@ -1619,6 +1700,9 @@ class PetWindow(QWidget):
             PetState.SLEEP,
         ):
             logger.debug("[boredom] Skipping: FSM state=%s", self._fsm.current_state.name)
+            return
+            
+        if self._maybe_dispatch_bickering():
             return
         current_hash = self._last_context_snapshot if hasattr(self, "_last_context_snapshot") else None
         items = self._response_manager.draw("idle_thought", current_context_hash=current_hash)
@@ -1771,6 +1855,9 @@ class PetWindow(QWidget):
         params = self._deferred_trigger_params
         if params is not None:
             self._deferred_trigger_params = None
+            if params.get("is_autonomous", True) and self._current_apm > 80:
+                logger.info("Discarding deferred trigger: APM > 80 (flow state)")
+                return
             if not (isinstance(self._opencode_worker, QThread) and self._opencode_worker.isRunning()):
                 logger.info("Firing deferred trigger: mode='%s'", params.get("mode", "?"))
                 params["idle_seconds"] = self._idle_seconds
@@ -1879,6 +1966,8 @@ class PetWindow(QWidget):
         new_chars = current_len - self._typing_last_len
         self._typing_last_len = current_len
         if new_chars >= 10 and not self._autonomous_query_pending:
+            if self._current_apm > 80:
+                return
             self._trigger_autonomous_query()
 
     def _trigger_autonomous_query(self) -> None:
@@ -1897,6 +1986,12 @@ class PetWindow(QWidget):
     def _on_refill_needed(self) -> None:
         from src.constants import THOUGHT_POOL_REFILL_COUNT
         
+        # Skip refill if we are already talking to the LLM for a user query!
+        if self._opencode_worker is not None and self._opencode_worker.isRunning():
+            logger.info("Skipping refill because a user query is actively running.")
+            self._response_manager.thought_pool.on_refill_result(None)
+            return
+
         # Check if we should skip refill due to recent failures
         current_time = time.time()
         if hasattr(self, "_last_refill_attempt") and hasattr(self, "_refill_failed_count"):
@@ -1904,6 +1999,7 @@ class PetWindow(QWidget):
             if self._refill_failed_count >= 3 and time_since_last_refill < 300:
                 logger.info("Skipping refill due to recent failures - threshold: %d, time since: %.1f seconds",
                            self._response_manager.thought_pool.refill_threshold, time_since_last_refill)
+                self._response_manager.thought_pool.on_refill_result(None)
                 return
         
         count = THOUGHT_POOL_REFILL_COUNT
@@ -1923,10 +2019,12 @@ class PetWindow(QWidget):
         worker = OpencodeWorker(
             "",
             is_autonomous=True,
+            session_id=self._opencode_session_id,
             two_stage_prompts=(stage1, prompt),
         )
         worker.response_ready.connect(lambda items: self._on_refill_result(items))
         worker.error_occurred.connect(lambda err: self._on_refill_error())
+        worker.session_created.connect(self._on_session_created)
         self._refill_workers["thought_pool"] = worker
         worker.start()
         self._last_refill_attempt = current_time

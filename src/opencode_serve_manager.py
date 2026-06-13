@@ -140,12 +140,13 @@ def ensure_opencode_serve_running(
     try:
         log_file = open(spawn_log_path, "ab", buffering=0)
         proc = popen(
-            [bin_path, "serve", "--port", str(port)],
+            [bin_path, "serve", "--port", str(port), "--print-logs", "--log-level", "DEBUG"],
             stdin=subprocess.DEVNULL,
             stdout=log_file,
-            stderr=subprocess.STDOUT,
+            stderr=log_file,
             creationflags=_DETACHED_PROCESS | _CREATE_NO_WINDOW,
             close_fds=True,
+            start_new_session=True,
         )
     except OSError as e:
         logger.debug(f"[serve] spawn failed: {e}")

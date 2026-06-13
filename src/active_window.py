@@ -23,8 +23,11 @@ def get_active_window_title() -> str:
         return ""
 
 
-def get_window_rect() -> tuple[int, int, int, int] | None:
+_last_hwnd = None
+
+def get_window_rect(ignore_hwnd: int = 0) -> tuple[int, int, int, int] | None:
     """Return (left, top, right, bottom) of foreground window, or None."""
+    global _last_hwnd
     if sys.platform != "win32":
         return None
     try:
@@ -34,6 +37,14 @@ def get_window_rect() -> tuple[int, int, int, int] | None:
         hwnd = ctypes.windll.user32.GetForegroundWindow()
         if not hwnd:
             return None
+            
+        if hwnd == ignore_hwnd:
+            if _last_hwnd:
+                hwnd = _last_hwnd
+            else:
+                return None
+        else:
+            _last_hwnd = hwnd
 
         # Check if maximized (GWL_STYLE = -16, WS_MAXIMIZE = 0x01000000)
         style = ctypes.windll.user32.GetWindowLongW(hwnd, -16)
