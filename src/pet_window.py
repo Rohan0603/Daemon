@@ -375,11 +375,12 @@ class PetWindow(QWidget):
             pass
         return None
 
-    def _update_ground_y(self) -> None:
+    def _update_ground_y(self, rect=None) -> None:
         base_ground = self._compute_ground_y()
         self._ground_y = base_ground
         
-        rect = self._get_logical_window_rect()
+        if rect is None:
+            rect = self._get_logical_window_rect()
         if rect:
             left, top, right, bottom = rect
             pet_center_x = self._pet_x + PET_WIDTH // 2
@@ -950,7 +951,8 @@ class PetWindow(QWidget):
 
     def _tick(self) -> None:
         try:
-            self._update_ground_y()
+            current_rect = self._get_logical_window_rect()
+            self._update_ground_y(current_rect)
             self._anim_tick += 1
             if self._bubble_timer_ms > 0:
                 self._bubble_timer_ms -= FSM_TICK_MS
@@ -971,8 +973,6 @@ class PetWindow(QWidget):
                 if self._boredom_timer_ms <= 0:
                     self._trigger_boredom_query()
 
-            current_rect = self._get_logical_window_rect()
-            
             # Perched Check
             is_perched = False
             if current_rect:
@@ -1000,10 +1000,18 @@ class PetWindow(QWidget):
                     if self._pet_y > self._ground_y and not is_perched:
                         d = self._pet_y - self._ground_y
                         if d > 0:
-                            import math
-                            self._fall_velocity = -math.sqrt(2 * GRAVITY_ACCELERATION * d)
-                            self._fsm.transition_to(PetState.FALLING)
-                            self._takeoff_time = time.time()
+                            if not hasattr(self, "_prepare_jump_time") or self._prepare_jump_time == 0.0:
+                                self._prepare_jump_time = time.time()
+                            elif time.time() - self._prepare_jump_time > 0.15:
+                                import math
+                                self._fall_velocity = -math.sqrt(2 * GRAVITY_ACCELERATION * d)
+                                self._fsm.transition_to(PetState.FALLING)
+                                self._takeoff_time = time.time()
+                                self._prepare_jump_time = 0.0
+                    else:
+                        self._prepare_jump_time = 0.0
+            else:
+                self._prepare_jump_time = 0.0
 
             self._last_window_rect = current_rect
 
@@ -1043,7 +1051,8 @@ class PetWindow(QWidget):
                     self._last_context_snapshot = None
                     self._last_boredom_fsm_time = time.time()
                     self._boredom_timer_ms = BOREDOM_TIMEOUT_SEC * 1000
-            self._apply_physics(new_state, FSM_TICK_MS)
+
+            self._apply_physics(new_state, FSM_TICK_MS, current_rect)
             self._animator.update(FSM_TICK_MS, self._pet_x, self._pet_y)
             self.update()
         except Exception as e:
@@ -1107,7 +1116,7 @@ class PetWindow(QWidget):
         pos = self.mapFromGlobal(self.cursor().pos())
         return (int(pos.x()), int(pos.y()))
 
-    def _apply_physics(self, state: PetState, dt: int) -> None:
+    def _apply_physics(self, state: PetState, dt: int, w_rect=None) -> None:
         if self._pinned and state not in (PetState.DRAGGED, PetState.FALLING):
             return
 
@@ -1116,7 +1125,8 @@ class PetWindow(QWidget):
             self._pet_y += int(self._fall_velocity)
             
             landed = False
-            w_rect = self._get_logical_window_rect()
+            if w_rect is None:
+                w_rect = self._get_logical_window_rect()
             if w_rect and self._fall_velocity >= 0:
                 w_left, w_top, w_right, w_bottom = w_rect
                 pet_center_x = self._pet_x + PET_WIDTH // 2
@@ -1131,7 +1141,7 @@ class PetWindow(QWidget):
                         landed = True
                         self._title_land_time = time.time()
 
-            if not landed and self._pet_y >= self._ground_y:
+            if not landed and self._pet_y >= self._ground_y and self._fall_velocity >= 0:
                 if self._fall_velocity > 10.0:
                     self._pet_y = self._ground_y - 1
                     self._fall_velocity = -self._fall_velocity * 0.3
@@ -1284,6 +1294,9 @@ class PetWindow(QWidget):
             ms_title_land = (time.time() - getattr(self, '_title_land_time', 0.0)) * 1000
             title_land_elapsed_ms = ms_title_land if ms_title_land <= 200 else 0.0
 
+            ms_prepare_jump = (time.time() - getattr(self, '_prepare_jump_time', 0.0)) * 1000
+            prepare_jump_elapsed_ms = ms_prepare_jump if 0 < ms_prepare_jump <= 150 else 0.0
+
             ctx = RenderContext(
                 state=self._fsm.current_state,
                 pet_x=self._pet_x,
@@ -1306,6 +1319,7 @@ class PetWindow(QWidget):
                 animator=self._animator,
                 takeoff_elapsed_ms=takeoff_elapsed_ms,
                 title_land_elapsed_ms=title_land_elapsed_ms,
+                prepare_jump_elapsed_ms=prepare_jump_elapsed_ms,
             )
             self._renderer.render(painter, ctx)
             self._bubble_rect = ctx.bubble_rect
@@ -1985,6 +1999,12 @@ class PetWindow(QWidget):
         # Skip refill if we are already talking to the LLM for a user query!
         if self._opencode_worker is not None and self._opencode_worker.isRunning():
             logger.info("Skipping refill because a user query is actively running.")
+            self._response_manager.thought_pool.on_refill_result(None, intentional_abort=True)
+            return
+
+        # Skip refill if a refill is already actively running
+        if "thought_pool" in self._refill_workers and self._refill_workers["thought_pool"].isRunning():
+            logger.info("Skipping refill because a refill is already actively running.")
             self._response_manager.thought_pool.on_refill_result(None, intentional_abort=True)
             return
 

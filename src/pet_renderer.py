@@ -45,6 +45,7 @@ class RenderContext:
     animator: 'EmotionAnimator | None' = None
     takeoff_elapsed_ms: float = 0.0
     title_land_elapsed_ms: float = 0.0
+    prepare_jump_elapsed_ms: float = 0.0
 
 
 class PetRenderer:
@@ -167,6 +168,13 @@ class PetRenderer:
 
         if state == PetState.LOOK_AWAY:
             return 1.0, 1.0, -4.0
+
+        if getattr(ctx, 'prepare_jump_elapsed_ms', 0.0) > 0:
+            ms = ctx.prepare_jump_elapsed_ms
+            frac = min(ms / 150.0, 1.0)
+            sx = 1.0 + frac * 0.3
+            sy = 1.0 - frac * 0.3
+            return sx, sy, 0.0
 
         if getattr(ctx, 'takeoff_elapsed_ms', 0.0) > 0:
             return 0.8, 1.3, 0.0

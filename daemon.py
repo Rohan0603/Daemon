@@ -145,7 +145,8 @@ def main() -> None:
     from src.opencode_serve_manager import ensure_opencode_serve_running, stop_opencode_serve
     if not args.no_opencode:
         opencode_server_url = cfg.get("llm", {}).get("server_url", "http://127.0.0.1:4096")
-        if ensure_opencode_serve_running(url=opencode_server_url):
+        opencode_api_key = cfg.get("llm", {}).get("api_key", "")
+        if ensure_opencode_serve_running(url=opencode_server_url, api_key=opencode_api_key):
             logger.debug("opencode serve ready at %s", opencode_server_url)
         else:
             logger.info("opencode serve not available; CLI fallback will be used")

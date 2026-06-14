@@ -6,5 +6,10 @@
       "url": "http://127.0.0.1:4097",
       "enabled": true
     }
+  },
+  "agent": {
+    "title": {
+      "model": "opencode/deepseek-v4-flash-free"
+    }
   }
 }

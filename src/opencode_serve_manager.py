@@ -85,6 +85,7 @@ def ensure_opencode_serve_running(
     url: str = _DEFAULT_URL,
     max_wait: float = _DEFAULT_MAX_WAIT_SEC,
     spawn_log_path: Optional[str] = None,
+    api_key: str = "",
     which=None,
     popen=None,
 ) -> bool:
@@ -138,12 +139,17 @@ def ensure_opencode_serve_running(
 
     logger.debug(f"[serve] spawning {bin_path} serve --port {port}")
     try:
+        env = os.environ.copy()
+        if api_key:
+            env["OPENCODE_API_KEY"] = api_key
+            env["GEMINI_API_KEY"] = api_key  # Some providers fallback to this
         log_file = open(spawn_log_path, "ab", buffering=0)
         proc = popen(
             [bin_path, "serve", "--port", str(port), "--print-logs", "--log-level", "DEBUG"],
             stdin=subprocess.DEVNULL,
             stdout=log_file,
             stderr=log_file,
+            env=env,
             creationflags=_DETACHED_PROCESS | _CREATE_NO_WINDOW,
             close_fds=True,
             start_new_session=True,
