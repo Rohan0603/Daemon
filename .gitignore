@@ -21,3 +21,7 @@ logs/
 
 # Local storage (memory, history, diary, config, lock, cache, thoughts)
 data/
+
+# Temp test artifacts
+crash_dump.log
+this_file_surely_does_not_exist_98765.json

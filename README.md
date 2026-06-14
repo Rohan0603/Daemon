@@ -289,7 +289,7 @@ When wander timer fires from IDLE, the pet enters PERIMETER state (not random wa
 | `src/active_window.py` | `get_active_window_title()` — Win32 `GetForegroundWindow` |
 | `src/logging_setup.py` | Unified stdlib logging with `RotatingFileHandler` |
 | `seed_brain.py` | Standalone Firestore brain seeder — view/merge/seed core_brain document |
-| `opencode-query.ps1` | PowerShell script (legacy CLI path, preserved but not used by PetWindow) |
+
 | `.opencode/skills/kenny/SKILL.md` | Full Kenny persona + action matrix + output contract (loaded natively by OpenCode) |
 
 ---
@@ -378,7 +378,7 @@ pytest               # Test runner
 py -m pytest tests/ -v
 ```
 
-432 tests across 23 test files. All pass, 0 skipped.
+~450+ tests across 49 test files. All pass, 0 skipped.
 
 ---
 

@@ -290,7 +290,7 @@ def test_validate_read_extension():
     assert _validate_read_extension("src/mcp_server.py") is True
     assert _validate_read_extension("README.md") is True
     assert _validate_read_extension("data/.daemon_memory.json") is True
-    assert _validate_read_extension("opencode-query.ps1") is True
+
 
     assert _validate_read_extension("src/__pycache__/something.cpython.pyc") is False
     assert _validate_read_extension("data/screenshot.png") is False

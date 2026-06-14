@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import copy
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -15,7 +16,8 @@ DEFAULT_CONFIG = {
         "model_id": "north-mini-code-free",
         "provider": "opencode",
         "server_url": "http://127.0.0.1:4096",
-        "timeout_sec": 180
+        "timeout_sec": 180,
+        "api_key": os.environ.get("OPENCODE_API_KEY", "your-opencode-api-key-here")
     },
     "pet": {
         "id": "kenny",
@@ -44,7 +46,7 @@ DEFAULT_CONFIG = {
         "monitor": False
     },
     "firebase": {
-        "api_key": "your-firebase-api-key-here"
+        "api_key": os.environ.get("FIREBASE_API_KEY", "your-firebase-api-key-here")
     }
 }
 
@@ -53,6 +55,7 @@ FLAT_TO_NESTED = {
     "OPENCODE_API_MODEL_PROVIDER": ("llm", "provider"),
     "OPENCODE_SERVER_URL": ("llm", "server_url"),
     "OPENCODE_API_TIMEOUT_SEC": ("llm", "timeout_sec"),
+    "OPENCODE_API_KEY": ("llm", "api_key"),
     "pet_scale": ("pet", "scale"),
     "pet_opacity": ("pet", "opacity"),
     "pet_speed_multiplier": ("pet", "speed_multiplier"),
@@ -80,6 +83,7 @@ NESTED_TO_FLAT = {
     ("llm", "provider"): "OPENCODE_API_MODEL_PROVIDER",
     ("llm", "server_url"): "OPENCODE_SERVER_URL",
     ("llm", "timeout_sec"): "OPENCODE_API_TIMEOUT_SEC",
+    ("llm", "api_key"): "OPENCODE_API_KEY",
     ("pet", "scale"): "pet_scale",
     ("pet", "opacity"): "pet_opacity",
     ("pet", "speed_multiplier"): "pet_speed_multiplier",

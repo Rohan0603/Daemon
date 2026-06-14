@@ -1,4 +1,4 @@
-# Daemon — Project Dev Memory
+﻿# Daemon — Project Dev Memory
 
 > **READ THIS FIRST in every new session** (Claude or Antigravity). It holds the authoritative state of the project: what's done, what's next, known issues, and agent recommendations.
 
@@ -39,7 +39,6 @@
 
 | Task | File | Status | Commit | Notes |
 |------|------|--------|--------|-------|
-| 3.1 OpencodeWorker | `src/opencode_worker.py`, `tests/test_opencode_worker.py` | ✅ | `5c003bc` | Subprocess wrapper calling opencode-query.ps1, markdown stripping, error handling; 6/6 tests pass (migrated from AgyWorker) |
 | 3.2 Speech bubble + input | `src/pet_window.py` | ✅ | `6e6a594` | Double-click opens QLineEdit, submits to OpencodeWorker, displays speech bubble for 8s (migrated from AgyWorker) |
 
 ### Phase 4 — Polish
@@ -65,7 +64,6 @@ See plans: `docs/superpowers/plans/2026-06-06-daemon-desktop-pet.md` and `docs/s
 | 5.6 Council additions tests | `tests/test_council_additions.py` | ✅ | `a5da584` | Aligned tests to opencode parameter names |
 | 5.7 Docs & Dev Memory | `CLAUDE.md`, `GEMINI.md`, `memory/project-dev-memory.md` | ✅ | latest | Update documentation and project dev memory for opencode |
 | 5.8 PowerShell Windows Migration | `src/opencode_worker.py`, `tests/test_opencode_worker.py` | ✅ | latest | Execute powershell.exe with bypass execution policy and UTF-8 encoding on Windows |
-| 5.9 Emoji / UTF-8 Fix | `opencode-query.ps1`, `src/pet_renderer.py`, `tests/test_pet_renderer.py` | ✅ | latest | Force UTF-8 OutputEncoding in PowerShell script and add font.setFamilies with emoji font fallbacks in PyQt renderer |
 
 ### Phase 6 — Autonomous Behavior & Context Awareness
 
@@ -74,7 +72,6 @@ See plans: `docs/superpowers/plans/2026-06-06-daemon-desktop-pet.md` and `docs/s
 | 6.1 AUTONOMOUS_THINKING FSM | `src/pet_fsm.py`, `src/constants.py`, `tests/test_fsm.py` | ✅ | `250a207` | New state priority 9 (between POOP and WANDER), BOREDOM_TIMEOUT_SEC=300, 25 FSM tests pass |
 | 6.2 Active window module | `src/active_window.py`, `tests/test_active_window.py` | ✅ | `3e0f60f` | Win32 ctypes GetForegroundWindow, non-Windows returns "" |
 | 6.3 OpencodeWorker JSON mode | `src/opencode_worker.py`, `tests/test_opencode_worker.py` | ✅ | `9146099` | structured_ready(str,str,int), _parse_json_response, fallback to result_ready |
-| 6.3b Skill file externalisation | `assets/daemon-skill.md`, `opencode-query.ps1`, `src/opencode_worker.py` | ✅ | `0b0dd19` | Personality in Markdown, APM context in prompts, 6 FSM actions |
 | 6.4 Boredom timer + wiring | `src/pet_window.py`, `daemon.py` | ✅ | `35dcaae` | 5-min timer, resets on APM/mouse, _trigger_boredom_query, _on_structured_result |
 | 6.5 Eye tracking | `src/pet_renderer.py`, `src/pet_window.py` | ✅ | `7d6ac5f` | atan2 pupil offset, cursor_x/cursor_y in RenderContext, #9B7EC8 AUTONOMOUS_THINKING visual |
 
@@ -171,7 +168,6 @@ See plans: `docs/superpowers/plans/2026-06-06-daemon-desktop-pet.md` and `docs/s
 | Task | File | Status | Commit | Notes |
 |------|------|--------|--------|-------|
 | 16.1 Remove OpenRouter API | `src/constants.py`, `src/opencode_worker.py`, `src/pet_window.py`, `src/config.py` | ✅ | — | Removed all OPENROUTER_* constants, `_try_api`, `rate_limited` signal |
-| 16.2 Fix opencode-query.ps1 | `opencode-query.ps1` | ✅ | — | Switched to standalone `opencode run --format json` without `--attach` |
 | 16.3 Fix autonomous dialog framing | `src/opencode_worker.py`, `src/pet_window.py` | ✅ | — | Added `mode_instruction` in prompt (internal monologue vs user response); fixed joke context_hint from command to state description |
 | 16.4 Local-first diary | `src/memory_manager.py`, `src/pet_window.py`, `daemon.py`, `src/constants.py`, `tests/` | ✅ | — | Diary read/written locally during session; Firebase only at startup (fetch all) and quit (push pending). Removed `get_recent_diary()`, added `fetch_all_diary_entries()`, local file ops, `push_pending_diaries()` |
 | 16.5 Dynamic sync_to_local | `src/memory_manager.py` | ✅ | — | `sync_to_local` now iterates all brain fields dynamically — new fields auto-sync without code changes |
@@ -700,13 +696,10 @@ Collapsed the legacy 3-pool system (jokes_blackmail, system, typing_reactions) i
 
 | Task | File | Status | Notes |
 |------|------|--------|-------|
-| 17.1 Fix `-f` flag bug | `opencode-query.ps1` | ✅ | `-f` alone doesn't supply message; changed to `Get-Content -Raw` + positional arg |
-| 17.2 Session continuation | `opencode-query.ps1`, `src/opencode_worker.py`, `src/pet_window.py` | ✅ | Added `-Continue` switch to PS1; `continue_session` flag on worker; `_session_active` tracking in PetWindow |
 | 17.3 Skill-once optimization | `src/opencode_worker.py`, `src/pet_window.py` | ✅ | `include_skill` param on `_build_prompt`; only sent on first query; CONCISE_PROMPT used for subsequent → moved to PS1-side skill loading |
 | 17.4 Session state wiring | `src/pet_window.py` | ✅ | `_session_active` set True in all 3 success handlers; passed to all 4 worker creation sites |
 | 17.5 Verification | — | ✅ | 179/179 tests pass, 1 skipped |
 | 17.6 Fix `-Continue:$true` PowerShell crash | `src/opencode_worker.py` | ✅ | Changed `cmd.append("-Continue:$true")` → `cmd.append("-Continue")` — PowerShell `-File` mode passes `$true` as literal string, breaking `[switch]` param |
-| 17.7 Move skill loading from Python to PS1 | `src/opencode_worker.py`, `opencode-query.ps1`, `tests/test_opencode_worker.py` | ✅ | `daemon-skill.md` loaded directly by PS1 from `$PSScriptRoot\assets\daemon-skill.md` instead of inlined into temp file; avoids command-line truncation risk |
 | 17.8 Batch array fallback for unquoted keys | `src/opencode_worker.py`, `tests/test_opencode_worker.py` | ✅ | Brace-depth splitting in `_parse_json_batch` extracts individual objects and parses each via `_parse_json_response` regex fallback; covers model outputting JS-style `{key:"value"}` |
 | 17.9 Remove unquoted-key negative example | `assets/daemon-skill.md` | ✅ | Deleted `{ thought: "...", dialogue: "..." }` from INVALID section — LLMs learn from all examples including negative ones, causing model to output unquoted keys |
 
@@ -728,7 +721,6 @@ Collapsed the legacy 3-pool system (jokes_blackmail, system, typing_reactions) i
 |------|------|--------|-------|
 | 18.1 Fix dialog cache cycling | `src/pet_window.py` | ✅ | `_dispatch_structured` calls from cache use `force=True` so bubble always shows; prevents skipped bubbles causing cache desync |
 | 18.2 Load full daemon-skill.md in Python | `src/opencode_worker.py` | ✅ | `_build_prompt()` reads full `assets/daemon-skill.md` via `Path.read_text()` and prepends to every prompt |
-| 18.3 Remove PS1 skill loading | `opencode-query.ps1` | ✅ | Removed `-NoSkill` param and all skill loading logic; PS1 now only reads temp file and passes to opencode |
 | 18.4 Remove include_skill/NoSkill | `src/opencode_worker.py`, `src/pet_window.py` | ✅ | Removed `include_skill` param from `OpencodeWorker.__init__`, `_build_prompt`, and all call sites; removed `-NoSkill` from CLI invocation |
 | 18.5 Add --verbose / DEBUG mode | `daemon.py`, `src/constants.py`, `src/pet_window.py`, `src/opencode_worker.py`, `src/memory_manager.py` | ✅ | Added `--verbose` CLI flag; `DEBUG` constant in `constants.py`; `debug_log()` helper that only prints when `DEBUG=True`; added debug logs to all key methods |
 | 18.6 Full DB context in prompts | `src/memory.py`, `src/history.py` | ✅ | `get_context_block()` now accepts `None` to return ALL entries instead of just last 5/3 |
@@ -1010,7 +1002,6 @@ docs/
 
 AGENTS.md                ← Unified agent instructions
 daemon.py                ← Entry point (argparse, PID lock, crash hook, auth gate)
-opencode-query.ps1       ← PowerShell script (legacy, not called by PetWindow)
 requirements.txt         ← PyQt6, pynput, requests, pyttsx3, comtypes, Pillow
 seed_brain.py            ← Standalone Firestore brain seeder
 README.md                ← Comprehensive architecture documentation
@@ -1295,7 +1286,7 @@ After each completed task, update:
 ## Agent Instructions
 
 **CLAUDE.md and GEMINI.md have been replaced by `AGENTS.md`.** All agent instructions now live in that single file. Update it when adding new pitfalls, changing the file map, or modifying workflows.
-### Phase 47 � Window Perching & The Super Jump ? COMPLETE
+### Phase 47 � Window Perching & The Super Jump ? COMPLETE
 
 **Commit:** e1617ff
 

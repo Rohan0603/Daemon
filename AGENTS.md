@@ -441,7 +441,7 @@ Single unified `ThoughtPool` with 4 item types:
 |------|----------------|
 | `daemon.py` | Entry point: argparse, PID lock, crash hook, auth gate, shutdown |
 | `seed_brain.py` | Standalone Firestore brain seeder: --view, --merge, --seed-defaults |
-| `opencode-query.ps1` | Legacy PowerShell CLI (preserved, not called by PetWindow) |
+
 | `scripts/generate_ast_map.py` | AST parser → data/codebase_map.json (29 classes, 33 functions) |
 | `firestore.rules` | Per-user auth, pet-level scoping |
 | `.opencode/skills/kenny/SKILL.md` | Kenny persona, 12 MCP tools, profanity param (`full`/`moderate`/`sfw`), two-stage output contract (investigation = natural language, generation = strict JSON), locked brain fields, Mixed-Bag item types, spatial TTL guidance (loaded natively by opencode serve) |
