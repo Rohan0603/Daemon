@@ -114,7 +114,9 @@ class LoginDialog(QDialog):
                 self.show_error(f"You call that an email? '{butchered}'? Geez, man.")
             else:
                 self.show_error("That ain't it, chief. You're locked out.")
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).exception("Login failed with exception: %s", e)
             self.show_error("Brain's offline. Can't reach Firebase.")
         finally:
             self.set_loading(False)

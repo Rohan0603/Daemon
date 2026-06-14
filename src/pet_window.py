@@ -80,6 +80,7 @@ class PetWindow(QWidget):
             opencode_enabled = kwargs.pop("agy_enabled")
         super().__init__()
         self._pet_id = pet_id
+        self._auth = auth
         self._opencode_enabled = opencode_enabled
         initial_state = initial_state or {}
         self._initial_state = initial_state
