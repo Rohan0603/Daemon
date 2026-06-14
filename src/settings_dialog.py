@@ -22,11 +22,11 @@ class SettingsDialog(QDialog):
                  tts_rate: int = 220, tts_volume: float = 1.0,
                  tts_voice_id: str | None = None, chattiness: float = 1.0,
                  allow_intrusive_animations: bool = True,
-                 allow_audio_disruptions: bool = False,
+                 allow_system_notifications: bool = False,
                  allow_browser_redirection: bool = False,
-                 allow_clipboard_hijacking: bool = False,
+                 allow_clipboard_reading: bool = False,
                  allow_mouse_interference: bool = False,
-                 allow_window_management: bool = False,
+                 allow_screenshot_capture: bool = False,
                  allow_keyboard_injection: bool = False,
                  parent=None):
         super().__init__(parent)
@@ -109,10 +109,10 @@ class SettingsDialog(QDialog):
         self._cb_intrusive_animations.setChecked(allow_intrusive_animations)
         self._cb_intrusive_animations.toggled.connect(self.value_changed.emit)
         tier1_layout.addWidget(self._cb_intrusive_animations)
-        self._cb_audio_disruptions = QCheckBox("Allow audio disruptions")
-        self._cb_audio_disruptions.setChecked(allow_audio_disruptions)
-        self._cb_audio_disruptions.toggled.connect(self.value_changed.emit)
-        tier1_layout.addWidget(self._cb_audio_disruptions)
+        self._cb_system_notifications = QCheckBox("Allow system notifications (toasts)")
+        self._cb_system_notifications.setChecked(allow_system_notifications)
+        self._cb_system_notifications.toggled.connect(self.value_changed.emit)
+        tier1_layout.addWidget(self._cb_system_notifications)
         tab3_layout.addWidget(tier1)
 
         tier2 = QGroupBox("Tier 2: Workflow Interference (Medium Risk)")
@@ -121,10 +121,10 @@ class SettingsDialog(QDialog):
         self._cb_browser_redirection.setChecked(allow_browser_redirection)
         self._cb_browser_redirection.toggled.connect(self.value_changed.emit)
         tier2_layout.addWidget(self._cb_browser_redirection)
-        self._cb_clipboard_hijacking = QCheckBox("Allow clipboard hijacking")
-        self._cb_clipboard_hijacking.setChecked(allow_clipboard_hijacking)
-        self._cb_clipboard_hijacking.toggled.connect(self.value_changed.emit)
-        tier2_layout.addWidget(self._cb_clipboard_hijacking)
+        self._cb_clipboard_reading = QCheckBox("Allow clipboard reading")
+        self._cb_clipboard_reading.setChecked(allow_clipboard_reading)
+        self._cb_clipboard_reading.toggled.connect(self.value_changed.emit)
+        tier2_layout.addWidget(self._cb_clipboard_reading)
         self._cb_mouse_interference = QCheckBox("Allow mouse interference")
         self._cb_mouse_interference.setChecked(allow_mouse_interference)
         self._cb_mouse_interference.toggled.connect(self.value_changed.emit)
@@ -134,10 +134,10 @@ class SettingsDialog(QDialog):
         tier3 = QGroupBox("Tier 3: OS Write Access (High Risk - EXPERIMENTAL)")
         tier3.setStyleSheet("QGroupBox { color: #ff4444; font-weight: bold; }")
         tier3_layout = QVBoxLayout(tier3)
-        self._cb_window_management = QCheckBox("Allow window management")
-        self._cb_window_management.setChecked(allow_window_management)
-        self._cb_window_management.toggled.connect(self.value_changed.emit)
-        tier3_layout.addWidget(self._cb_window_management)
+        self._cb_screenshot_capture = QCheckBox("Allow screenshot capture")
+        self._cb_screenshot_capture.setChecked(allow_screenshot_capture)
+        self._cb_screenshot_capture.toggled.connect(self.value_changed.emit)
+        tier3_layout.addWidget(self._cb_screenshot_capture)
         self._cb_keyboard_injection = QCheckBox("Allow keyboard injection")
         self._cb_keyboard_injection.setChecked(allow_keyboard_injection)
         self._cb_keyboard_injection.toggled.connect(self.value_changed.emit)
@@ -249,10 +249,10 @@ class SettingsDialog(QDialog):
             "tts_voice_id": voice_data if voice_data else None,
             "chattiness": self._chattiness_slider.value() / 10.0,
             "allow_intrusive_animations": self._cb_intrusive_animations.isChecked(),
-            "allow_audio_disruptions": self._cb_audio_disruptions.isChecked(),
+            "allow_system_notifications": self._cb_system_notifications.isChecked(),
             "allow_browser_redirection": self._cb_browser_redirection.isChecked(),
-            "allow_clipboard_hijacking": self._cb_clipboard_hijacking.isChecked(),
+            "allow_clipboard_reading": self._cb_clipboard_reading.isChecked(),
             "allow_mouse_interference": self._cb_mouse_interference.isChecked(),
-            "allow_window_management": self._cb_window_management.isChecked(),
+            "allow_screenshot_capture": self._cb_screenshot_capture.isChecked(),
             "allow_keyboard_injection": self._cb_keyboard_injection.isChecked(),
         }

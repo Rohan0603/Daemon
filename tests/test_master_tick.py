@@ -48,11 +48,17 @@ class TestMasterTick:
             self.pw._boredom_timer_ms = 30000
             self.pw._boredom_tick_count = 0
             self.pw._is_context_stable = MagicMock(return_value=True)
+            # Monotonic time tracking for drift-free timers
+            self.pw._last_master_tick_time = time.monotonic() - 1.0  # So first call gives master_dt = 1.0
+            self.pw._last_tick_time = time.monotonic()
 
     def test_increments_timers(self):
         self.pw._master_tick()
-        assert self.pw._chat_timer_sec == 1
-        assert self.pw._joke_timer_sec == 1
+        # Use approximate equality since master_dt is real elapsed time
+        import math
+        # Allow tolerance for test execution overhead
+        assert math.isclose(self.pw._chat_timer_sec, 1.0, abs_tol=0.5)
+        assert math.isclose(self.pw._joke_timer_sec, 1.0, abs_tol=0.5)
 
     def test_gcd_blocks_all(self):
         self.pw._gcd_expiry_timestamp = time.time() + 100

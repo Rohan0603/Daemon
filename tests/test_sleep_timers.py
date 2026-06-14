@@ -21,6 +21,9 @@ class TestSleepTimers:
         pw._chattiness = 1.0
         pw._has_significant_delta = MagicMock(return_value=False)
         pw._calculate_joke_modifier = MagicMock(return_value=1.0)
+        # Monotonic time tracking for drift-free timers
+        pw._last_master_tick_time = time.monotonic() - 1.0
+        pw._last_tick_time = time.monotonic()
 
         PetWindow._master_tick(pw)
 
@@ -76,6 +79,9 @@ class TestJokeBackoff:
         pw._window_switch_count = 0
         pw._last_evaluated_window = ""
         pw._opencode_enabled = True
+        # Monotonic time tracking for drift-free timers
+        pw._last_master_tick_time = time.monotonic() - 1.0
+        pw._last_tick_time = time.monotonic()
 
         PetWindow._master_tick(pw)
 

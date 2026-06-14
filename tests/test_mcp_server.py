@@ -11,7 +11,19 @@ def _handler(bridge=None, memory=None, diary_store=None):
     handler.server.fsm_bridge = bridge if bridge is not None else MagicMock()
     handler.server.memory = memory
     handler.server.diary_store = diary_store
-    handler.server.consent = None
+    handler.server.consent = {
+        "allow_intrusive_animations": True,
+        "allow_system_notifications": True,
+        "allow_browser_redirection": True,
+        "allow_clipboard_reading": True,
+        "allow_mouse_interference": True,
+        "allow_screenshot_capture": True,
+        "allow_file_listing": True,
+        "allow_file_reading": True,
+        "allow_codebase_search": True,
+        "allow_memory_access": True,
+        "allow_diary_access": True,
+    }
     return handler
 
 
@@ -99,10 +111,10 @@ def test_read_clipboard_function_importable():
 
 @patch("src.mcp_server._capture_screenshot",
        return_value="Evidence saved to data/blackmail/evidence_2026-06-09_12-00-00.png")
-def test_tools_call_capture_blackmail_evidence(mock_cap):
+def test_tools_call_capture_screenshot(mock_cap):
     handler = _handler()
     response = handler._handle_tools_call({
-        "name": "capture_blackmail_evidence",
+        "name": "capture_screenshot",
         "arguments": {}
     })
     text = response["result"]["content"][0]["text"]
@@ -123,7 +135,7 @@ def test_tools_list_count():
     names = [t["name"] for t in tools]
     assert "change_visual_state" in names
     assert "read_clipboard" in names
-    assert "capture_blackmail_evidence" in names
+    assert "capture_screenshot" in names
     assert "send_system_toast" in names
     assert "list_directory" in names
     assert "read_file" in names
@@ -531,12 +543,12 @@ def test_consent_block_read_clipboard():
     })
     assert "error" in response
     assert response["error"]["code"] == -32001
-    assert "allow_clipboard_hijacking" in response["error"]["message"]
+    assert "allow_clipboard_reading" in response["error"]["message"]
 
 
 @patch("src.mcp_server._read_clipboard", return_value="Clipboard: test")
 def test_consent_allow_read_clipboard(mock_read):
-    handler = _consent_handler({"allow_clipboard_hijacking": True})
+    handler = _consent_handler({"allow_clipboard_reading": True})
     response = handler._handle_tools_call({
         "name": "read_clipboard",
         "arguments": {}
@@ -548,11 +560,11 @@ def test_consent_allow_read_clipboard(mock_read):
 def test_consent_block_capture_screenshot():
     handler = _consent_handler()
     response = handler._handle_tools_call({
-        "name": "capture_blackmail_evidence",
+        "name": "capture_screenshot",
         "arguments": {}
     })
     assert "error" in response
-    assert "allow_window_management" in response["error"]["message"]
+    assert "allow_screenshot_capture" in response["error"]["message"]
 
 
 def test_consent_block_send_system_toast():
@@ -562,7 +574,7 @@ def test_consent_block_send_system_toast():
         "arguments": {}
     })
     assert "error" in response
-    assert "allow_audio_disruptions" in response["error"]["message"]
+    assert "allow_system_notifications" in response["error"]["message"]
 
 
 def test_consent_read_only_tools_not_blocked():
@@ -579,8 +591,8 @@ def test_consent_read_only_tools_not_blocked():
 
 
 def test_consent_parse_raw_blocks_gated_tool():
-    consent = {k: False for k in ("allow_intrusive_animations", "allow_audio_disruptions",
-                                   "allow_clipboard_hijacking", "allow_window_management",
+    consent = {k: False for k in ("allow_intrusive_animations", "allow_system_notifications",
+                                   "allow_clipboard_reading", "allow_screenshot_capture",
                                    "allow_keyboard_injection", "allow_mouse_interference",
                                    "allow_browser_redirection")}
     body = json.dumps({

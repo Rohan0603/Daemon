@@ -57,6 +57,7 @@ from src.response_manager import AutonomousResponseManager
 from src.fsm_bridge import FSMActionBridge
 from src.mcp_server import MCPServer
 from src.animator import EmotionAnimator, Emotion
+from src.events import get_event_bus, EventType
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +194,9 @@ class PetWindow(QWidget):
         if hasattr(self._fsm_bridge, "summarize_requested"):
             self._fsm_bridge.summarize_requested.connect(self._handle_summarize_request)
         self._bubble_queue: list[str] = []
+        self._bubble_text = ""
+        self._bubble_timer_ms = 0
+        self._bubble_rect = QRect()
 
         self._memory = Memory(path=memory_path)
         self._history = History(path=history_path)
@@ -304,6 +308,13 @@ class PetWindow(QWidget):
         self._last_boredom_trigger_time = 0.0
         self._last_refill_attempt = 0.0
         self._refill_failed_count = 0
+
+        # Monotonic time tracking for drift-free timers
+        self._last_tick_time = time.monotonic()
+        self._last_master_tick_time = time.monotonic()
+
+        # Event bus for decoupled communication
+        self._events = get_event_bus()
 
         self._input_field = QLineEdit(self)
         self._input_field.setFixedSize(INPUT_WIDTH, INPUT_HEIGHT)
@@ -504,6 +515,7 @@ class PetWindow(QWidget):
         if not self._should_fire_autonomous("active_chat"):
             return
 
+        self._events.emit_autonomous_trigger("active_chat", self._current_apm, self._idle_seconds)
         current_hash = self._last_context_snapshot if hasattr(self, "_last_context_snapshot") else None
         local = self._response_manager.draw("typing_reaction", current_context_hash=current_hash)
         if local:
@@ -516,6 +528,7 @@ class PetWindow(QWidget):
         if not self._should_fire_autonomous("joke"):
             return
 
+        self._events.emit_autonomous_trigger("joke", self._current_apm, self._idle_seconds)
         current_hash = self._last_context_snapshot if hasattr(self, "_last_context_snapshot") else None
         local = self._response_manager.draw("intel_roast", current_context_hash=current_hash)
         if not local:
@@ -528,6 +541,7 @@ class PetWindow(QWidget):
         if not self._should_fire_autonomous("boredom"):
             return
 
+        self._events.emit_autonomous_trigger("boredom", self._current_apm, self._idle_seconds)
         from src.pet_fsm import PetState
 
         # Local FSM actions (silent, no GCD)
@@ -575,9 +589,17 @@ class PetWindow(QWidget):
         return Emotion.MIRTH
 
     def _master_tick(self) -> None:
-        """Centralized behavioral tick — runs every BEHAVIOR_TICK_MS."""
+        """Centralized behavioral tick — runs every BEHAVIOR_TICK_MS.
+
+        Uses time.monotonic() for drift-free timer accumulation.
+        """
         try:
             from src.pet_fsm import PetState
+
+            # --- Monotonic time delta for drift-free behavioral timers ---
+            now = time.monotonic()
+            master_dt = now - self._last_master_tick_time
+            self._last_master_tick_time = now
 
             # SLEEP guard: freeze all behavioral timers
             if self._fsm.current_state == PetState.SLEEP:
@@ -590,18 +612,21 @@ class PetWindow(QWidget):
                 self._last_evaluated_window = current_window
 
             # Emotion evaluation every EMOTION_TICK_SEC seconds
-            self._emotion_timer_sec += 1
+            self._emotion_timer_sec += master_dt
             if self._emotion_timer_sec >= EMOTION_TICK_SEC:
                 self._emotion_timer_sec = 0
                 emotion = self._evaluate_emotion()
+                old_emotion = self._animator.current_emotion
                 self._animator.set_emotion(emotion, self._animator._elapsed_ms)
+                if old_emotion != emotion:
+                    self._events.emit_emotion_shifted(old_emotion.name, emotion.name)
                 self._window_switch_count = 0
                 if emotion == Emotion.FEAR:
                     self._fsm.transition_to(PetState.FALLING)
 
-            # 1. Accumulate time
-            self._chat_timer_sec += 1
-            self._joke_timer_sec += 1
+            # 1. Accumulate time using actual elapsed delta
+            self._chat_timer_sec += master_dt
+            self._joke_timer_sec += master_dt
 
             # 2. GATEKEEPER: Dynamic Global Cooldown
             if time.time() < self._gcd_expiry_timestamp:
@@ -844,11 +869,11 @@ class PetWindow(QWidget):
         self._saved_consent = {
             k: self._config.get("consent", {}).get(k, v) for k, v in {
                 "allow_intrusive_animations": True,
-                "allow_audio_disruptions": False,
+                "allow_system_notifications": False,
                 "allow_browser_redirection": False,
-                "allow_clipboard_hijacking": False,
+                "allow_clipboard_reading": False,
                 "allow_mouse_interference": False,
-                "allow_window_management": False,
+                "allow_screenshot_capture": False,
                 "allow_keyboard_injection": False,
             }.items()
         }
@@ -889,9 +914,9 @@ class PetWindow(QWidget):
 
     def _save_settings(self, values: dict) -> None:
         from src.config import save_config, unflatten_config
-        consent_keys = ("allow_intrusive_animations", "allow_audio_disruptions",
-                        "allow_browser_redirection", "allow_clipboard_hijacking",
-                        "allow_mouse_interference", "allow_window_management",
+        consent_keys = ("allow_intrusive_animations", "allow_system_notifications",
+                        "allow_browser_redirection", "allow_clipboard_reading",
+                        "allow_mouse_interference", "allow_screenshot_capture",
                         "allow_keyboard_injection")
         consent_state = {k: values.get(k, False) for k in consent_keys}
         logger.info("Consent Matrix updated by user: %s", consent_state)
@@ -982,6 +1007,7 @@ class PetWindow(QWidget):
             new_state = self._fsm.update(FSM_TICK_MS, ctx)
             if new_state != old_state:
                 logger.debug(f"FSM state transition: {old_state.name} -> {new_state.name}")
+                self._events.emit_fsm_state_changed(old_state.name, new_state.name)
                 self._state_elapsed_ms = 0
                 # Handle SLEEP state entry
                 if new_state == PetState.SLEEP and old_state != PetState.SLEEP:
@@ -1328,6 +1354,7 @@ class PetWindow(QWidget):
         if not text:
             return
         logger.info("User input submitted: '%s'", text)
+        self._events.emit_user_input(text)
         self._clear_bubble_queue()
         self._consecutive_engaged = ENGAGED_THRESHOLD
         self._consecutive_silent = 0

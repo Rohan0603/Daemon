@@ -67,6 +67,9 @@ class TestBehaviorIntegration:
             self.pw._max_idle_backoff = 300
             self.pw._last_boredom_fsm_time = 0.0
             self.pw._is_context_stable = MagicMock(return_value=True)
+            # Monotonic time tracking for drift-free timers
+            self.pw._last_master_tick_time = time.monotonic() - 1.0  # So first call gives master_dt = 1.0
+            self.pw._last_tick_time = time.monotonic()
 
     @patch('src.pet_window.get_active_window_title')
     def test_full_flow_state_silence(self, mock_window):

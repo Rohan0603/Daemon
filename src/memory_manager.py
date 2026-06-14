@@ -57,6 +57,23 @@ class MemoryManager:
         else:
             logger.info(f"[MemoryManager] core_brain updated ({len(new_data)} fields merged)")
 
+    def batch_update_brain(self, new_data: dict) -> None:
+        """Accumulate brain updates in a batch, write on flush."""
+        self._batch_cache.update(new_data)
+        self._batch_dirty = True
+
+    def flush_batch(self) -> None:
+        """Write accumulated batch to Firestore."""
+        if not self._batch_dirty or not self._batch_cache:
+            return
+        if self.crud.set(self._brain_collection, self._brain_doc_id, self._batch_cache, merge=True):
+            logger.info(f"[MemoryManager] batch update flushed ({len(self._batch_cache)} fields)")
+        else:
+            logger.warning("[MemoryManager] batch update failed — queued for retry")
+            self._pending_writes.append(("brain", dict(self._batch_cache)))
+        self._batch_cache.clear()
+        self._batch_dirty = False
+
     def sync_to_local(self, memory: "Memory", brain: dict | None = None) -> None:
         logger.debug("MemoryManager.sync_to_local called")
         if not self.crud.available:

@@ -347,7 +347,7 @@ class TestEdgeCaseSessionLifecycle:
         with patch.object(OpencodeWorker, "_post_message") as mock_post:
             mock_post.side_effect = [
                 "Tool result: user is coding at terminal",
-                '[{"dialogue": "hi"}]',
+                '[{"thought": "t", "dialogue": "hi"}]',
             ]
             worker = OpencodeWorker(
                 user_input="",
@@ -363,7 +363,7 @@ class TestEdgeCaseSessionLifecycle:
         from src.constants import STRUCTURED_SCHEMA
         assert payload2.get("structured") == STRUCTURED_SCHEMA
         assert "user is coding" in payload2["parts"][0]["text"]
-        handler.assert_called_once_with([{"dialogue": "hi"}])
+        handler.assert_called_once_with([{"thought": "t", "dialogue": "hi"}])
 
     def test_session_created_emitted_on_send_when_no_session(self, qapp):
         from src.opencode_worker import OpencodeWorker

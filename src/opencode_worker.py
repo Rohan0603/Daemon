@@ -149,33 +149,11 @@ class OpencodeWorker(QThread):
             logger.debug("RECV raw (first 1000): %s", raw[:1000])
             self._used_api = True
             self.path_used.emit("api")
-            try:
-                cleaned = raw.strip()
-                for fence in ("```json", "```"):
-                    if cleaned.startswith(fence):
-                        cleaned = cleaned[len(fence):]
-                if cleaned.endswith("```"):
-                    cleaned = cleaned[:-3]
-                cleaned = cleaned.strip()
-                items = json.loads(cleaned)
-                if isinstance(items, list):
-                    logger.debug("RECV parsed: %d items, first: %s", len(items), json.dumps(items[0] if items else {}))
-                    self.response_ready.emit(items)
-                    return
-            except json.JSONDecodeError:
-                logger.debug("RECV json parse failed (attempted stripped), raw: %s", raw[:500])
-                pass
-            try:
-                match = re.search(r'\[\s*\{.*?\}\s*\]', raw, re.DOTALL)
-                if match:
-                    items = json.loads(match.group(0))
-                    if isinstance(items, list):
-                        logger.debug("RECV parsed via regex: %d items", len(items))
-                        self.response_ready.emit(items)
-                        return
-            except (json.JSONDecodeError, AttributeError):
-                logger.debug("RECV regex extraction also failed")
-                pass
+            items = self._parse_json_response(raw)
+            if items is not None:
+                logger.debug("RECV parsed: %d items, first: %s", len(items), json.dumps(items[0] if items else {}))
+                self.response_ready.emit(items)
+                return
             items = self._handle_schema_error(raw)
             self.response_ready.emit(items)
         else:
@@ -217,33 +195,79 @@ class OpencodeWorker(QThread):
             self.response_ready.emit([])
             return
 
-        try:
-            cleaned = raw2.strip()
-            for fence in ("```json", "```"):
-                if cleaned.startswith(fence):
-                    cleaned = cleaned[len(fence):]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3]
-            cleaned = cleaned.strip()
-            items = json.loads(cleaned)
-            if isinstance(items, list):
-                self.response_ready.emit(items)
-                return
-        except json.JSONDecodeError:
-            pass
-        try:
-            match = re.search(r'\[\s*\{.*?\}\s*\]', raw2, re.DOTALL)
-            if match:
-                items = json.loads(match.group(0))
-                if isinstance(items, list):
-                    self.response_ready.emit(items)
-                    return
-        except (json.JSONDecodeError, AttributeError):
-            pass
+        items = self._parse_json_response(raw2)
+        if items is not None:
+            self.response_ready.emit(items)
+            return
         items = self._handle_schema_error(raw2)
         self.response_ready.emit(items)
 
+    def _parse_json_response(self, raw: str) -> list[dict] | None:
+        """Parse JSON response from LLM with multiple fallback strategies.
+
+        Returns parsed list of dicts or None if all parsing fails.
+        """
+        cleaned = raw.strip()
+
+        # 1. Strip markdown code fences
+        for fence in ("```json", "```"):
+            if cleaned.startswith(fence):
+                cleaned = cleaned[len(fence):]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3]
+        cleaned = cleaned.strip()
+
+        # 2. Direct JSON parse
+        try:
+            items = json.loads(cleaned)
+            if isinstance(items, list):
+                if self._validate_items(items):
+                    return items
+                logger.debug("Parsed JSON but validation failed: %s", cleaned[:200])
+        except json.JSONDecodeError:
+            pass
+
+        # 3. Regex extraction for array of objects (more precise)
+        # Match: [ { ... }, { ... }, ... ] with proper bracket nesting
+        try:
+            # Find the outermost array brackets
+            start = cleaned.find('[')
+            if start != -1:
+                bracket_count = 0
+                end = -1
+                for i, ch in enumerate(cleaned[start:], start):
+                    if ch == '[':
+                        bracket_count += 1
+                    elif ch == ']':
+                        bracket_count -= 1
+                        if bracket_count == 0:
+                            end = i + 1
+                            break
+                if end != -1:
+                    candidate = cleaned[start:end]
+                    items = json.loads(candidate)
+                    if isinstance(items, list) and self._validate_items(items):
+                        return items
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        return None
+
+    def _validate_items(self, items: list[Any]) -> bool:
+        """Validate parsed items against STRUCTURED_SCHEMA requirements."""
+        if not isinstance(items, list):
+            return False
+        for item in items:
+            if not isinstance(item, dict):
+                return False
+            if "thought" not in item or "dialogue" not in item:
+                return False
+            if not isinstance(item["thought"], str) or not isinstance(item["dialogue"], str):
+                return False
+        return True
+
     def _handle_schema_error(self, raw_response: str) -> list[dict]:
+        logger.warning("All JSON parsing failed, returning fallback. Raw: %s", raw_response[:500])
         return [{
             "thought": "Kenny's brain just bluescreened.",
             "dialogue": "Holy crap, my brain just segfaulted!",

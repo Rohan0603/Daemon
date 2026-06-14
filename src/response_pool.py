@@ -86,6 +86,7 @@ class ThoughtPool(QObject):
         for item in items:
             tagged.append({
                 "dialogue": item.get("dialogue", ""),
+                "type": item.get("type", "idle_thought"),
                 "action": item.get("action", "idle"),
                 "target_x": item.get("target_x"),
                 "priority": item.get("priority", 3),

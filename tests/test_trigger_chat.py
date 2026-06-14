@@ -21,6 +21,9 @@ class TestTriggerChat:
             self.pw._fsm = MagicMock()
             from src.pet_fsm import PetState
             self.pw._fsm.current_state = PetState.IDLE
+            self.pw._events = MagicMock()
+            self.pw._events = MagicMock()
+            self.pw._current_context_hash = "mock_hash"
 
     @patch('src.pet_window.get_active_window_title')
     def test_resets_timer(self, mock_window):
