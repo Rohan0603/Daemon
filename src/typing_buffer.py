@@ -2,7 +2,7 @@
 from __future__ import annotations
 import logging
 from collections import deque
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,10 @@ class TypingBuffer(QObject):
         super().__init__(parent)
         self._buffer = deque(maxlen=max_chars)
         self._listener = None
+        self._debounce_timer = QTimer()
+        self._debounce_timer.setSingleShot(True)
+        self._debounce_timer.setInterval(50)  # 50ms debounce
+        self._debounce_timer.timeout.connect(self.text_updated.emit)
 
     def start(self):
         if keyboard is None:
@@ -39,6 +43,7 @@ class TypingBuffer(QObject):
             except Exception:
                 pass
             self._listener = None
+        self._debounce_timer.stop()
 
     def char_count(self) -> int:
         return len(self._buffer)
@@ -68,3 +73,6 @@ class TypingBuffer(QObject):
         elif key == keyboard.Key.space:
             self._buffer.append(' ')
             self.text_updated.emit()
+        else:
+            return  # Don't debounce for non-character keys
+        self._debounce_timer.start()

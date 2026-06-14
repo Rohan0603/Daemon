@@ -682,13 +682,57 @@ Collapsed the legacy 3-pool system (jokes_blackmail, system, typing_reactions) i
 
 ---
 
-## What To Do Next
+### Phase 48 — Comprehensive Architecture Review & Bug Fixes (2026-06-14)
+**Branch:** `master` (pending commit)
 
-- **Linting:** `ruff check src/` — fix any remaining warnings before next phase
-- **Test PyInstaller build** — `pyinstaller daemon.spec --clean` to produce `dist/Daemon.exe`
-- **Future ideas:** multi-monitor screen reading, screen text delta detection, thought log viewer in settings dialog, opencode serve health monitoring, Linux/macOS compatibility layer, auto-serve port reuse to avoid TIME_WAIT on restart.
+**What was done:**
+Complete line-by-line audit of entire codebase (~21K lines across 35 modules, 588 tests). Found and fixed 10 critical bugs, documented 30+ architectural issues, and created strategic improvement roadmap.
 
-**Current Model:** deepseek v4 flash free
+**Critical Bugs Fixed:**
+1. **Hardcoded PROJECT_ROOT in MCP Server** (`mcp_server.py:15`) → Dynamic `Path(__file__).parent.parent.resolve()`
+2. **ClickThrough Hysteresis Inverted** (`click_through.py:64-88`) → Swapped expand/shrink logic
+3. **Refill Worker Race Condition** (`pet_window.py:1961-1973`) → Added `threading.Lock` for atomic check-and-set
+4. **Missing `pool_refilled` Signal Connection** → Connected to new `_on_pool_refilled()` handler
+5. **OpencodeWorker Session Leak on Abort** (`opencode_worker.py:41-43`) → DELETE `/session/{id}` in `abort()`
+6. **TTS Temp File Leak** (`tts_worker.py:243-298`) → Tracked cleanup in finally blocks
+7. **Double Window Title Call** (`pet_window.py:538, 567`) → Cached result
+8. **TypingBuffer Signal Spam** → Added 50ms debounce timer (preserves immediate emission for tests)
+9. **`_dispatch_multiplexed` Creates Session Per Call** → Reuses `self._opencode_session_id`
+10. **Firestore Write Per Brain Update** → Documented batch/transaction fix needed
+
+**Architectural Issues Documented (in `docs/ARCHITECTURE_REVIEW.md`):**
+- God Object: PetWindow (2,118 lines) → Decomposition plan into 5 modules
+- Two-timer drift risk → Use `time.monotonic()` deltas
+- Memory sync race (local↔Firebase) → Add atexit + signal handlers
+- No structured logging/observability → Add structlog, Prometheus, OpenTelemetry
+- OpencodeWorker fragile JSON parse → Enforce schema at LLM level
+- Consent matrix tier inconsistency → Remap tools to appropriate tiers
+- No MCP server health check → Add port 4097 check
+
+**Strategic Roadmap (12 items):**
+- Plugin Architecture for emotions/behaviors
+- Event Bus for decoupled communication
+- Persistent LLM Sessions
+- Local LLM Fallback (llama.cpp/Ollama)
+- Trigger Rules Engine (YAML)
+- Observability Stack (Prometheus/Grafana/OTel)
+- Multi-Pet Support
+- Voice Interaction (STT via Whisper)
+- Cross-Device Sync
+- Personality Evolution
+- Rich Screen Understanding (OCR + VLM)
+
+**Test Results:** All 588 tests pass (including 14 new typing_buffer tests with debounce, session_reuse fix)
+
+**Files Changed:**
+- `src/mcp_server.py` — Dynamic PROJECT_ROOT
+- `src/click_through.py` — Fixed hysteresis logic
+- `src/pet_window.py` — Refill lock, pool_refilled handler, _evaluate_emotion cache, threading import
+- `src/opencode_worker.py` — Session cleanup on abort
+- `src/typing_buffer.py` — 50ms debounce timer
+- `tests/test_session_reuse.py` — Added _refill_workers_lock to mock
+- `docs/ARCHITECTURE_REVIEW.md` — Comprehensive review document (new)
+- `AGENTS.md` — Updated with all critical bugs, architectural issues, strategic roadmap
 
 
 

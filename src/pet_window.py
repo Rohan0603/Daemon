@@ -5,6 +5,7 @@ import logging
 import random
 import re
 import sys
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -220,6 +221,7 @@ class PetWindow(QWidget):
             write_coalescer=self._write_coalescer,
         )
         self._response_manager.thought_pool.refill_needed.connect(self._on_refill_needed)
+        self._response_manager.thought_pool.pool_refilled.connect(self._on_pool_refilled)
         self._response_manager.start()
         self._log_data_state("Startup+Cache")
 
@@ -270,6 +272,7 @@ class PetWindow(QWidget):
         self._triggered_action: str | None = None
         self._last_daemon_action: str = "idle"
         self._refill_workers: dict[str, OpencodeWorker] = {}
+        self._refill_workers_lock = threading.Lock()
 
         self._deferred_trigger_params: dict | None = None
 
@@ -536,6 +539,7 @@ class PetWindow(QWidget):
     def _evaluate_emotion(self) -> Emotion:
         """Determine current emotion from OS context. Stateless pure function."""
         window = get_active_window_title().lower()
+        win_title = window  # Reuse cached value
 
         # FEAR: Task manager / activity monitor
         for kw in TASK_MANAGER_KEYWORDS:
@@ -564,8 +568,7 @@ class PetWindow(QWidget):
             return Emotion.PATHOS
 
         # TRANQUILITY: Steady coding in IDE
-        win_title = get_active_window_title()
-        if self._current_apm > 0 and self._current_apm <= 60 and ("code" in (win_title or "").lower()):
+        if self._current_apm > 0 and self._current_apm <= 60 and ("code" in win_title):
             return Emotion.TRANQUILITY
 
         # MIRTH: Default
@@ -742,7 +745,8 @@ class PetWindow(QWidget):
                 worker.abort()
                 worker.quit()
                 worker.wait(5000)
-        self._refill_workers.clear()
+        with self._refill_workers_lock:
+            self._refill_workers.clear()
         if self._opencode_worker and self._opencode_worker.isRunning():
             self._opencode_worker.abort()
             self._opencode_worker.quit()
@@ -985,24 +989,25 @@ class PetWindow(QWidget):
                     self._deferred_trigger_params = None
                     self._last_boredom_fsm_time = time.time()
                     # Gracefully disconnect refill workers (NO wait())
-                    for worker in self._refill_workers.values():
-                        if worker.isRunning():
-                            try:
-                                worker.response_ready.disconnect()
-                            except TypeError:
-                                pass
-                            worker.quit()
-                            if not hasattr(self, '_zombie_workers'):
-                                self._zombie_workers = set()
-                            self._zombie_workers.add(worker)
-                            
-                            def _cleanup_refill_zombie(w=worker):
-                                if hasattr(self, '_zombie_workers'):
-                                    self._zombie_workers.discard(w)
-                                    
-                            worker.finished.connect(_cleanup_refill_zombie)
-                            worker.finished.connect(worker.deleteLater)
-                    self._refill_workers.clear()
+                    with self._refill_workers_lock:
+                        for worker in self._refill_workers.values():
+                            if worker.isRunning():
+                                try:
+                                    worker.response_ready.disconnect()
+                                except TypeError:
+                                    pass
+                                worker.quit()
+                                if not hasattr(self, '_zombie_workers'):
+                                    self._zombie_workers = set()
+                                self._zombie_workers.add(worker)
+                                
+                                def _cleanup_refill_zombie(w=worker):
+                                    if hasattr(self, '_zombie_workers'):
+                                        self._zombie_workers.discard(w)
+                                        
+                                worker.finished.connect(_cleanup_refill_zombie)
+                                worker.finished.connect(worker.deleteLater)
+                        self._refill_workers.clear()
                 # Handle SLEEP state exit
                 if old_state == PetState.SLEEP and new_state != PetState.SLEEP:
                     self._idle_backoff_seconds = 0.0
@@ -1960,18 +1965,19 @@ class PetWindow(QWidget):
 
     def _on_refill_needed(self) -> None:
         from src.constants import THOUGHT_POOL_REFILL_COUNT
-        
+
         # Skip refill if we are already talking to the LLM for a user query!
         if self._opencode_worker is not None and self._opencode_worker.isRunning():
             logger.info("Skipping refill because a user query is actively running.")
             self._response_manager.thought_pool.on_refill_result(None, intentional_abort=True)
             return
 
-        # Skip refill if a refill is already actively running
-        if "thought_pool" in self._refill_workers and self._refill_workers["thought_pool"].isRunning():
-            logger.info("Skipping refill because a refill is already actively running.")
-            self._response_manager.thought_pool.on_refill_result(None, intentional_abort=True)
-            return
+        # Skip refill if a refill is already actively running (with lock for thread safety)
+        with self._refill_workers_lock:
+            if "thought_pool" in self._refill_workers and self._refill_workers["thought_pool"].isRunning():
+                logger.info("Skipping refill because a refill is already actively running.")
+                self._response_manager.thought_pool.on_refill_result(None, intentional_abort=True)
+                return
 
         # Check if we should skip refill due to recent failures
         current_time = time.time()
@@ -1982,7 +1988,7 @@ class PetWindow(QWidget):
                            self._response_manager.thought_pool.refill_threshold, time_since_last_refill)
                 self._response_manager.thought_pool.on_refill_result(None, intentional_abort=True)
                 return
-        
+
         count = THOUGHT_POOL_REFILL_COUNT
         prompt = self._context_manager.build_mixed_bag_prompt(count)
         window = get_active_window_title() or "unknown"
@@ -2005,7 +2011,8 @@ class PetWindow(QWidget):
         )
         worker.response_ready.connect(lambda items: self._on_refill_result(items))
         worker.error_occurred.connect(lambda err: self._on_refill_error())
-        self._refill_workers["thought_pool"] = worker
+        with self._refill_workers_lock:
+            self._refill_workers["thought_pool"] = worker
         worker.start()
         self._last_refill_attempt = current_time
 
@@ -2028,6 +2035,12 @@ class PetWindow(QWidget):
                     "priority": item.get("priority", 3),
                 })
         self._response_manager.thought_pool.on_refill_result(pool_items)
+
+    def _on_pool_refilled(self) -> None:
+        """Called when ThoughtPool has been refilled. Can trigger immediate draw if conditions met."""
+        logger.debug("ThoughtPool refilled, %d items available", self._response_manager.remaining())
+        # If we were waiting for refill and it's now ready, we could trigger an autonomous action
+        # For now, just log; the next _master_tick will naturally draw from the pool
 
     def _on_refill_error(self) -> None:
         worker = self._refill_workers.pop("thought_pool", None)

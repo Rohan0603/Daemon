@@ -573,6 +573,83 @@ Config values override constants.py at startup via `setattr(constants, key, val)
 | consent gate -32001 not handled | SKILL.md instructs LLM to roast user for being a control freak in `dialogue`; log in `thought`. Never surface JSON error to UI. |
 | EmotionProfile Juice breaks old tests | `EMOTION_PROFILES` registry is source of truth. Legacy dicts (`_SINGLE_FIRE_DECAY`, `_EMOTION_OVERRIDE_COLOR`, `_PARTICLE_EMIT`) are derived properties — do NOT edit them directly. |
 
+## ✅ CRITICAL BUGS FOUND (Architecture Review 2026-06-14)
+
+| Bug | Location | Severity | Fix |
+|-----|----------|----------|-----|
+| **Hardcoded PROJECT_ROOT** | `mcp_server.py:15` | CRITICAL | Use `os.path.dirname(os.path.dirname(__file__))` |
+| **ClickThrough hysteresis inverted** | `click_through.py:64-88` | HIGH | Swap adjustment logic: transparent=expand, opaque=shrink |
+| **Refill worker race condition** | `pet_window.py:1961-1973` | HIGH | Atomic check-and-set with lock |
+| **Missing `pool_refilled` signal connection** | `pet_window.py:222` + `response_pool.py:13` | MEDIUM | Connect signal to react to refill completion |
+| **OpencodeWorker leaks sessions on abort** | `opencode_worker.py:41-43` | HIGH | Send DELETE to `/session/{id}` in `abort()` |
+| **TTS temp file leak on exception** | `tts_worker.py:243-298` | MEDIUM | Track all temp files, cleanup in finally |
+| **`_evaluate_emotion` double window title call** | `pet_window.py:538, 567` | LOW | Cache result in local variable |
+| **TypingBuffer signal spam** | `typing_buffer.py:54-70` | MEDIUM | Debounce emissions in TypingBuffer |
+| **`_dispatch_multiplexed` creates session per call** | `pet_window.py:1587-1605` | MEDIUM | Reuse `self._opencode_session_id` |
+| **Firestore write per brain_update field** | `pet_window.py:2058-2079` | HIGH | Batch updates or use transactions |
+
+## 🏗️ ARCHITECTURAL ISSUES (Priority Order)
+
+| Issue | Impact | Recommendation |
+|-------|--------|----------------|
+| **God Object: PetWindow (2,118 lines)** | Maintainability, testing, coupling | Split into: PetController, AutonomyEngine, LLMInterface, PersistenceLayer, SystemIntegration |
+| **Two-timer drift risk** | Idle tracking inaccuracy | Use `time.monotonic()` deltas instead of tick counting |
+| **Memory sync race (local↔Firebase)** | Data loss on crash | Add `atexit` + signal handlers for graceful flush |
+| **OpencodeWorker fragile JSON parse** | Silent failures, hard to debug | Enforce schema at LLM level; single strict parse |
+| **Consent matrix tier inconsistency** | UX confusion | Remap tools: toast→notifications, screenshot→media_access |
+| **No structured logging/observability** | Production debugging impossible | Add `structlog`, Prometheus metrics, OpenTelemetry tracing |
+| **No MCP server health check** | Silent tool failures | Add port 4097 check to `_on_health_check` |
+
+## 🔧 MEDIUM-PRIORITY FIXES
+
+- `screen_reader.py`: UIA COM init on MCP thread → thread-local or main-thread only
+- `particle.py`: O(n) list rebuild → ring buffer / pre-allocated arrays
+- `ThoughtPool.draw_by_type`: O(n) remove → deque or per-type indices  
+- `ContextManager`: Prompt rebuild every tick → cache template
+- `APMWorker`: Unbounded deque on high activity → maxlen or periodic cleanup
+- `EventStreamWorker`: No 401/403 handling → trigger token refresh
+- `DiaryStore`: Case-insensitive dedup → NFKC + casefold normalization
+- `physics`: Extract `GroundContactResolver` class
+- `constants.py`: Split into domain-specific modules
+
+## 🚀 STRATEGIC IMPROVEMENTS (Roadmap)
+
+| Feature | Description |
+|---------|-------------|
+| **Plugin Architecture** | Dynamic emotion/behavior loading via entry points |
+| **Event Bus** | Decouple modules: FSMStateChanged, EmotionShifted, UserInputReceived, etc. |
+| **Persistent LLM Sessions** | Resume opencode session on restart |
+| **Local LLM Fallback** | llama.cpp / Ollama integration for offline mode |
+| **Trigger Rules Engine** | YAML-based behavioral rules (replace hardcoded priority tree) |
+| **Observability Stack** | Prometheus /metrics, Grafana dashboard, OpenTelemetry tracing |
+| **Multi-Pet Support** | PetManager spawning multiple PetWindow instances |
+| **Voice Interaction (STT)** | Whisper.cpp wake word + speech recognition |
+| **Cross-Device Sync** | Multiple Daemon instances sharing Firebase UID |
+| **Personality Evolution** | Affinity score unlocks emotions, seasonal overlays |
+| **Rich Screen Understanding** | OCR + accessibility tree + VLM for visual context |
+
+## 📋 TEST PLAN FOR CRITICAL FIXES
+
+```bash
+# 1. MCP PROJECT_ROOT fix
+pytest tests/test_mcp_server.py::test_list_directory -xvs
+pytest tests/test_mcp_server.py::test_read_file -xvs
+pytest tests/test_mcp_server.py::test_search_codebase -xvs
+
+# 2. ClickThrough hysteresis (needs new test)
+# pytest tests/test_click_through_hysteresis.py -xvs
+
+# 3. Refill race condition
+pytest tests/test_response_pool.py -k "refill" -xvs
+
+# 4. OpencodeWorker abort cleanup
+pytest tests/test_opencode_worker.py -k "abort" -xvs
+
+# 5. Full regression
+pytest tests/test_fsm.py tests/test_animator.py tests/test_pet_window.py -xvs
+pytest tests/test_memory.py tests/test_memory_manager.py -xvs
+```
+
 ---
 
 ## Threading Model

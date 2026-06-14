@@ -62,15 +62,17 @@ class ClickThroughManager:
         geom: QRect = self._get_geometry()
 
         if self._transparent:
+            # When transparent, EXPAND hit area so cursor easily enters to disable click-through
             hit_geom = geom.adjusted(
-                _HYSTERESIS_MARGIN_PX, _HYSTERESIS_MARGIN_PX,
                 -_HYSTERESIS_MARGIN_PX, -_HYSTERESIS_MARGIN_PX,
+                _HYSTERESIS_MARGIN_PX, _HYSTERESIS_MARGIN_PX,
             )
             cursor_over = hit_geom.contains(cursor)
         else:
+            # When opaque, SHRINK hit area so cursor must be well inside to keep click-through disabled
             hit_geom = geom.adjusted(
-                -_HYSTERESIS_MARGIN_PX, -_HYSTERESIS_MARGIN_PX,
                 _HYSTERESIS_MARGIN_PX, _HYSTERESIS_MARGIN_PX,
+                -_HYSTERESIS_MARGIN_PX, -_HYSTERESIS_MARGIN_PX,
             )
             cursor_over = hit_geom.contains(cursor)
 

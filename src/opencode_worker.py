@@ -40,6 +40,20 @@ class OpencodeWorker(QThread):
 
     def abort(self) -> None:
         self._abort = True
+        # Clean up opencode session if we created one
+        if self._session_id:
+            try:
+                import requests
+                from src.config import load_config
+                config = load_config()
+                server_url = config.get("llm", {}).get("server_url", "http://127.0.0.1:4096")
+                requests.delete(
+                    f"{server_url}/session/{self._session_id}",
+                    timeout=5,
+                )
+                logger.debug("Cleaned up session %s on abort", self._session_id)
+            except Exception as e:
+                logger.debug("Failed to clean up session on abort: %s", e)
 
     def _post_message(self, payload: dict) -> str | None:
         session_id = self._session_id

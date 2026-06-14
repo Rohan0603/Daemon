@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 from src.pet_window import PetWindow
 from src.pet_fsm import PetState
-
+import threading
 
 class TestSessionReuse:
     """Verify refill workers do NOT share the main dialog session to prevent
@@ -19,6 +19,7 @@ class TestSessionReuse:
         pw._context_manager.build_mixed_bag_prompt.return_value = ("test prompt", "test prompt")
         pw._opencode_worker = None
         pw._refill_workers = {}
+        pw._refill_workers_lock = threading.Lock()
 
         mock_worker = MagicMock()
         MockWorker.return_value = mock_worker

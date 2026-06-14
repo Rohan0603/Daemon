@@ -7,12 +7,13 @@ from ctypes import wintypes
 from datetime import datetime
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from threading import Thread
+from pathlib import Path
 
 from src.utils.security import get_safe_data_path
 
 logger = logging.getLogger(__name__)
 
-PROJECT_ROOT = os.path.abspath("C:/Users/ponna/Project/Daemon")
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 ALLOWED_READ_EXTENSIONS = {".py", ".md", ".json", ".ps1", ".txt", ".log", ".yaml", ".yml"}
 MAX_READ_LINES = 500
 
