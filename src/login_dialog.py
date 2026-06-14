@@ -35,7 +35,7 @@ class LoginDialog(QDialog):
         self.setWindowTitle("Daemon: Clearance Check")
         self.setFixedSize(300, 250)
         self.setWindowFlags(
-            Qt.WindowType.Dialog | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint
+            Qt.WindowType.Dialog | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint
         )
 
         layout = QVBoxLayout()

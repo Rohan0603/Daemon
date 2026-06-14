@@ -435,6 +435,8 @@ class MCPHandler(BaseHTTPRequestHandler):
             }
         elif method == "notifications/initialized":
             return None
+        elif method == "notifications/cancelled":
+            return None
         elif method == "ping":
             return {"jsonrpc": "2.0", "result": {}}
         elif method == "tools/list":

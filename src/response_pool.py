@@ -107,8 +107,10 @@ class ThoughtPool(QObject):
         self._refilling = True
         self.refill_needed.emit()
 
-    def on_refill_result(self, items: list[dict] | None):
+    def on_refill_result(self, items: list[dict] | None, intentional_abort: bool = False):
         self._refilling = False
+        if intentional_abort:
+            return
         if not items:
             logger.warning("Refill returned no items")
             self.refill_failed.emit("empty response")

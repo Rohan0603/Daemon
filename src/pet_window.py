@@ -344,7 +344,7 @@ class PetWindow(QWidget):
             self._click_through = ClickThroughManager(hwnd, self._get_click_geometry)
 
     def _get_click_geometry(self) -> QRect:
-        rect = QRect(self._pet_x, self._pet_y, PET_WIDTH, PET_HEIGHT)
+        rect = QRect(self._pet_x, self._pet_y, int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
         top_left = self.mapToGlobal(rect.topLeft())
         bottom_right = self.mapToGlobal(rect.bottomRight())
         rect = QRect(top_left, bottom_right)
@@ -386,8 +386,8 @@ class PetWindow(QWidget):
             if 0 < top <= base_ground and left <= pet_center_x <= right:
                 self._ground_y = top - PET_HEIGHT
 
-        if self._pet_y > self._ground_y:
-            self._pet_y = self._ground_y
+        if self._pet_y > base_ground:
+            self._pet_y = base_ground
         elif self._pet_y < self._ground_y and self._fsm.current_state not in (PetState.FALLING, PetState.DRAGGED):
             self._fsm.transition_to(PetState.FALLING)
 
@@ -911,10 +911,6 @@ class PetWindow(QWidget):
         self._ground_y = self._compute_ground_y()
         self._pet_opacity = values["pet_opacity"]
         self._pet_speed_multiplier = values["pet_speed_multiplier"]
-        self.setFixedSize(
-            int(PET_WIDTH * self._pet_scale),
-            int(PET_HEIGHT * self._pet_scale),
-        )
         self.setWindowOpacity(1.0)
         if self._tts:
             self._tts.set_enabled(values.get("tts_enabled", True))
@@ -976,20 +972,9 @@ class PetWindow(QWidget):
 
             current_rect = self._get_logical_window_rect()
             
-            # Sticky Drag
+            # Perched Check
             is_perched = False
-            if current_rect and hasattr(self, '_last_window_rect') and self._last_window_rect:
-                if self._pet_y == self._ground_y and self._ground_y == self._last_window_rect[1] - PET_HEIGHT:
-                    dx = current_rect[0] - self._last_window_rect[0]
-                    dy = current_rect[1] - self._last_window_rect[1]
-                    if dx != 0 or dy != 0:
-                        self._pet_x += dx
-                        self._pet_y += dy
-                        self._ground_y += dy
-                    is_perched = True
-                elif self._pet_y == self._ground_y and self._ground_y == current_rect[1] - PET_HEIGHT:
-                    is_perched = True
-            elif current_rect:
+            if current_rect:
                 if self._pet_y == self._ground_y and self._ground_y == current_rect[1] - PET_HEIGHT:
                     is_perched = True
             
@@ -1011,10 +996,8 @@ class PetWindow(QWidget):
                     self._perimeter_edge = "bottom"
                     self._perimeter_facing = "right" if pet_center_x < w_left else "left"
                 else:
-                    if self._pet_y < w_top and not is_perched:
-                        self._fsm.transition_to(PetState.FALLING)
-                    elif self._pet_y > w_top + PET_HEIGHT and not is_perched:
-                        d = self._pet_y - (w_top - PET_HEIGHT)
+                    if self._pet_y > self._ground_y and not is_perched:
+                        d = self._pet_y - self._ground_y
                         if d > 0:
                             import math
                             self._fall_velocity = -math.sqrt(2 * GRAVITY_ACCELERATION * d)
@@ -1104,7 +1087,7 @@ class PetWindow(QWidget):
 
         return FSMContext(
             cursor_pos=cursor,
-            pet_rect=(self._pet_x, self._pet_y, PET_WIDTH, PET_HEIGHT),
+            pet_rect=(self._pet_x, self._pet_y, int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0))),
             apm=self._current_apm,
             is_dragged=self._fsm.current_state == PetState.DRAGGED,
             is_falling=self._fsm.current_state == PetState.FALLING and (self._pet_y < self._ground_y or getattr(self, '_fall_velocity', 0.0) != 0.0),
@@ -1136,18 +1119,26 @@ class PetWindow(QWidget):
             if w_rect and self._fall_velocity >= 0:
                 w_left, w_top, w_right, w_bottom = w_rect
                 pet_center_x = self._pet_x + PET_WIDTH // 2
-                if w_left <= pet_center_x <= w_right and abs((self._pet_y + PET_HEIGHT) - w_top) <= 5.0:
-                    self._pet_y = w_top - PET_HEIGHT
-                    self._fall_velocity = 0.0
-                    self._ground_y = w_top - PET_HEIGHT
-                    landed = True
-                    self._title_land_time = time.time()
+                if w_left <= pet_center_x <= w_right and -5.0 <= (self._pet_y + PET_HEIGHT) - w_top <= max(5.0, self._fall_velocity + 5.0):
+                    if self._fall_velocity > 10.0:
+                        self._pet_y = w_top - PET_HEIGHT - 1
+                        self._fall_velocity = -self._fall_velocity * 0.3
+                    else:
+                        self._pet_y = w_top - PET_HEIGHT
+                        self._fall_velocity = 0.0
+                        self._ground_y = w_top - PET_HEIGHT
+                        landed = True
+                        self._title_land_time = time.time()
 
             if not landed and self._pet_y >= self._ground_y:
-                self._pet_y = self._ground_y
-                self._fall_velocity = 0.0
-                landed = True
-                self._land_time = time.time()
+                if self._fall_velocity > 10.0:
+                    self._pet_y = self._ground_y - 1
+                    self._fall_velocity = -self._fall_velocity * 0.3
+                else:
+                    self._pet_y = self._ground_y
+                    self._fall_velocity = 0.0
+                    landed = True
+                    self._land_time = time.time()
                 
             if landed:
                 self._fsm.current_state = PetState.IDLE
@@ -1230,7 +1221,7 @@ class PetWindow(QWidget):
     def mousePressEvent(self, event) -> None:
         local = event.position().toPoint()
         if event.button() == Qt.MouseButton.LeftButton:
-            pet_rect = QRect(self._pet_x, self._pet_y, PET_WIDTH, PET_HEIGHT)
+            pet_rect = QRect(self._pet_x, self._pet_y, int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
             if pet_rect.contains(local):
                 self._clear_bubble_queue()
                 self._fsm.current_state = PetState.DRAGGED
@@ -1272,7 +1263,7 @@ class PetWindow(QWidget):
 
     def contextMenuEvent(self, event) -> None:
         local = event.pos()
-        pet_rect = QRect(self._pet_x, self._pet_y, PET_WIDTH, PET_HEIGHT)
+        pet_rect = QRect(self._pet_x, self._pet_y, int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
         if pet_rect.contains(local):
             self._context_menu.exec(event.globalPos())
 
@@ -1302,7 +1293,7 @@ class PetWindow(QWidget):
                 wander_direction=self._wander_direction,
                 bubble_text=self._bubble_text,
                 drag_velocity_x=self._drag_velocity_x,
-                scale=self._scale,
+                scale=self._scale * self._pet_scale,
                 cursor_x=cursor[0],
                 cursor_y=cursor[1],
                 state_elapsed_ms=self._state_elapsed_ms,
@@ -1327,7 +1318,7 @@ class PetWindow(QWidget):
         if self._fsm.current_state == PetState.THINKING:
             return
         local = event.position().toPoint()
-        pet_rect = QRect(self._pet_x, self._pet_y, PET_WIDTH, PET_HEIGHT)
+        pet_rect = QRect(self._pet_x, self._pet_y, int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
         if pet_rect.contains(local):
             self._show_input_field()
 
@@ -1562,6 +1553,9 @@ class PetWindow(QWidget):
             dialog = LoginDialog(on_sign_in=on_sign_in, on_sign_up=on_sign_up, parent=self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 uid = self._auth.uid or "default"
+            else:
+                self._force_quit_app()
+                return
 
         if self._crud.available:
             self._firebase_mem = MemoryManager(crud=self._crud, uid=uid, pet_id=self._pet_id)
@@ -1990,7 +1984,7 @@ class PetWindow(QWidget):
         # Skip refill if we are already talking to the LLM for a user query!
         if self._opencode_worker is not None and self._opencode_worker.isRunning():
             logger.info("Skipping refill because a user query is actively running.")
-            self._response_manager.thought_pool.on_refill_result(None)
+            self._response_manager.thought_pool.on_refill_result(None, intentional_abort=True)
             return
 
         # Check if we should skip refill due to recent failures
@@ -2000,7 +1994,7 @@ class PetWindow(QWidget):
             if self._refill_failed_count >= 3 and time_since_last_refill < 300:
                 logger.info("Skipping refill due to recent failures - threshold: %d, time since: %.1f seconds",
                            self._response_manager.thought_pool.refill_threshold, time_since_last_refill)
-                self._response_manager.thought_pool.on_refill_result(None)
+                self._response_manager.thought_pool.on_refill_result(None, intentional_abort=True)
                 return
         
         count = THOUGHT_POOL_REFILL_COUNT
