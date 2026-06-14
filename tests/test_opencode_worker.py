@@ -46,8 +46,9 @@ def test_boredom_timeout_constant():
 def test_api_constants_present():
     from src.config import DEFAULT_CONFIG
     assert DEFAULT_CONFIG["llm"]["server_url"].startswith("http")
-    assert DEFAULT_CONFIG["llm"]["model_id"] == ""
-    assert DEFAULT_CONFIG["llm"]["provider"] == ""
+    # model_id and provider now have sensible defaults
+    assert DEFAULT_CONFIG["llm"]["model_id"] == "north-mini-code-free"
+    assert DEFAULT_CONFIG["llm"]["provider"] == "opencode-zen"
     assert isinstance(DEFAULT_CONFIG["llm"]["timeout_sec"], int)
 
 

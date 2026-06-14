@@ -688,6 +688,8 @@ Collapsed the legacy 3-pool system (jokes_blackmail, system, typing_reactions) i
 - **Test PyInstaller build** — `pyinstaller daemon.spec --clean` to produce `dist/Daemon.exe`
 - **Future ideas:** multi-monitor screen reading, screen text delta detection, thought log viewer in settings dialog, opencode serve health monitoring, Linux/macOS compatibility layer, auto-serve port reuse to avoid TIME_WAIT on restart.
 
+**Current Model:** deepseek v4 flash free
+
 
 
 ---

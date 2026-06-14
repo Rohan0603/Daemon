@@ -13,11 +13,11 @@ CONFIG_PATH = STORAGE_DIR / "daemon_config.json"
 
 DEFAULT_CONFIG = {
     "llm": {
-        "model_id": "",
-        "provider": "",
-        "server_url": "http://127.0.0.1:4096",
-        "timeout_sec": 180,
-        "api_key": os.environ.get("OPENCODE_API_KEY", "your-opencode-api-key-here")
+      "model_id": "north-mini-code-free",
+      "provider": "opencode-zen",
+      "server_url": "http://127.0.0.1:4096",
+      "timeout_sec": 180,
+      "api_key": os.environ.get("OPENCODE_API_KEY", "your-opencode-api-key-here")
     },
     "pet": {
         "id": "kenny",

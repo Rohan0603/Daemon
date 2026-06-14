@@ -123,11 +123,11 @@ def test_port_closed_spawns_opencode_serve(tmp_path):
     assert "stdout" in kwargs
     assert "stderr" in kwargs
     assert "stdin" in kwargs
-    # detached so it survives parent exit
+    # detached so it survives parent exit (uses CREATE_NO_WINDOW + start_new_session)
     assert "creationflags" in kwargs
     flags = kwargs["creationflags"]
-    assert flags & 0x00000008  # DETACHED_PROCESS
     assert flags & 0x08000000  # CREATE_NO_WINDOW
+    assert kwargs.get("start_new_session") is True
 
 
 def test_opencode_not_in_path_returns_false(tmp_path):

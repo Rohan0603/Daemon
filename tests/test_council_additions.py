@@ -6,6 +6,8 @@ from PyQt6.QtCore import QTimer
 from src.pet_window import PetWindow
 from src.pet_fsm import PetState
 
+# pytest markers
+
 @pytest.fixture
 def app():
     from PyQt6.QtWidgets import QApplication
@@ -14,6 +16,7 @@ def app():
         _app = QApplication([])
     return _app
 
+@pytest.mark.fast
 def test_onboarding_bubbles(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -25,6 +28,7 @@ def test_onboarding_bubbles(app):
         assert window._bubble_queue[1] == "Double-click me to ask opencode anything."
         assert window._bubble_queue[2] == "Right-click for options."
 
+@pytest.mark.fast
 def test_bubble_queue_shows_immediately_when_idle(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -35,6 +39,7 @@ def test_bubble_queue_shows_immediately_when_idle(app):
         assert window._bubble_text == "hello"
         assert window._bubble_timer_ms > 0
 
+@pytest.mark.fast
 def test_bubble_queue_appends_when_active(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -47,6 +52,7 @@ def test_bubble_queue_appends_when_active(app):
         assert window._bubble_text == "first"  # still showing
         assert window._bubble_queue == ["second"]
 
+@pytest.mark.fast
 def test_bubble_queue_drops_when_full(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -62,6 +68,7 @@ def test_bubble_queue_drops_when_full(app):
         window._show_bubble("overflow")  # should be dropped
         assert len(window._bubble_queue) == 10
 
+@pytest.mark.fast
 def test_bubble_queue_immediate_replaces_current(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -73,6 +80,7 @@ def test_bubble_queue_immediate_replaces_current(app):
         # Queue stays intact for after this bubble
         assert window._bubble_queue == ["queued"]
 
+@pytest.mark.fast
 def test_bubble_tick_dequeues_next(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -88,6 +96,7 @@ def test_bubble_tick_dequeues_next(app):
         assert window._bubble_text == "second"
         assert window._bubble_queue == []
 
+@pytest.mark.fast
 def test_bubble_short_text_gets_shorter_duration(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -97,6 +106,7 @@ def test_bubble_short_text_gets_shorter_duration(app):
         window._show_bubble("hi")
         assert window._bubble_timer_ms == 4000
 
+@pytest.mark.fast
 def test_bubble_long_text_gets_full_duration(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -106,6 +116,7 @@ def test_bubble_long_text_gets_full_duration(app):
         window._show_bubble("x" * 41)
         assert window._bubble_timer_ms == 8000
 
+@pytest.mark.fast
 def test_clear_bubble_queue_clears_current_and_pending(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -122,6 +133,7 @@ def test_clear_bubble_queue_clears_current_and_pending(app):
         assert window._bubble_timer_ms == 0
         assert window._bubble_queue == []
 
+@pytest.mark.fast
 def test_input_submission_clears_queue(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -134,6 +146,7 @@ def test_input_submission_clears_queue(app):
         window._on_input_submitted()
         assert window._bubble_queue == []
 
+@pytest.mark.fast
 def test_mouse_press_on_pet_clears_queue(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -152,6 +165,7 @@ def test_mouse_press_on_pet_clears_queue(app):
         assert window._bubble_text == ""
         assert window._bubble_queue == []
 
+@pytest.mark.fast
 def test_onboarding_bubbles_skipped_if_first_run_done(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -159,6 +173,7 @@ def test_onboarding_bubbles_skipped_if_first_run_done(app):
         window = PetWindow(opencode_enabled=True, skill_ready=True, initial_state={"first_run_done": True})
         assert len(window._bubble_queue) == 0
 
+@pytest.mark.fast
 def test_global_hotkey_action(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -176,6 +191,7 @@ def test_global_hotkey_action(app):
         window.activateWindow.assert_called_once()
         window._show_input_field.assert_called_once()
 
+@pytest.mark.fast
 def test_pin_behavior(app):
     with patch("src.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
@@ -193,6 +209,7 @@ def test_pin_behavior(app):
         window._apply_physics(PetState.PERIMETER, 33)
         assert window._pet_x == old_x  # No change
 
+@pytest.mark.fast
 def test_recall_memory(app, tmp_path):
     mock_firebase = MagicMock()
     mock_firebase.load_current_brain.return_value = {}

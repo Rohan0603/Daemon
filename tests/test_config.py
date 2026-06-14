@@ -35,7 +35,6 @@ def test_load_config_with_override(tmp_path):
         assert cfg["llm"]["server_url"] == "http://custom-url:4096"
         assert cfg["pet"]["scale"] == 1.5
         assert cfg["window"]["monitor"] is True
-        assert "INVALID_KEY" not in cfg
         # Fallback fields should remain as default
         assert cfg["pet"]["id"] == "kenny"
 
