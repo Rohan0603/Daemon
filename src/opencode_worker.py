@@ -119,11 +119,9 @@ class OpencodeWorker(QThread):
             "parts": [{"type": "text", "text": prompt}],
             "structured": STRUCTURED_SCHEMA,
         }
-        if provider and model_id:
-            payload["model"] = {
-                "providerID": provider,
-                "modelID": model_id,
-            }
+        # Note: We omit passing payload["model"] because OpenCode server 
+        # crashes with HTTP 500 when overriding with OpenRouter models.
+        # It automatically uses the primary agent defined in opencode.json.
         logger.debug("SEND payload prompt (first 500): %s", prompt[:500])
         logger.debug("SEND payload full: %s", json.dumps(payload, indent=2)[:2000])
         raw = self._post_message(payload)
@@ -177,11 +175,7 @@ class OpencodeWorker(QThread):
         payload1 = {
             "parts": [{"type": "text", "text": stage1}],
         }
-        if provider and model_id:
-            payload1["model"] = {
-                "providerID": provider,
-                "modelID": model_id,
-            }
+        # Omit model override (see above)
         raw1 = self._post_message(payload1)
         if self._abort:
             return
@@ -197,11 +191,7 @@ class OpencodeWorker(QThread):
             "parts": [{"type": "text", "text": enriched}],
             "structured": STRUCTURED_SCHEMA,
         }
-        if provider and model_id:
-            payload2["model"] = {
-                "providerID": provider,
-                "modelID": model_id,
-            }
+        # Omit model override
         raw2 = self._post_message(payload2)
         if self._abort:
             return
