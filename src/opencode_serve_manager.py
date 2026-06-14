@@ -150,7 +150,7 @@ def ensure_opencode_serve_running(
             stdout=log_file,
             stderr=log_file,
             env=env,
-            creationflags=_DETACHED_PROCESS | _CREATE_NO_WINDOW,
+            creationflags=_CREATE_NO_WINDOW,
             close_fds=True,
             start_new_session=True,
         )
@@ -185,6 +185,7 @@ def stop_opencode_serve() -> None:
         subprocess.run(
             ["taskkill", "/F", "/PID", str(_SERVE_PID)],
             capture_output=True, timeout=5,
+            creationflags=_CREATE_NO_WINDOW,
         )
         logger.info("Killed opencode serve (PID %d)", _SERVE_PID)
     except Exception as e:
