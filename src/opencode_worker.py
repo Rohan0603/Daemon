@@ -55,14 +55,17 @@ class OpencodeWorker(QThread):
             except Exception as e:
                 logger.debug("Failed to clean up session on abort: %s", e)
 
-    def _post_message(self, payload: dict) -> str | None:
+    def _post_message(self, payload: dict, is_refill: bool = False) -> str | None:
         session_id = self._session_id
         if self._abort:
             return None
         llm_cfg = self._config.get("llm", {})
         server_url = llm_cfg.get("server_url", "http://127.0.0.1:4096")
         model_id = llm_cfg.get("model_id", "")
+        # Use longer timeout for refill operations (two-stage takes 2x API calls)
         timeout_sec = llm_cfg.get("timeout_sec", 180)
+        if is_refill:
+            timeout_sec = max(timeout_sec, 300)  # 5 minutes for refill
         try:
             if not session_id:
                 if self._abort:
@@ -97,6 +100,12 @@ class OpencodeWorker(QThread):
             )
             if r.status_code >= 400:
                 logger.warning("API message failed: %s %s", r.status_code, r.text[:200])
+                # If 500 error or 404 (session not found), invalidate session and retry once
+                if r.status_code in (500, 404) and session_id:
+                    logger.info("Server error or session lost, invalidating session and retrying once")
+                    self._session_id = None
+                    # Retry once with new session
+                    return self._post_message(payload)
                 if not self._is_autonomous:
                     self.error_occurred.emit(f"API failed with HTTP {r.status_code}")
                 return None
@@ -142,7 +151,7 @@ class OpencodeWorker(QThread):
         # It automatically uses the primary agent defined in opencode.json.
         logger.debug("SEND payload prompt (first 500): %s", prompt[:500])
         logger.debug("SEND payload full: %s", json.dumps(payload, indent=2)[:2000])
-        raw = self._post_message(payload)
+        raw = self._post_message(payload, is_refill=self._is_autonomous)
         if self._abort:
             return
         if raw:
@@ -172,7 +181,7 @@ class OpencodeWorker(QThread):
             "parts": [{"type": "text", "text": stage1}],
         }
         # Omit model override (see above)
-        raw1 = self._post_message(payload1)
+        raw1 = self._post_message(payload1, is_refill=True)
         if self._abort:
             return
         if raw1 is None:
@@ -188,7 +197,7 @@ class OpencodeWorker(QThread):
             "structured": STRUCTURED_SCHEMA,
         }
         # Omit model override
-        raw2 = self._post_message(payload2)
+        raw2 = self._post_message(payload2, is_refill=True)
         if self._abort:
             return
         if raw2 is None:

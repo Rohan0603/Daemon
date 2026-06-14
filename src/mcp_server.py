@@ -8,6 +8,7 @@ from datetime import datetime
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
 from threading import Thread
 from pathlib import Path
+from functools import lru_cache
 
 from src.utils.security import get_safe_data_path
 
@@ -16,6 +17,11 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 ALLOWED_READ_EXTENSIONS = {".py", ".md", ".json", ".ps1", ".txt", ".log", ".yaml", ".yml"}
 MAX_READ_LINES = 500
+
+# Simple TTL cache for read_file tool (10 second TTL)
+_file_cache = {}
+_file_cache_ttl = 10  # seconds
+_cache_timestamps = {}
 
 
 def _validate_mcp_path(relative_path: str, root: str = PROJECT_ROOT) -> str:
@@ -619,6 +625,15 @@ class MCPHandler(BaseHTTPRequestHandler):
             return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"File not found: {file_path}"}}
         if not os.path.isfile(abs_path):
             return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Not a file: {file_path}"}}
+
+        # Check cache
+        import time
+        cache_key = f"{file_path}:{start_line or 1}:{end_line or 'end'}"
+        now = time.time()
+        if cache_key in _file_cache and (now - _cache_timestamps.get(cache_key, 0)) < _file_cache_ttl:
+            logger.debug("MCP read_file cache hit: %s", file_path)
+            return _file_cache[cache_key]
+
         try:
             with open(abs_path, "r", encoding="utf-8") as f:
                 lines = f.readlines()
@@ -632,7 +647,13 @@ class MCPHandler(BaseHTTPRequestHandler):
         header = f"# {file_path} (lines {start_idx + 1}-{end_idx} of {total_lines})\n"
         if end_idx - start_idx >= MAX_READ_LINES:
             content += "\n... (truncated at 500 lines max, use start_line/end_line to paginate)"
-        return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": header + content}]}}
+        result = {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": header + content}]}}
+
+        # Cache the result
+        _file_cache[cache_key] = result
+        _cache_timestamps[cache_key] = now
+
+        return result
 
     def _handle_search_codebase(self, args):
         search_term = args.get("search_term", "")

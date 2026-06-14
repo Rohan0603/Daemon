@@ -956,9 +956,11 @@ class PetWindow(QWidget):
                         self._bubble_timer_ms = 0
 
             if not self._autonomous_query_pending:
-                self._boredom_timer_ms -= FSM_TICK_MS
-                if self._boredom_timer_ms <= 0:
-                    self._trigger_boredom_query()
+                # Don't decrement boredom timer during active thinking states
+                if self._fsm.current_state not in (PetState.THINKING, PetState.AUTONOMOUS_THINKING):
+                    self._boredom_timer_ms -= FSM_TICK_MS
+                    if self._boredom_timer_ms <= 0:
+                        self._trigger_boredom_query()
 
             # Perched Check
             is_perched = False
