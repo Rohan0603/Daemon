@@ -113,16 +113,17 @@ class OpencodeWorker(QThread):
             return
         from src.constants import STRUCTURED_SCHEMA
         llm_cfg = self._config.get("llm", {})
-        provider = llm_cfg.get("provider", "opencode")
-        model_id = llm_cfg.get("model_id", "north-mini-code-free")
+        provider = llm_cfg.get("provider", "")
+        model_id = llm_cfg.get("model_id", "")
         payload = {
-            "model": {
-                "providerID": provider,
-                "modelID": model_id,
-            },
             "parts": [{"type": "text", "text": prompt}],
             "structured": STRUCTURED_SCHEMA,
         }
+        if provider and model_id:
+            payload["model"] = {
+                "providerID": provider,
+                "modelID": model_id,
+            }
         logger.debug("SEND payload prompt (first 500): %s", prompt[:500])
         logger.debug("SEND payload full: %s", json.dumps(payload, indent=2)[:2000])
         raw = self._post_message(payload)
@@ -171,15 +172,16 @@ class OpencodeWorker(QThread):
         from src.constants import STRUCTURED_SCHEMA
         stage1, stage2 = self._two_stage
         llm_cfg = self._config.get("llm", {})
-        provider = llm_cfg.get("provider", "opencode")
-        model_id = llm_cfg.get("model_id", "north-mini-code-free")
+        provider = llm_cfg.get("provider", "")
+        model_id = llm_cfg.get("model_id", "")
         payload1 = {
-            "model": {
-                "providerID": provider,
-                "modelID": model_id,
-            },
             "parts": [{"type": "text", "text": stage1}],
         }
+        if provider and model_id:
+            payload1["model"] = {
+                "providerID": provider,
+                "modelID": model_id,
+            }
         raw1 = self._post_message(payload1)
         if self._abort:
             return
@@ -192,13 +194,14 @@ class OpencodeWorker(QThread):
         logger.debug("[VERIFY] two-stage agentic refill: stage1 complete (%d chars), now sending stage2 with structured schema", len(raw1))
         enriched = f"[Investigation results]\n{raw1}\n\n[Generation task]\n{stage2}"
         payload2 = {
-            "model": {
-                "providerID": provider,
-                "modelID": model_id,
-            },
             "parts": [{"type": "text", "text": enriched}],
             "structured": STRUCTURED_SCHEMA,
         }
+        if provider and model_id:
+            payload2["model"] = {
+                "providerID": provider,
+                "modelID": model_id,
+            }
         raw2 = self._post_message(payload2)
         if self._abort:
             return

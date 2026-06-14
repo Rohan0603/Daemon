@@ -504,8 +504,8 @@ Nested JSON with 5 sections:
 ```json
 {
   "llm": {
-    "model_id": "north-mini-code-free",
-    "provider": "opencode",
+    "model_id": "",
+    "provider": "",
     "server_url": "http://127.0.0.1:4096",
     "timeout_sec": 180
   },
