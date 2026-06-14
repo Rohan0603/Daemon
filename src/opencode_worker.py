@@ -47,15 +47,19 @@ class OpencodeWorker(QThread):
             return None
         llm_cfg = self._config.get("llm", {})
         server_url = llm_cfg.get("server_url", "http://127.0.0.1:4096")
+        model_id = llm_cfg.get("model_id", "")
         timeout_sec = llm_cfg.get("timeout_sec", 180)
         try:
             if not session_id:
                 if self._abort:
                     return None
                 logger.info("API: creating session at %s/session", server_url)
+                session_payload = {"skill": "kenny"}
+                if model_id:
+                    session_payload["agent"] = model_id
                 r = requests.post(
                     f"{server_url}/session",
-                    json={"title": "Daemon Pet"},
+                    json=session_payload,
                     timeout=timeout_sec,
                 )
                 if r.status_code >= 400:
