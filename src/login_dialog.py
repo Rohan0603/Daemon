@@ -62,7 +62,10 @@ class LoginDialog(QDialog):
         layout.addWidget(self._error_label)
 
         self._action_btn = QPushButton("Access the Brain")
+        self._action_btn.setDefault(True)
         self._action_btn.clicked.connect(self._on_action)
+        self._email_input.returnPressed.connect(self._on_action)
+        self._password_input.returnPressed.connect(self._on_action)
         layout.addWidget(self._action_btn)
 
         self._toggle_btn = QPushButton("Wait, I need a new identity!")
