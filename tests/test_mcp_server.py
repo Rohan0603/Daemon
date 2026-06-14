@@ -7,9 +7,11 @@ from src.mcp_server import MCPHandler, MCPServer
 
 def _handler(bridge=None, memory=None, diary_store=None):
     handler = object.__new__(MCPHandler)
-    handler.fsm_bridge = bridge if bridge is not None else MagicMock()
-    handler.memory = memory
-    handler.diary_store = diary_store
+    handler.server = MagicMock()
+    handler.server.fsm_bridge = bridge if bridge is not None else MagicMock()
+    handler.server.memory = memory
+    handler.server.diary_store = diary_store
+    handler.server.consent = None
     return handler
 
 
@@ -491,10 +493,11 @@ def _consent_handler(overrides: dict[str, bool] | None = None, bridge=None):
     if overrides:
         consent.update(overrides)
     handler = object.__new__(MCPHandler)
-    handler.fsm_bridge = bridge if bridge is not None else MagicMock()
-    handler.memory = None
-    handler.diary_store = None
-    handler.consent = consent
+    handler.server = MagicMock()
+    handler.server.fsm_bridge = bridge if bridge is not None else MagicMock()
+    handler.server.memory = None
+    handler.server.diary_store = None
+    handler.server.consent = consent
     return handler
 
 

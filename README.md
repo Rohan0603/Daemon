@@ -1,6 +1,6 @@
 # Daemon
 
-A mischievous, always-on-top Windows desktop pet built with PyQt6. Lives on your screen, reacts to system activity, and talks to the `opencode` multi-agent platform via HTTP API. Kenny+Morty hybrid personality — an anxious, profane, surveillance-obsessed companion that roasts you relentlessly.
+A mischievous, always-on-top Windows desktop pet built with PyQt6. Lives on your screen, reacts to system activity, and talks to the `opencode` multi-agent platform via HTTP API. Kenny personality — an anxious, profane, surveillance-obsessed companion that roasts you relentlessly.
 
 ---
 

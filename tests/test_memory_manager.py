@@ -65,8 +65,8 @@ def test_constructor_accepts_pet_id():
     crud = MagicMock(spec=FirebaseCRUD)
     mgr_default = MemoryManager(crud=crud, uid="test-uid")
     assert mgr_default._pet_id == "kenny"
-    mgr_custom = MemoryManager(crud=crud, uid="test-uid", pet_id="morty")
-    assert mgr_custom._pet_id == "morty"
+    mgr_custom = MemoryManager(crud=crud, uid="test-uid", pet_id="some_pet")
+    assert mgr_custom._pet_id == "some_pet"
 
 
 def test_get_current_brain(mgr_db, mock_crud):

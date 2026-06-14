@@ -1,4 +1,4 @@
-import random
+import logging
 from typing import Optional, Callable
 
 from PyQt6.QtWidgets import (
@@ -6,18 +6,6 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QWidget,
 )
 from PyQt6.QtCore import Qt
-
-
-def _butcher_email(email: str) -> str:
-    local = email.split("@")[0]
-    if len(local) >= 3:
-        vowels = "aeiou"
-        idx = random.randint(1, len(local) - 2)
-        new_char = random.choice(vowels)
-        local = local[:idx] + new_char + local[idx + 1:]
-        return local
-    else:
-        return local + str(random.randint(0, 9))
 
 
 class LoginDialog(QDialog):
@@ -32,7 +20,7 @@ class LoginDialog(QDialog):
         self._on_sign_up = on_sign_up
         self._mode = "signin"
 
-        self.setWindowTitle("Daemon: Clearance Check")
+        self.setWindowTitle("Daemon: Authentication")
         self.setFixedSize(300, 250)
         self.setWindowFlags(
             Qt.WindowType.Dialog | Qt.WindowType.CustomizeWindowHint | Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint
@@ -41,17 +29,17 @@ class LoginDialog(QDialog):
         layout = QVBoxLayout()
         layout.setSpacing(10)
 
-        title = QLabel("Daemon: Clearance Check")
+        title = QLabel("Daemon: Authentication")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("font-size: 16px; font-weight: bold; margin-bottom: 10px;")
         layout.addWidget(title)
 
         self._email_input = QLineEdit()
-        self._email_input.setPlaceholderText("Email. And don't mess this up, man.")
+        self._email_input.setPlaceholderText("Email")
         layout.addWidget(self._email_input)
 
         self._password_input = QLineEdit()
-        self._password_input.setPlaceholderText("Password. No peeking.")
+        self._password_input.setPlaceholderText("Password")
         self._password_input.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addWidget(self._password_input)
 
@@ -61,14 +49,14 @@ class LoginDialog(QDialog):
         self._error_label.setWordWrap(True)
         layout.addWidget(self._error_label)
 
-        self._action_btn = QPushButton("Access the Brain")
+        self._action_btn = QPushButton("Sign In")
         self._action_btn.setDefault(True)
         self._action_btn.clicked.connect(self._on_action)
         self._email_input.returnPressed.connect(self._password_input.setFocus)
         self._password_input.returnPressed.connect(self._on_action)
         layout.addWidget(self._action_btn)
 
-        self._toggle_btn = QPushButton("Wait, I need a new identity!")
+        self._toggle_btn = QPushButton("Create an account")
         self._toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._toggle_btn.setStyleSheet("QPushButton { border: none; color: #5B8DEF; }")
         self._toggle_btn.clicked.connect(self._toggle_mode)
@@ -80,14 +68,14 @@ class LoginDialog(QDialog):
     def _toggle_mode(self) -> None:
         if self._mode == "signin":
             self._mode = "signup"
-            self.setWindowTitle("Daemon: Identity Registration")
-            self._action_btn.setText("Register Identity")
-            self._toggle_btn.setText("Oh wait, I already have one!")
+            self.setWindowTitle("Daemon: Registration")
+            self._action_btn.setText("Sign Up")
+            self._toggle_btn.setText("Already have an account? Sign In")
         else:
             self._mode = "signin"
-            self.setWindowTitle("Daemon: Clearance Check")
-            self._action_btn.setText("Access the Brain")
-            self._toggle_btn.setText("Wait, I need a new identity!")
+            self.setWindowTitle("Daemon: Authentication")
+            self._action_btn.setText("Sign In")
+            self._toggle_btn.setText("Create an account")
         title_label = self.findChild(QLabel)
         if title_label:
             title_label.setText(self.windowTitle())
@@ -97,7 +85,7 @@ class LoginDialog(QDialog):
         email = self._email_input.text().strip()
         password = self._password_input.text()
         if not email or not password:
-            self.show_error("")
+            self.show_error("Please enter both email and password.")
             return
 
         handler = self._on_sign_in if self._mode == "signin" else self._on_sign_up
@@ -109,15 +97,16 @@ class LoginDialog(QDialog):
             uid = handler(email, password)
             if uid is not None:
                 self.accept()
-            elif "@" in email and "." in email:
-                butchered = _butcher_email(email)
-                self.show_error(f"You call that an email? '{butchered}'? Geez, man.")
+            elif "@" not in email or "." not in email:
+                self.show_error("Please enter a valid email address.")
             else:
-                self.show_error("That ain't it, chief. You're locked out.")
+                if self._mode == "signin":
+                    self.show_error("Authentication failed. Please check your credentials.")
+                else:
+                    self.show_error("Registration failed. Email may already be in use.")
         except Exception as e:
-            import logging
             logging.getLogger(__name__).exception("Login failed with exception: %s", e)
-            self.show_error("Brain's offline. Can't reach Firebase.")
+            self.show_error("Connection error. Could not reach authentication service.")
         finally:
             self.set_loading(False)
 
@@ -126,7 +115,7 @@ class LoginDialog(QDialog):
 
     def show_error(self, message: str) -> None:
         if not message:
-            message = "That ain't it, chief. You're locked out."
+            message = "Authentication failed."
         self._error_label.setText(message)
         self._error_label.setVisible(True)
 
@@ -134,6 +123,6 @@ class LoginDialog(QDialog):
         self._action_btn.setEnabled(not loading)
         self._action_btn.setText(
             "Please wait..." if loading else (
-                "Register Identity" if self._mode == "signup" else "Access the Brain"
+                "Sign Up" if self._mode == "signup" else "Sign In"
             )
         )

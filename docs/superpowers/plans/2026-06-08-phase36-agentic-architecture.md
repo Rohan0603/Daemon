@@ -111,16 +111,16 @@ Use this to:
 
 ## Bickering Pair Protocol
 
-When triggered with `modes=["kenny_roast", "morty_panic"]`, your response array must contain exactly 2 items:
+When triggered with `modes=["kenny_roast", "kenny_panic"]`, your response array must contain exactly 2 items:
 
 ```json
 [
   {"mode": "kenny_roast", "dialogue": "...", "action": "...", "thought": "...", "brain_update": {...}},
-  {"mode": "morty_panic", "dialogue": "...", "action": "...", "thought": "...", "brain_update": {...}}
+  {"mode": "kenny_panic", "dialogue": "...", "action": "...", "thought": "...", "brain_update": {...}}
 ]
 ```
 
-First item is Kenny roasting. Second item is Morty panicking. They should feel like two voices arguing.
+First item is Kenny roasting. Second item is Kenny panicking. They should feel like two voices arguing.
 
 ## Output Contract
 
@@ -131,7 +131,7 @@ You MUST return a JSON array. Each item follows this schema:
   "thought": "Internal monologue — what Kenny is thinking (max 200 chars)",
   "dialogue": "What Kenny says out loud (max 150 chars). Use stuttering, dashes, and trailing dots for panic.",
   "action": "One of: idle, wander, shake, spin, hyper, bounce, look_away, celebrate, devastated, fall, chase",
-  "mode": "Optional. active_chat, joke, boredom, curiosity, kenny_roast, morty_panic. Omit if single-mode.",
+  "mode": "Optional. active_chat, joke, boredom, curiosity, kenny_roast, kenny_panic. Omit if single-mode.",
   "target_x": "Optional integer. X coordinate for wander/chase actions. Null otherwise.",
   "target_y": "Optional integer. Y coordinate for wander/chase actions. Null otherwise.",
   "brain_update": "Optional dict. Keys = fact names, values = [string] arrays. Updates user memory."
@@ -192,7 +192,7 @@ Telemetry: `APM: 0 | Window: "Firefox" | Memory: user_profession unknown`
       "thought":    {"type": "string", "maxLength": 200},
       "dialogue":   {"type": "string", "maxLength": 150},
       "action":     {"type": "string", "enum": ["idle","wander","shake","spin","hyper","bounce","look_away","celebrate","devastated","fall","chase"]},
-      "mode":       {"type": "string", "enum": ["active_chat","joke","boredom","curiosity","kenny_roast","morty_panic"]},
+      "mode":       {"type": "string", "enum": ["active_chat","joke","boredom","curiosity","kenny_roast","kenny_panic"]},
       "target_x":   {"type": ["integer", "null"]},
       "target_y":   {"type": ["integer", "null"]},
       "brain_update": {
@@ -251,7 +251,7 @@ STRUCTURED_SCHEMA = {
             "thought":      {"type": "string", "maxLength": 200},
             "dialogue":     {"type": "string", "maxLength": 150},
             "action":       {"type": "string", "enum": ["idle", "wander", "shake", "spin", "hyper", "bounce", "look_away", "celebrate", "devastated", "fall", "chase"]},
-            "mode":         {"type": "string", "enum": ["active_chat", "joke", "boredom", "curiosity", "kenny_roast", "morty_panic"]},
+            "mode":         {"type": "string", "enum": ["active_chat", "joke", "boredom", "curiosity", "kenny_roast", "kenny_panic"]},
             "target_x":     {"type": ["integer", "null"]},
             "target_y":     {"type": ["integer", "null"]},
             "brain_update": {

@@ -162,7 +162,11 @@ def test_on_joke_tick_skips_when_pending(app, tmp_path):
          patch("src.pet_window.APMWorker"), \
          patch("src.pet_window.OpencodeWorker") as mock_worker_cls:
         window = PetWindow(opencode_enabled=True, memory_path=mem_path, history_path=hist_path)
-        window._autonomous_query_pending = True
+        # Mock that a worker is already running to block refills
+        mock_worker = MagicMock()
+        mock_worker.isRunning.return_value = True
+        window._opencode_worker = mock_worker
+        
         window._trigger_joke()
         mock_worker_cls.assert_not_called()
 
@@ -590,7 +594,7 @@ def test_active_chat_tick_dispatches_trigger(app, tmp_path):
         pw = PetWindow(opencode_enabled=True, memory_path=mem_path, history_path=hist_path)
         pw._opencode_worker = mock_worker
         pw._trigger_chat()
-        assert mock_worker_cls.call_count >= 2
+        assert mock_worker_cls.call_count == 1
         mock_worker.start.assert_called()
 
 def test_joke_tick_dispatches_trigger(app, tmp_path):
@@ -713,7 +717,7 @@ def test_dispatch_multiplexed_creates_worker(qtbot):
         mock_worker_cls.return_value = mock_worker
         window = PetWindow()
         qtbot.add_widget(window)
-        window._dispatch_multiplexed(["kenny_roast", "morty_panic"])
+        window._dispatch_multiplexed(["kenny_roast", "active_chat"])
         assert mock_worker_cls.called
         assert mock_worker.start.called
         assert mock_worker.response_ready.connect.called
@@ -731,7 +735,7 @@ def test_structured_multiplexed_bickering_pair(qtbot):
         window._dispatch_structured = MagicMock()
         items = [
             {"dialogue": "Kenny roast!", "action": "shake", "target_x": 0, "mode": "kenny_roast"},
-            {"dialogue": "Morty panic!", "action": "spin", "target_x": 0, "mode": "morty_panic"},
+            {"dialogue": "Active chat!", "action": "spin", "target_x": 0, "mode": "active_chat"},
         ]
         window._on_structured_multiplexed(items)
         assert window._dispatch_structured.call_count == 1

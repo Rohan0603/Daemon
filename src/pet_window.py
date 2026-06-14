@@ -495,58 +495,36 @@ class PetWindow(QWidget):
         return current == self._last_context_snapshot
 
     def _trigger_chat(self) -> None:
-        """Handle active chat: instant local reaction + background API call."""
+        """Handle active chat: draw from thought pool."""
         self._chat_timer_sec = 0  # Reset timer
 
-        # Zero-latency local reaction
+        if not self._should_fire_autonomous("active_chat"):
+            return
+
         current_hash = self._last_context_snapshot if hasattr(self, "_last_context_snapshot") else None
         local = self._response_manager.draw("typing_reaction", current_context_hash=current_hash)
         if local:
             self._dispatch_structured(local[0])
 
-        # Background API call - respect failure recovery
-        if not self._autonomous_query_pending and self._opencode_enabled:
-            # Check if we should skip API call due to recent failures
-            current_time = time.time()
-            if hasattr(self, "_last_refill_attempt") and hasattr(self, "_refill_failed_count"):
-                time_since_last_refill = current_time - self._last_refill_attempt
-                if self._refill_failed_count >= 3 and time_since_last_refill < 300:
-                    logger.info("Skipping chat API call due to recent failures")
-                    return
-            
-            self._dispatch_trigger(
-                mode="active_chat",
-                context_hint=get_active_window_title(),
-                apm=self._current_apm,
-                idle_seconds=self._idle_seconds,
-                typing_content=self._typing_buffer.get_context() if self._typing_buffer else "",
-                is_autonomous=True,
-            )
-
     def _trigger_joke(self) -> None:
-        """Handle joke trigger: background API call."""
+        """Handle joke trigger: draw from thought pool."""
         self._joke_timer_sec = 0  # Reset timer
 
-        # Background API call - respect failure recovery
-        if not self._autonomous_query_pending and self._opencode_enabled:
-            # Check if we should skip API call due to recent failures
-            current_time = time.time()
-            if hasattr(self, "_last_refill_attempt") and hasattr(self, "_refill_failed_count"):
-                time_since_last_refill = current_time - self._last_refill_attempt
-                if self._refill_failed_count >= 3 and time_since_last_refill < 300:
-                    logger.info("Skipping joke API call due to recent failures")
-                    return
-            
-            self._dispatch_trigger(
-                mode="joke",
-                context_hint=get_active_window_title(),
-                apm=self._current_apm,
-                idle_seconds=self._idle_seconds,
-                is_autonomous=True,
-            )
+        if not self._should_fire_autonomous("joke"):
+            return
+
+        current_hash = self._last_context_snapshot if hasattr(self, "_last_context_snapshot") else None
+        local = self._response_manager.draw("intel_roast", current_context_hash=current_hash)
+        if not local:
+            local = self._response_manager.draw("observation", current_context_hash=current_hash)
+        if local:
+            self._dispatch_structured(local[0])
 
     def _trigger_boredom_fsm(self) -> None:
-        """Handle boredom: local FSM actions only, API every 3rd/4th tick."""
+        """Handle boredom: local FSM actions only."""
+        if not self._should_fire_autonomous("boredom"):
+            return
+
         from src.pet_fsm import PetState
 
         # Local FSM actions (silent, no GCD)
@@ -554,26 +532,6 @@ class PetWindow(QWidget):
         action = random.choice(actions)
         target_state = getattr(PetState, action)
         self._fsm.transition_to(target_state)
-
-        # API call every 3rd-4th boredom tick - respect failure recovery
-        self._boredom_tick_count = (self._boredom_tick_count + 1) % 4
-        if self._boredom_tick_count == 0 and self._opencode_enabled:
-            # Check if we should skip API call due to recent failures
-            current_time = time.time()
-            if hasattr(self, "_last_refill_attempt") and hasattr(self, "_refill_failed_count"):
-                time_since_last_refill = current_time - self._last_refill_attempt
-                if self._refill_failed_count >= 3 and time_since_last_refill < 300:
-                    logger.info("Skipping boredom API call due to recent failures")
-                    return
-            
-            if not self._autonomous_query_pending:
-                self._dispatch_trigger(
-                    mode="boredom",
-                    context_hint=get_active_window_title(),
-                    apm=self._current_apm,
-                    idle_seconds=self._idle_seconds,
-                    is_autonomous=True,
-                )
 
     def _evaluate_emotion(self) -> Emotion:
         """Determine current emotion from OS context. Stateless pure function."""
@@ -1121,6 +1079,13 @@ class PetWindow(QWidget):
             return
 
         if state == PetState.FALLING:
+            if getattr(self, '_bounce_delay_ms', 0) > 0:
+                self._bounce_delay_ms -= dt
+                if self._bounce_delay_ms <= 0:
+                    self._fall_velocity = getattr(self, '_pending_bounce_velocity', 0.0)
+                    self._pet_y -= 1
+                return
+
             self._fall_velocity += GRAVITY_ACCELERATION
             self._pet_y += int(self._fall_velocity)
             
@@ -1132,19 +1097,26 @@ class PetWindow(QWidget):
                 pet_center_x = self._pet_x + PET_WIDTH // 2
                 if w_left <= pet_center_x <= w_right and -5.0 <= (self._pet_y + PET_HEIGHT) - w_top <= max(5.0, self._fall_velocity + 5.0):
                     if self._fall_velocity > 10.0:
-                        self._pet_y = w_top - PET_HEIGHT - 1
-                        self._fall_velocity = -self._fall_velocity * 0.3
+                        self._pet_y = w_top - PET_HEIGHT
+                        self._pending_bounce_velocity = -self._fall_velocity * 0.3
+                        self._bounce_delay_ms = 120
+                        self._fall_velocity = 0.0
+                        self._land_time = time.time()
                     else:
                         self._pet_y = w_top - PET_HEIGHT
                         self._fall_velocity = 0.0
                         self._ground_y = w_top - PET_HEIGHT
                         landed = True
                         self._title_land_time = time.time()
+                        self._land_time = time.time()
 
             if not landed and self._pet_y >= self._ground_y and self._fall_velocity >= 0:
                 if self._fall_velocity > 10.0:
-                    self._pet_y = self._ground_y - 1
-                    self._fall_velocity = -self._fall_velocity * 0.3
+                    self._pet_y = self._ground_y
+                    self._pending_bounce_velocity = -self._fall_velocity * 0.3
+                    self._bounce_delay_ms = 120
+                    self._fall_velocity = 0.0
+                    self._land_time = time.time()
                 else:
                     self._pet_y = self._ground_y
                     self._fall_velocity = 0.0
@@ -1639,12 +1611,6 @@ class PetWindow(QWidget):
         for item in items[1:]:
             self._response_manager.add_items([item])
 
-    def _maybe_dispatch_bickering(self) -> bool:
-        if random.random() < 0.10:
-            self._dispatch_multiplexed(["kenny_roast", "morty_panic"])
-            return True
-        return False
-
     def _dispatch_structured(self, item: dict, force: bool = False) -> None:
         thought = item.get("thought", "")
         dialogue = item.get("dialogue", "")
@@ -1712,8 +1678,7 @@ class PetWindow(QWidget):
             logger.debug("[boredom] Skipping: FSM state=%s", self._fsm.current_state.name)
             return
             
-        if self._maybe_dispatch_bickering():
-            return
+
         current_hash = self._last_context_snapshot if hasattr(self, "_last_context_snapshot") else None
         items = self._response_manager.draw("idle_thought", current_context_hash=current_hash)
         if not items:
@@ -2035,12 +2000,11 @@ class PetWindow(QWidget):
         worker = OpencodeWorker(
             "",
             is_autonomous=True,
-            session_id=self._opencode_session_id,
+            session_id=None,
             two_stage_prompts=(stage1, prompt),
         )
         worker.response_ready.connect(lambda items: self._on_refill_result(items))
         worker.error_occurred.connect(lambda err: self._on_refill_error())
-        worker.session_created.connect(self._on_session_created)
         self._refill_workers["thought_pool"] = worker
         worker.start()
         self._last_refill_attempt = current_time

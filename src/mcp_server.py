@@ -284,10 +284,21 @@ _CONSENT_TOOL_MAP: dict[str, str] = {
 
 class MCPHandler(BaseHTTPRequestHandler):
 
-    fsm_bridge = None
-    memory = None
-    diary_store = None
-    consent: dict[str, bool] | None = None
+    @property
+    def fsm_bridge(self):
+        return getattr(self.server, "fsm_bridge", None)
+
+    @property
+    def memory(self):
+        return getattr(self.server, "memory", None)
+
+    @property
+    def diary_store(self):
+        return getattr(self.server, "diary_store", None)
+
+    @property
+    def consent(self):
+        return getattr(self.server, "consent", None)
 
     def handle(self):
         try:
@@ -709,16 +720,11 @@ class MCPServer:
             k: self._config.get(k, False) for k in _CONSENT_TOOL_MAP.values()
         } if self._config else {}
 
-        def handler_factory(*args, **kwargs):
-            handler = MCPHandler(*args, **kwargs)
-            handler.fsm_bridge = self._fsm_bridge
-            handler.memory = self._memory
-            handler.diary_store = self._diary_store
-            handler.consent = consent
-            return handler
-
-        self._server = ThreadingHTTPServer((self._host, self._port), handler_factory)
+        self._server = ThreadingHTTPServer((self._host, self._port), MCPHandler)
         self._server.fsm_bridge = self._fsm_bridge
+        self._server.memory = self._memory
+        self._server.diary_store = self._diary_store
+        self._server.consent = consent
         self._port = self._server.server_address[1]
         self._thread = Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()

@@ -143,15 +143,27 @@ def load_config() -> dict:
 def save_config(config: dict) -> bool:
     """Persist nested config to CONFIG_PATH. Accepts flat or nested dict."""
     is_nested = any(k in config and isinstance(config[k], dict) for k in DEFAULT_CONFIG.keys())
+    
+    p = Path(_CONFIG_PATH)
+    current_cfg = copy.deepcopy(DEFAULT_CONFIG)
+    if p.exists():
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if not any(isinstance(v, dict) for v in data.values()):
+                data = unflatten_config(data)
+            _deep_merge(current_cfg, data)
+        except Exception:
+            pass
+
     if is_nested:
-        nested = config
+        _deep_merge(current_cfg, config)
     else:
-        nested = unflatten_config(config)
+        nested_update = unflatten_config(config)
+        _deep_merge(current_cfg, nested_update)
 
     try:
-        p = Path(_CONFIG_PATH)
         p.parent.mkdir(exist_ok=True)
-        p.write_text(json.dumps(nested, indent=2), encoding="utf-8")
+        p.write_text(json.dumps(current_cfg, indent=2), encoding="utf-8")
         return True
     except Exception as e:
         logger.warning("Failed to save config: %s", e)
@@ -176,10 +188,12 @@ def flatten_config(nested: dict) -> dict:
 
 def unflatten_config(flat: dict) -> dict:
     """Convert flat dict to nested dictionary structure."""
-    nested = copy.deepcopy(DEFAULT_CONFIG)
+    nested = {}
     for flat_key, val in flat.items():
         if flat_key in FLAT_TO_NESTED:
             sec, subkey = FLAT_TO_NESTED[flat_key]
+            if sec not in nested:
+                nested[sec] = {}
             nested[sec][subkey] = val
         else:
             # Keep other keys at top-level

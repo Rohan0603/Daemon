@@ -154,11 +154,11 @@ class TTSWorker(QThread):
             logger.warning("pyttsx3 fallback failed: %s", e)
             return None
 
-    def _apply_morty_filter(self, audio_path: str) -> tuple[bytes, int, int, int] | None:
+    def _apply_pitch_filter(self, audio_path: str) -> tuple[bytes, int, int, int] | None:
         """Read audio file, apply pitch shift via framerate override.
         Returns (raw_pcm, play_rate, nchannels, sampwidth) or None."""
         if not _PYDUB_AVAILABLE:
-            return self._apply_morty_filter_wave(audio_path)
+            return self._apply_pitch_filter_wave(audio_path)
         try:
             from pydub import AudioSegment
 
@@ -175,9 +175,9 @@ class TTSWorker(QThread):
 
         except Exception as e:
             logger.debug("pydub pitch shift failed: %s, falling back to wave", e)
-            return self._apply_morty_filter_wave(audio_path)
+            return self._apply_pitch_filter_wave(audio_path)
 
-    def _apply_morty_filter_wave(self, audio_path: str) -> tuple[bytes, int, int, int] | None:
+    def _apply_pitch_filter_wave(self, audio_path: str) -> tuple[bytes, int, int, int] | None:
         """Fallback pitch shift using only stdlib wave module."""
         if not audio_path.lower().endswith(".wav"):
             return None
@@ -244,7 +244,7 @@ class TTSWorker(QThread):
         if audio_path is None:
             return
 
-        result = self._apply_morty_filter(audio_path)
+        result = self._apply_pitch_filter(audio_path)
         if result is None and audio_path.endswith(".mp3"):
             try:
                 os.remove(audio_path)
@@ -252,7 +252,7 @@ class TTSWorker(QThread):
                 pass
             audio_path = self._generate_pyttsx3(text)
             if audio_path:
-                result = self._apply_morty_filter(audio_path)
+                result = self._apply_pitch_filter(audio_path)
         else:
             try:
                 os.remove(audio_path)

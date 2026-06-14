@@ -71,7 +71,7 @@ class TestTTSWorker:
         worker = TTSWorker(voice_id="en-US-GuyNeural")
         assert worker.voice_id == "en-US-GuyNeural"
 
-    def test_apply_morty_filter_wave_pitch_shifts(self):
+    def test_apply_pitch_filter_wave_pitch_shifts(self):
         worker = TTSWorker()
         tmp = os.path.join(tempfile.gettempdir(), "tts_test_in.wav")
         nch, sw, rate, nframes = 1, 2, 22050, 1000
@@ -82,7 +82,7 @@ class TestTTSWorker:
             w.setframerate(rate)
             w.writeframes(frames)
         try:
-            result = worker._apply_morty_filter_wave(tmp)
+            result = worker._apply_pitch_filter_wave(tmp)
             assert result is not None
             raw, play_rate, r_nch, r_sw = result
             assert play_rate == rate

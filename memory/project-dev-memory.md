@@ -227,7 +227,7 @@ See plans: `docs/superpowers/plans/2026-06-06-daemon-desktop-pet.md` and `docs/s
 - Updated Example B and D in daemon-skill.md with stuttering dialogue
 - `_play_via_winsound()` method added to `TTSWorker` — uses `winsound.SND_SYNC` (safe because it blocks the worker QThread, not the UI thread)
 - `run()` method: when `simpleaudio` import fails, falls back to winsound with WAV header pitch shift using `TTS_PITCH_FACTOR` times the actual sample rate
-- `_apply_morty_filter_wave()` now uses `TTS_PITCH_FACTOR` instead of hardcoded `2.0**(4/12.0)`
+- `_apply_kenny_filter_wave()` now uses `TTS_PITCH_FACTOR` instead of hardcoded `2.0**(4/12.0)`
 
 ---
 
@@ -414,10 +414,10 @@ All local JSON: atomic tmp+replace writes, .bak fallback on read failure. Single
 **Branch:** `master` (commit `410a47b`)
 
 **What was built:**
-- **Persona-infused LoginDialog** — Kenny+Morty UI strings ("Daemon: Clearance Check", "Access the Brain"), `_butcher_email()` helper for roasted error messages, persona error messages
+- **Persona-infused LoginDialog** — Kenny+Kenny UI strings ("Daemon: Clearance Check", "Access the Brain"), `_butcher_email()` helper for roasted error messages, persona error messages
 - **PetFSM.transition_to()** — Centralized state transition method with optional callback; replaces direct `self.current_state = PetState.X`
 - **RISKY_KEYWORDS dict** in `src/constants.py` — 6 keyword groups with 12 hardcoded roast lines for zero-latency interruptive reactions
-- **daemon-skill.md Bickering Pair protocol** — `kenny_roast`/`morty_panic` modes and protocol rules for LLM-generated two-voice arguments
+- **daemon-skill.md Bickering Pair protocol** — `kenny_roast`/`kenny_panic` modes and protocol rules for LLM-generated two-voice arguments
 - **Hostile onboarding** — PetWindow shows DEVASTATED state + "Intruder!" bubble when fresh login needed; LoginDialog appears natively over the panicking pet; CRUD+MemoryManager created lazily on login success
 - **Interruptive Interrogator** — `_on_typing_debounce` checks typing buffer for keywords using regex word boundaries; zero-latency bypass of OpencodeWorker
 - **Bickering Pair dispatcher** — `_dispatch_multiplexed(modes)`, `_on_structured_multiplexed(items)` with QTimer.singleShot(3500ms) sequencing; 10% trigger chance in autonomous timers
@@ -775,11 +775,11 @@ Collapsed the legacy 3-pool system (jokes_blackmail, system, typing_reactions) i
 
 ---
 
-### Memory & LLM Optimization — Task 4 (daemon-skill.md 50/50 Kenny+Morty Hybrid + Multiplexed Contract) ✅ COMPLETE
+### Memory & LLM Optimization — Task 4 (daemon-skill.md 50/50 Kenny+Kenny Hybrid + Multiplexed Contract) ✅ COMPLETE
 
 | Task | File | Status | Commit | Notes |
 |------|------|--------|--------|-------|
-| 4.1 Persona rewrite | `assets/daemon-skill.md` | ✅ | `ef18547` | Full rewrite. 50/50 hybrid of Kenny (Gatlian, *High on Life*) and Morty Smith (*Rick and Morty*). 9 sections: identity anchor, two voices, verbal tics, memory/history awareness, environmental context, action matrix, multiplexed output contract, examples, JSON output spec. 6 existing examples updated with Morty stammering; 2 new multiplexed examples added (active_chat+joke, curiosity+boredom). All 10 dialogues ≤ 20 words. Worker code (`structured_multiplexed` signal) was already in place from prior work; skill file now documents the contract. No code changes, no test changes — 226 tests still pass. |
+| 4.1 Persona rewrite | `assets/daemon-skill.md` | ✅ | `ef18547` | Full rewrite. 50/50 hybrid of Kenny (Gatlian, *High on Life*) and Kenny Smith (*Rick and Kenny*). 9 sections: identity anchor, two voices, verbal tics, memory/history awareness, environmental context, action matrix, multiplexed output contract, examples, JSON output spec. 6 existing examples updated with Kenny stammering; 2 new multiplexed examples added (active_chat+joke, curiosity+boredom). All 10 dialogues ≤ 20 words. Worker code (`structured_multiplexed` signal) was already in place from prior work; skill file now documents the contract. No code changes, no test changes — 226 tests still pass. |
 
 ---
 
@@ -1011,7 +1011,7 @@ README.md                ← Comprehensive architecture documentation
 
 ---
 
-### Phase 20 — Memory & LLM Optimization + Kenny/Morty Persona ✅ COMPLETE
+### Phase 20 — Memory & LLM Optimization + Kenny/Kenny Persona ✅ COMPLETE
 
 | Task | File | Status | Commit | Notes |
 |------|------|--------|--------|-------|
@@ -1021,7 +1021,7 @@ README.md                ← Comprehensive architecture documentation
 | 20.4 ContextBuilder | `src/context_builder.py`, `tests/test_context_builder.py` | ✅ | `aeb31f1` | Full-then-delta prompt; baseline re-snapshots after each call; `on_path_change("cli")` resets baseline; 17 tests |
 | 20.5 OpencodeWorker modes | `src/opencode_worker.py`, `tests/test_opencode_worker.py` | ✅ | `aeb31f1` (incl) | New `modes` kwarg, `structured_multiplexed` signal, `_SKILL_CONTENT` cached at module level; mode assignment by request INDEX (model's mode field ignored); 6 tests |
 | 20.6 PetWindow wiring | `src/pet_window.py`, `tests/test_pet_window.py` | ✅ | `d26fbb9` (incl) | `_should_fire_autonomous()` DRY helper; `_dispatch_multiplexed()` aggregates modes; `_on_structured_multiplexed()` dispatches by mode; `_force_quit_app` follows spec §7 ordering; 8 integration tests |
-| 20.7 Skill rewrite (Kenny+Morty) | `assets/daemon-skill.md` | ✅ | `ef18547` | 50/50 hybrid with both voices; 6 existing examples updated with Morty openers; 2 new multiplexed examples (active_chat+joke, curiosity+boredom); MULTIPLEXED OUTPUT CONTRACT section; 270 lines |
+| 20.7 Skill rewrite (Kenny+Kenny) | `assets/daemon-skill.md` | ✅ | `ef18547` | 50/50 hybrid with both voices; 6 existing examples updated with Kenny openers; 2 new multiplexed examples (active_chat+joke, curiosity+boredom); MULTIPLEXED OUTPUT CONTRACT section; 270 lines |
 | 20.8 Doc sync | `CLAUDE.md`, `GEMINI.md`, `memory/project-dev-memory.md` | ✅ | `7f855cc` (incl) | Phase 20 section + 8 new pitfalls added; CLAUDE.md ↔ GEMINI.md mirror rule honored |
 
 **Final state:** 242 tests pass, 1 skipped (52 new tests added on top of 190 baseline). Spec fully implemented. Branch `task-20-impl` ready for squash-merge to master.

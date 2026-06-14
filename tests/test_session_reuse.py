@@ -16,7 +16,8 @@ class TestSessionReuse:
         pw._opencode_session_id = "ses_abc123"
         pw._current_apm = 10
         pw._context_manager = MagicMock()
-        pw._context_manager.build_mixed_bag_prompt.return_value = "test prompt"
+        pw._context_manager.build_mixed_bag_prompt.return_value = ("test prompt", "test prompt")
+        pw._opencode_worker = None
         pw._refill_workers = {}
 
         mock_worker = MagicMock()

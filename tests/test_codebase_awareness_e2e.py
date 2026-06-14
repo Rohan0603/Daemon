@@ -12,7 +12,8 @@ from unittest.mock import MagicMock
 
 def _handler():
     handler = object.__new__(MCPHandler)
-    handler.fsm_bridge = MagicMock()
+    handler.server = MagicMock()
+    handler.server.fsm_bridge = MagicMock()
     return handler
 
 

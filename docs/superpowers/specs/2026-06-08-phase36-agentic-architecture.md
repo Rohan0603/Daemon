@@ -46,8 +46,8 @@ Content migrated from `assets/daemon-skill.md`:
 - Action matrix (all 10 FSM actions with descriptions)
 - Multiplexed output contract (active_chat, joke, boredom, curiosity modes)
 - JSON output spec with brain_update protocol
-- Dialogue examples with stuttering, Morty-style stammering
-- Bickering Pair protocol (kenny_roast / morty_panic modes)
+- Dialogue examples with stuttering, Kenny-style stammering
+- Bickering Pair protocol (kenny_roast / kenny_panic modes)
 
 #### Delete `assets/daemon-skill.md`
 
