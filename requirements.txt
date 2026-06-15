@@ -10,6 +10,9 @@ PyQt6>=6.7.0
 # If import fails at runtime, APM monitor disables gracefully
 pynput>=1.7.7
 
+# --- Environment / Secrets ---
+python-dotenv>=1.0.0
+
 # --- OpenRouter via OpenAI-compatible SDK ---
 openai>=1.0.0
 

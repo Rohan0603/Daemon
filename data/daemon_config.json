@@ -1,0 +1,38 @@
+{
+  "llm": {
+    "model_id": "",
+    "provider": "",
+    "server_url": "http://127.0.0.1:4096",
+    "timeout_sec": 180,
+    "api_key": ""
+  },
+  "pet": {
+    "id": "kenny",
+    "scale": 1.51,
+    "opacity": 0.85,
+    "speed_multiplier": 1.0,
+    "chattiness": 3.0
+  },
+  "tts": {
+    "enabled": true,
+    "rate": 220,
+    "volume": 1.0,
+    "voice_id": "en-US-GuyNeural",
+    "pitch": 1.15
+  },
+  "consent": {
+    "allow_intrusive_animations": true,
+    "allow_audio_disruptions": true,
+    "allow_browser_redirection": true,
+    "allow_clipboard_hijacking": true,
+    "allow_mouse_interference": true,
+    "allow_window_management": true,
+    "allow_keyboard_injection": true
+  },
+  "window": {
+    "monitor": false
+  },
+  "firebase": {
+    "api_key": ""
+  }
+}

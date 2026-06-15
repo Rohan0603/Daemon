@@ -12,6 +12,9 @@ __pycache__/
 *.tmp
 *_response.json
 
+# Secrets
+.env
+
 # Credentials
 assets/firebase-credentials.json
 data/firebase-credentials.json
