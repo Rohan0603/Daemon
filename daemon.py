@@ -1,5 +1,6 @@
 import sys
 import os
+import atexit
 import faulthandler
 import argparse
 import logging
@@ -24,6 +25,34 @@ def _crash_hook(exc_type, exc_value, exc_tb):
         f.write("\n")
     _original_excepthook(exc_type, exc_value, exc_tb)
 sys.excepthook = _crash_hook
+
+# Track the active PetWindow reference for atexit emergency flush
+_active_pet_window_ref = None
+
+
+def _emergency_flush(window: "PetWindow | None" = None) -> None:
+    """Emergency data flush for atexit — last-resort save on abnormal exit.
+
+    Tries to flush WriteCoalescer and save Memory/History. Silent on any
+    failure since the interpreter may be partially torn down.
+    """
+    if window is None:
+        return
+    try:
+        if hasattr(window, '_write_coalescer'):
+            window._write_coalescer.flush()
+    except Exception:
+        pass
+    try:
+        if hasattr(window, '_memory'):
+            window._memory.save()
+    except Exception:
+        pass
+    try:
+        if hasattr(window, '_history'):
+            window._history.save()
+    except Exception:
+        pass
 
 
 def _ensure_ffmpeg_on_path():
@@ -193,6 +222,11 @@ def main() -> None:
         fresh_login=fresh_login,
         pet_id=pet_id,
     )
+
+    # Register atexit handler for emergency data flush on abnormal exit
+    global _active_pet_window_ref
+    _active_pet_window_ref = window
+    atexit.register(_emergency_flush, window)
 
     try:
         exit_code = app.exec()

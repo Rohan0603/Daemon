@@ -215,6 +215,7 @@ class OpencodeWorker(QThread):
         """Parse JSON response from LLM with multiple fallback strategies.
 
         Returns parsed list of dicts or None if all parsing fails.
+        On failure, logs detailed diagnostic info (line, column, context).
         """
         cleaned = raw.strip()
 
@@ -233,8 +234,19 @@ class OpencodeWorker(QThread):
                 if self._validate_items(items):
                     return items
                 logger.debug("Parsed JSON but validation failed: %s", cleaned[:200])
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            logger.warning(
+                "JSON decode error at line %d col %d: %s",
+                e.lineno, e.colno, e.msg,
+            )
+            # Log context around the error position
+            lines = cleaned.split('\n')
+            start = max(0, (e.lineno or 1) - 3)
+            end = min(len(lines), (e.lineno or 1) + 2)
+            ctx = '\n'.join(
+                f"{i+1}| {lines[i]}" for i in range(start, end)
+            )
+            logger.debug("JSON parse context around error:\n%s", ctx)
 
         # 3. Regex extraction for array of objects (more precise)
         # Match: [ { ... }, { ... }, ... ] with proper bracket nesting
@@ -260,6 +272,10 @@ class OpencodeWorker(QThread):
         except (json.JSONDecodeError, ValueError):
             pass
 
+        logger.warning(
+            "All JSON parsing strategies failed for response (first 500 chars): %s",
+            raw[:500],
+        )
         return None
 
     def _validate_items(self, items: list[Any]) -> bool:
