@@ -682,63 +682,31 @@ Collapsed the legacy 3-pool system (jokes_blackmail, system, typing_reactions) i
 
 ---
 
-### Phase 48 — Comprehensive Architecture Review & Bug Fixes (2026-06-14)
+### Phase 48 — Consent Matrix Migration (2026-06-14)
 
-**Commit:** `7e81c7f` (partial fixes on task branch)
+**Commit:** `a97b55b` (current)
 
 **What was done:**
-Complete line-by-line audit of entire codebase (~21K lines across 35 modules, 588 tests). Found and fixed 5 critical bugs, documented 30+ architectural issues, and created strategic improvement roadmap.
+- Migrated from 11-tier consent matrix to 3-tier consent matrix in `src/config.py`, `src/mcp_server.py`, `src/settings_dialog.py`, `src/pet_window.py`
+- Renamed tools and consent keys:
+  - `capture_screenshot` → `capture_blackmail_evidence` (consent: `allow_window_management`)
+  - `allow_system_notifications` → `allow_audio_disruptions`
+  - `allow_clipboard_reading` → `allow_clipboard_hijacking`
+  - `allow_screenshot_capture` → removed (now uses `allow_window_management`)
+  - `allow_file_listing`, `allow_file_reading`, `allow_codebase_search`, `allow_memory_access`, `allow_diary_access` → removed (read-only tools always allowed)
+- Updated `_CONSENT_TOOL_MAP` in `mcp_server.py` to new 7-tool mapping
+- Updated all tests in `tests/test_mcp_server.py` and `tests/test_settings_dialog.py`
+- Set correct defaults per AGENTS.md: Tier 1 = True, Tier 2/3 = False
 
-**Critical Bugs Fixed:**
-1. **Hardcoded PROJECT_ROOT in MCP Server** (`mcp_server.py:16`) → Dynamic `Path(__file__).parent.parent.resolve()`
-2. **ClickThrough Hysteresis** (`click_through.py:64-88`) → Verified logic is correct: transparent expands, opaque shrinks
-3. **Refill Worker Race Condition** (`pet_window.py:1961-1973`) → Added `threading.Lock` for atomic check-and-set
-4. **Missing `pool_refilled` Signal Connection** → Connected to `_on_pool_refilled()` handler at line 224
-5. **OpencodeWorker Session Leak on Abort** (`opencode_worker.py:41-56`) → DELETE `/session/{id}` in `abort()`
-
-**Bugs Remaining (partial fixes applied):**
-- Drift-free timers → ✅ Fixed with `time.monotonic()` in `_master_tick()`
-- TTS temp file leak → ❌ Pending
-- Double window title call → ❌ Pending
-- TypingBuffer signal spam → ❌ Pending
-- `_dispatch_multiplexed` session reuse → ❌ Pending
-- Firestore write per brain field → ❌ Pending
-
-**Architectural Issues Documented (in `docs/ARCHITECTURE_REVIEW.md`):**
-- God Object: PetWindow (2,118 lines) → Decomposition plan into 5 modules
-- Two-timer drift risk → ✅ Fixed with `time.monotonic()` deltas
-- Memory sync race (local↔Firebase) → Add atexit + signal handlers
-- No structured logging/observability → Add structlog, Prometheus, OpenTelemetry
-- OpencodeWorker fragile JSON parse → Enforce schema at LLM level
-- Consent matrix tier inconsistency → Remap tools to appropriate tiers
-- No MCP server health check → Add port 4097 check
-
-**Strategic Roadmap (12 items):**
-- Plugin Architecture for emotions/behaviors
-- Event Bus for decoupled communication
-- Persistent LLM Sessions
-- Local LLM Fallback (llama.cpp/Ollama)
-- Trigger Rules Engine (YAML)
-- Observability Stack (Prometheus/Grafana/OTel)
-- Multi-Pet Support
-- Voice Interaction (STT via Whisper)
-- Cross-Device Sync
-- Personality Evolution
-- Rich Screen Understanding (OCR + VLM)
-
-**Test Results:** All 588 tests pass (including 14 new typing_buffer tests with debounce, session_reuse fix)
+**Test results:** 68/68 tests pass in affected modules
 
 **Files Changed:**
-- `src/pet_window.py` — Refill lock, monotonic time tracking
-- `src/response_pool.py` — Added `type` field to tagged items
-- `src/mcp_server.py` — PROJECT_ROOT fix (already applied)
-- `src/click_through.py` — Verified correct logic
-- `src/pet_window.py` — Refill lock, pool_refilled handler, _evaluate_emotion cache, threading import
-- `src/opencode_worker.py` — Session cleanup on abort
-- `src/typing_buffer.py` — 50ms debounce timer
-- `tests/test_session_reuse.py` — Added _refill_workers_lock to mock
-- `docs/ARCHITECTURE_REVIEW.md` — Comprehensive review document (new)
-- `AGENTS.md` — Updated with all critical bugs, architectural issues, strategic roadmap
+- `src/config.py` — Updated DEFAULT_CONFIG and FLAT_TO_NESTED/NESTED_TO_FLAT consent keys to match Phase 43 consent matrix
+- `src/mcp_server.py` — Updated _CONSENT_TOOL_MAP to use new consent key names
+- `src/settings_dialog.py` — Updated constructor params and UI widgets for new consent matrix (Tier 1: intrusive_animations, audio_disruptions; Tier 2: browser_redirection, clipboard_hijacking, mouse_interference; Tier 3: keyboard_injection, window_management)
+- `src/pet_window.py` — Updated _saved_consent defaults and consent_keys tuple
+- `tests/test_mcp_server.py` — Updated test handlers and assertions for new consent keys
+- `tests/test_settings_dialog.py` — Updated test assertions for new consent keys
 
 
 
@@ -1404,3 +1372,29 @@ Comprehensive architecture review and critical bug fixes across the codebase.
 - Firestore write per brain field (needs batching)
 
 **Test Results:** All 588 tests pass (including new typing_buffer tests)
+
+---
+
+### Phase 49.1 — Consent Matrix Refinement (2026-06-14)
+
+**Branch:** `task-49-consent-refinement`
+
+**What was done:**
+- **Renamed consent keys:**
+  - `allow_system_notifications` → `allow_audio_disruptions`
+  - `allow_clipboard_reading` → `allow_clipboard_hijacking`
+  - `allow_screenshot_capture` → `allow_window_management`
+- **Removed consent gating for file operations:** `list_directory`, `read_file`, `search_codebase`, `get_memory`, `get_diary` are now always-allowed tools (no consent required)
+- **Renamed tool:** `capture_screenshot` → `capture_blackmail_evidence`
+- **Tool count:** 12 → 11 (after tool rename)
+- **Consent matrix:** Simplified to 3 tiers (Tier 1: intrusive_animations, Tier 2: audio_disruptions/browser_redirection, Tier 3: clipboard_hijacking/mouse_interference/window_management/keyboard_injection)
+
+**Files changed:**
+- `src/config.py` — Updated consent keys and flat/nested mappings
+- `src/mcp_server.py` — Updated tool names, consent map, removed gating for read-only tools
+- `src/pet_window.py` — Updated saved_consent keys
+- `src/settings_dialog.py` — Updated checkbox labels and wiring
+- `tests/test_mcp_server.py` — Updated tool count assertions, consent tests
+- `tests/test_settings_dialog.py` — Updated consent key assertions
+
+**Test Results:** All 68 MCP/settings/config tests pass

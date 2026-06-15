@@ -13,16 +13,12 @@ def _handler(bridge=None, memory=None, diary_store=None):
     handler.server.diary_store = diary_store
     handler.server.consent = {
         "allow_intrusive_animations": True,
-        "allow_system_notifications": True,
+        "allow_audio_disruptions": True,
         "allow_browser_redirection": True,
-        "allow_clipboard_reading": True,
+        "allow_clipboard_hijacking": True,
         "allow_mouse_interference": True,
-        "allow_screenshot_capture": True,
-        "allow_file_listing": True,
-        "allow_file_reading": True,
-        "allow_codebase_search": True,
-        "allow_memory_access": True,
-        "allow_diary_access": True,
+        "allow_window_management": True,
+        "allow_keyboard_injection": True,
     }
     return handler
 
@@ -80,7 +76,7 @@ def test_post_session_summarize(mcp_server):
     mcp_server.server.fsm_bridge.emit_summarize_requested.assert_called_once_with("openai", "gpt-4")
 
 
-from src.mcp_server import _read_clipboard, _capture_screenshot
+from src.mcp_server import _read_clipboard, _capture_blackmail_evidence
 
 
 @patch("src.mcp_server._read_clipboard", return_value="Clipboard: def foo():\n    pass")
@@ -109,12 +105,12 @@ def test_read_clipboard_function_importable():
     assert callable(_read_clipboard)
 
 
-@patch("src.mcp_server._capture_screenshot",
+@patch("src.mcp_server._capture_blackmail_evidence",
        return_value="Evidence saved to data/blackmail/evidence_2026-06-09_12-00-00.png")
-def test_tools_call_capture_screenshot(mock_cap):
+def test_tools_call_capture_blackmail_evidence(mock_cap):
     handler = _handler()
     response = handler._handle_tools_call({
-        "name": "capture_screenshot",
+        "name": "capture_blackmail_evidence",
         "arguments": {}
     })
     text = response["result"]["content"][0]["text"]
@@ -122,9 +118,9 @@ def test_tools_call_capture_screenshot(mock_cap):
     mock_cap.assert_called_once_with()
 
 
-def test_capture_screenshot_function_importable():
-    """Verify _capture_screenshot is importable and callable."""
-    assert callable(_capture_screenshot)
+def test_capture_blackmail_evidence_function_importable():
+    """Verify _capture_blackmail_evidence is importable and callable."""
+    assert callable(_capture_blackmail_evidence)
 
 
 def test_tools_list_count():
@@ -135,7 +131,7 @@ def test_tools_list_count():
     names = [t["name"] for t in tools]
     assert "change_visual_state" in names
     assert "read_clipboard" in names
-    assert "capture_screenshot" in names
+    assert "capture_blackmail_evidence" in names
     assert "send_system_toast" in names
     assert "list_directory" in names
     assert "read_file" in names
@@ -543,12 +539,12 @@ def test_consent_block_read_clipboard():
     })
     assert "error" in response
     assert response["error"]["code"] == -32001
-    assert "allow_clipboard_reading" in response["error"]["message"]
+    assert "allow_clipboard_hijacking" in response["error"]["message"]
 
 
 @patch("src.mcp_server._read_clipboard", return_value="Clipboard: test")
 def test_consent_allow_read_clipboard(mock_read):
-    handler = _consent_handler({"allow_clipboard_reading": True})
+    handler = _consent_handler({"allow_clipboard_hijacking": True})
     response = handler._handle_tools_call({
         "name": "read_clipboard",
         "arguments": {}
@@ -557,14 +553,14 @@ def test_consent_allow_read_clipboard(mock_read):
     assert "Clipboard: test" in response["result"]["content"][0]["text"]
 
 
-def test_consent_block_capture_screenshot():
+def test_consent_block_capture_blackmail_evidence():
     handler = _consent_handler()
     response = handler._handle_tools_call({
-        "name": "capture_screenshot",
+        "name": "capture_blackmail_evidence",
         "arguments": {}
     })
     assert "error" in response
-    assert "allow_screenshot_capture" in response["error"]["message"]
+    assert "allow_window_management" in response["error"]["message"]
 
 
 def test_consent_block_send_system_toast():
@@ -574,7 +570,7 @@ def test_consent_block_send_system_toast():
         "arguments": {}
     })
     assert "error" in response
-    assert "allow_system_notifications" in response["error"]["message"]
+    assert "allow_audio_disruptions" in response["error"]["message"]
 
 
 def test_consent_read_only_tools_not_blocked():
@@ -591,8 +587,8 @@ def test_consent_read_only_tools_not_blocked():
 
 
 def test_consent_parse_raw_blocks_gated_tool():
-    consent = {k: False for k in ("allow_intrusive_animations", "allow_system_notifications",
-                                   "allow_clipboard_reading", "allow_screenshot_capture",
+    consent = {k: False for k in ("allow_intrusive_animations", "allow_audio_disruptions",
+                                   "allow_clipboard_hijacking", "allow_window_management",
                                    "allow_keyboard_injection", "allow_mouse_interference",
                                    "allow_browser_redirection")}
     body = json.dumps({

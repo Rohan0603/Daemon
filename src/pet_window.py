@@ -869,11 +869,11 @@ class PetWindow(QWidget):
         self._saved_consent = {
             k: self._config.get("consent", {}).get(k, v) for k, v in {
                 "allow_intrusive_animations": True,
-                "allow_system_notifications": False,
+                "allow_audio_disruptions": False,
                 "allow_browser_redirection": False,
-                "allow_clipboard_reading": False,
+                "allow_clipboard_hijacking": False,
                 "allow_mouse_interference": False,
-                "allow_screenshot_capture": False,
+                "allow_window_management": False,
                 "allow_keyboard_injection": False,
             }.items()
         }
@@ -914,9 +914,9 @@ class PetWindow(QWidget):
 
     def _save_settings(self, values: dict) -> None:
         from src.config import save_config, unflatten_config
-        consent_keys = ("allow_intrusive_animations", "allow_system_notifications",
-                        "allow_browser_redirection", "allow_clipboard_reading",
-                        "allow_mouse_interference", "allow_screenshot_capture",
+        consent_keys = ("allow_intrusive_animations", "allow_audio_disruptions",
+                        "allow_browser_redirection", "allow_clipboard_hijacking",
+                        "allow_mouse_interference", "allow_window_management",
                         "allow_keyboard_injection")
         consent_state = {k: values.get(k, False) for k in consent_keys}
         logger.info("Consent Matrix updated by user: %s", consent_state)

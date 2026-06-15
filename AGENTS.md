@@ -333,7 +333,7 @@ In-process JSON-RPC 2.0 HTTP server. SSE init at GET /sse, messages at POST /mes
 | 11 | `move_mouse` | allow_mouse_interference | x, y, click |
 | 12 | `browser_navigation` | allow_browser_redirection | url (http/https only) |
 
-**Consent Matrix (7 tiers in Settings → Boundaries):**
+**Consent Matrix (3 Tiers in Settings → Boundaries):**
 - Tier 1 (Low Risk): allow_intrusive_animations (default: True)
 - Tier 2 (Medium Risk): allow_audio_disruptions, allow_browser_redirection (default: False)
 - Tier 3 (High Risk): allow_clipboard_hijacking, allow_mouse_interference, allow_window_management, allow_keyboard_injection (default: False)

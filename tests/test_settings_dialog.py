@@ -73,25 +73,25 @@ class TestSettingsDialog:
         dialog = SettingsDialog()
         values = dialog.get_values()
         assert values["allow_intrusive_animations"] is True
-        assert values["allow_system_notifications"] is False
+        assert values["allow_audio_disruptions"] is False
         assert values["allow_browser_redirection"] is False
-        assert values["allow_clipboard_reading"] is False
+        assert values["allow_clipboard_hijacking"] is False
         assert values["allow_mouse_interference"] is False
-        assert values["allow_screenshot_capture"] is False
+        assert values["allow_window_management"] is False
         assert values["allow_keyboard_injection"] is False
 
     def test_consent_toggle_changes_get_values(self):
         _ = app()
         dialog = SettingsDialog()
         dialog._cb_intrusive_animations.setChecked(False)
-        dialog._cb_system_notifications.setChecked(True)
+        dialog._cb_audio_disruptions.setChecked(True)
         dialog._cb_browser_redirection.setChecked(True)
-        dialog._cb_screenshot_capture.setChecked(True)
+        dialog._cb_window_management.setChecked(True)
         values = dialog.get_values()
         assert values["allow_intrusive_animations"] is False
-        assert values["allow_system_notifications"] is True
+        assert values["allow_audio_disruptions"] is True
         assert values["allow_browser_redirection"] is True
-        assert values["allow_screenshot_capture"] is True
-        assert values["allow_clipboard_reading"] is False
+        assert values["allow_window_management"] is True
+        assert values["allow_clipboard_hijacking"] is False
         assert values["allow_mouse_interference"] is False
         assert values["allow_keyboard_injection"] is False
