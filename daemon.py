@@ -106,7 +106,8 @@ def main() -> None:
         sys.exit(1)
 
     from src.logging_setup import setup_logging
-    setup_logging(debug=args.verbose, config_overrides=cfg.get("logging"))
+    log_config = cfg.get("logging", {})
+    setup_logging(debug=args.verbose, log_dir=log_config.get("dir", "logs"), config_overrides=log_config)
 
     logger.info("=== DAEMON STARTUP (PID %d) ===", os.getpid())
     logger.info("Crash instrumentation active: crash_dump.log = %s", _CRASH_LOG)

@@ -720,12 +720,17 @@ class MCPHandler(BaseHTTPRequestHandler):
 class MCPServer:
 
     def __init__(self, fsm_bridge, memory=None, diary_store=None, host="127.0.0.1", port=4097, config: dict | None = None):
-        self._host = host
-        self._port = port
+        self._config = config
+        # Read MCP host/port from config if available
+        if config and "mcp" in config:
+            self._host = config["mcp"].get("host", host)
+            self._port = config["mcp"].get("port", port)
+        else:
+            self._host = host
+            self._port = port
         self._fsm_bridge = fsm_bridge
         self._memory = memory
         self._diary_store = diary_store
-        self._config = config
         self._server = None
         self._thread = None
 
@@ -738,9 +743,14 @@ class MCPServer:
         return self._server.server_address if self._server else (self._host, self._port)
 
     def start(self):
-        consent = {
-            k: self._config.get(k, False) for k in _CONSENT_TOOL_MAP.values()
-        } if self._config else {}
+        consent = {}
+        if self._config:
+            # Extract consent from the consent sub-section
+            consent_data = self._config.get("consent", {})
+            if isinstance(consent_data, dict):
+                consent = {
+                    k: consent_data.get(k, False) for k in _CONSENT_TOOL_MAP.values()
+                }
 
         self._server = ThreadingHTTPServer((self._host, self._port), MCPHandler)
         self._server.fsm_bridge = self._fsm_bridge

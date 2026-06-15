@@ -206,7 +206,7 @@ class PetWindow(QWidget):
         self._diary_path = DIARY_PATH
 
         self._diary_store = DiaryStore(self._diary_path)
-        self._mcp_server = MCPServer(self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, config=self._config.get("consent", {}))
+        self._mcp_server = MCPServer(self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, config=self._config)
         self._write_coalescer = WriteCoalescer(
             memory=self._memory, history=self._history,
             memory_manager=self._firebase_mem,

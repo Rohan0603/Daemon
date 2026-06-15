@@ -5,6 +5,7 @@ import time
 import firebase_admin
 from firebase_admin import credentials, firestore
 from src.constants import FIREBASE_CREDENTIALS_PATH
+from src.config import load_config
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,10 @@ class FirebaseCRUD:
     _RETRY_BASE_DELAY = 0.5
 
     def __init__(self, creds_path: str | None = None):
-        self._creds_path = creds_path or str(FIREBASE_CREDENTIALS_PATH)
+        if creds_path is None:
+            cfg = load_config()
+            creds_path = cfg.get("firebase", {}).get("credentials_path", str(FIREBASE_CREDENTIALS_PATH))
+        self._creds_path = creds_path
         self._client: firestore.Client | None = None
         self._available: bool = True
 
