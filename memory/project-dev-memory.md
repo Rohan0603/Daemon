@@ -684,16 +684,15 @@ Collapsed the legacy 3-pool system (jokes_blackmail, system, typing_reactions) i
 
 ### Phase 48 — Consent Matrix Migration (2026-06-14)
 
-**Commit:** `a97b55b` (current)
+**Commit:** `f069860`
 
 **What was done:**
-- Migrated from 11-tier consent matrix to 3-tier consent matrix in `src/config.py`, `src/mcp_server.py`, `src/settings_dialog.py`, `src/pet_window.py`
+- Migrated from 11-tier consent matrix to 7-tool consent matrix in `src/config.py`, `src/mcp_server.py`, `src/settings_dialog.py`, `src/pet_window.py`
 - Renamed tools and consent keys:
-  - `capture_screenshot` → `capture_blackmail_evidence` (consent: `allow_window_management`)
+  - `capture_screenshot` → consent key: `allow_window_management`
   - `allow_system_notifications` → `allow_audio_disruptions`
   - `allow_clipboard_reading` → `allow_clipboard_hijacking`
-  - `allow_screenshot_capture` → removed (now uses `allow_window_management`)
-  - `allow_file_listing`, `allow_file_reading`, `allow_codebase_search`, `allow_memory_access`, `allow_diary_access` → removed (read-only tools always allowed)
+  - Removed: `allow_screenshot_capture`, `allow_file_listing`, `allow_file_reading`, `allow_codebase_search`, `allow_memory_access`, `allow_diary_access` (read-only tools now always allowed)
 - Updated `_CONSENT_TOOL_MAP` in `mcp_server.py` to new 7-tool mapping
 - Updated all tests in `tests/test_mcp_server.py` and `tests/test_settings_dialog.py`
 - Set correct defaults per AGENTS.md: Tier 1 = True, Tier 2/3 = False
@@ -702,11 +701,10 @@ Collapsed the legacy 3-pool system (jokes_blackmail, system, typing_reactions) i
 
 **Files Changed:**
 - `src/config.py` — Updated DEFAULT_CONFIG and FLAT_TO_NESTED/NESTED_TO_FLAT consent keys to match Phase 43 consent matrix
-- `src/mcp_server.py` — Updated _CONSENT_TOOL_MAP to use new consent key names
-- `src/settings_dialog.py` — Updated constructor params and UI widgets for new consent matrix (Tier 1: intrusive_animations, audio_disruptions; Tier 2: browser_redirection, clipboard_hijacking, mouse_interference; Tier 3: keyboard_injection, window_management)
+- `src/mcp_server.py` — Updated _CONSENT_TOOL_MAP to use new consent key names, removed read-only tool entries
+- `src/settings_dialog.py` — Updated constructor params and UI widgets for new consent matrix
 - `src/pet_window.py` — Updated _saved_consent defaults and consent_keys tuple
 - `tests/test_mcp_server.py` — Updated test handlers and assertions for new consent keys
-- `tests/test_settings_dialog.py` — Updated test assertions for new consent keys
 
 
 
