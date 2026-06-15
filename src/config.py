@@ -104,13 +104,13 @@ DEFAULT_CONFIG = {
         "retention_days": 7,
     },
     "storage": {
-        "memory_path": ".daemon_memory.json",
-        "history_path": ".daemon_history.json",
-        "diary_path": ".daemon_diary.json",
-        "state_path": ".daemon_state.json",
-        "auth_token_path": ".daemon_auth.json",
-        "response_cache_path": ".daemon_response_cache.json",
-        "thoughts_log_path": ".daemon_thoughts.log",
+        "memory_path": "data/.daemon_memory.json",
+        "history_path": "data/.daemon_history.json",
+        "diary_path": "data/.daemon_diary.json",
+        "state_path": "data/.daemon_state.json",
+        "auth_token_path": "data/.daemon_auth.json",
+        "response_cache_path": "data/.daemon_response_cache.json",
+        "thoughts_log_path": "data/.daemon_thoughts.log",
     },
 }
 

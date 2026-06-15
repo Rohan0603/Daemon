@@ -29,5 +29,8 @@ data/
 crash_dump.log
 this_file_surely_does_not_exist_98765.json
 
+# Root-level runtime state files (should live under data/ but guard against cwd writes)
+/.daemon_*
+
 # Hermes Agent tooling artifacts (plan files, session state)
 .hermes/

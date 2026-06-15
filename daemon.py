@@ -87,8 +87,15 @@ def main() -> None:
 
     cfg = load_config()
     flat_cfg = flatten_config(cfg)
+    storage_keys = {"MEMORY_PATH", "HISTORY_PATH", "DIARY_PATH", "STATE_PATH",
+                    "AUTH_TOKEN_PATH", "RESPONSE_CACHE_PATH", "THOUGHTS_LOG_PATH",
+                    "CONFIG_PATH", "FIREBASE_CREDENTIALS_PATH"}
+    project_root = os.path.abspath(os.path.dirname(__file__))
     for key, val in flat_cfg.items():
         if hasattr(constants, key):
+            # Resolve relative storage paths against project root
+            if key in storage_keys and isinstance(val, str) and not os.path.isabs(val):
+                val = os.path.normpath(os.path.join(project_root, val))
             setattr(constants, key, val)
 
     parser = argparse.ArgumentParser(description="Daemon Desktop Pet")
