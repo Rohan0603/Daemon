@@ -240,29 +240,40 @@ class TTSWorker(QThread):
             self.speaking_finished.emit()
 
     def _process_utterance(self, text: str) -> None:
+        # Track all temp files for cleanup
+        temp_files = []  # Track instead of inline
         audio_path = self._generate_voice(text)
         if audio_path is None:
             return
+        temp_files.append(audio_path)
 
         result = self._apply_pitch_filter(audio_path)
         if result is None and audio_path.endswith(".mp3"):
+            # Pitch filter failed on edge-tts MP3, try pyttsx3 fallback
+            if audio_path in temp_files:
+                temp_files.remove(audio_path)
             try:
                 os.remove(audio_path)
             except OSError:
                 pass
             audio_path = self._generate_pyttsx3(text)
             if audio_path:
+                temp_files.append(audio_path)
                 result = self._apply_pitch_filter(audio_path)
         else:
+            # Pitch filter succeeded on edge-tts MP3
+            if audio_path in temp_files:
+                temp_files.remove(audio_path)
             try:
                 os.remove(audio_path)
             except OSError:
                 pass
 
         if result is None:
-            if audio_path:
+            # Clean up any remaining temp files (e.g. pyttsx3 WAV that failed pitch)
+            for p in temp_files:
                 try:
-                    os.remove(audio_path)
+                    os.remove(p)
                 except OSError:
                     pass
             return
@@ -270,6 +281,7 @@ class TTSWorker(QThread):
         raw, play_rate, nch, sw = result
         fb_fd, fallback_path = tempfile.mkstemp(suffix=".wav", prefix="daemon_tts_playback_")
         os.close(fb_fd)
+        temp_files.append(fallback_path)
         try:
             with wave.open(fallback_path, "wb") as w:
                 w.setnchannels(nch)
@@ -292,7 +304,8 @@ class TTSWorker(QThread):
             except Exception as e2:
                 logger.warning("simpleaudio fallback failed: %s", e2)
         finally:
-            try:
-                os.remove(fallback_path)
-            except OSError:
-                pass
+            for p in temp_files:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass

@@ -2,7 +2,12 @@
 
 TypingBuffer captures global keystrokes via pynput and maintains
 a rolling buffer of the most recent typing.
+
+Note: text_updated is now emitted by the 50ms debounce timer on timeout,
+not immediately on each keystroke. Tests that check emission counts must
+wait for the timer or use processEvents + timer interval.
 """
+import time
 import sys
 import pytest
 from collections import deque
@@ -21,6 +26,14 @@ def _make_buffer():
     return TypingBuffer()
 
 
+def _flush_events(qapp):
+    """Process Qt events for enough time for debounce timer (50ms) to fire."""
+    start = time.monotonic()
+    while time.monotonic() - start < 0.08:  # 80ms > 50ms debounce
+        qapp.processEvents()
+        time.sleep(0.005)
+
+
 class TestTypingBuffer:
 
     def test_constructor_creates_deque_with_maxlen_500(self, qapp):
@@ -28,7 +41,7 @@ class TestTypingBuffer:
         assert isinstance(buf._buffer, deque)
         assert buf._buffer.maxlen == 500
 
-    def test_printable_char_appends_and_emits_signal(self, qapp):
+    def test_printable_char_appends_and_debounce_emits(self, qapp):
         buf = _make_buffer()
         emitted = []
         buf.text_updated.connect(lambda: emitted.append(None))
@@ -36,7 +49,11 @@ class TestTypingBuffer:
         buf._on_press(KeyCode.from_char('b'))
         buf._on_press(KeyCode.from_char('c'))
         assert list(buf._buffer) == ['a', 'b', 'c']
-        assert len(emitted) == 3
+        # No instant emissions — debounce timer hasn't fired yet
+        assert len(emitted) == 0
+        # After timer fires, exactly 1 emission for the burst
+        _flush_events(qapp)
+        assert len(emitted) == 1
 
     def test_backspace_pops_last_char_and_emits_signal(self, qapp):
         buf = _make_buffer()
@@ -46,6 +63,7 @@ class TestTypingBuffer:
         buf.text_updated.connect(lambda: emitted.append(None))
         buf._on_press(Key.backspace)
         assert list(buf._buffer) == ['a']
+        _flush_events(qapp)
         assert len(emitted) == 1
 
     def test_backspace_on_empty_does_not_error(self, qapp):
@@ -53,7 +71,7 @@ class TestTypingBuffer:
         buf._on_press(Key.backspace)
         assert list(buf._buffer) == []
 
-    def test_enter_appends_newline_and_emits_signal(self, qapp):
+    def test_enter_appends_newline_and_debounce_emits(self, qapp):
         buf = _make_buffer()
         emitted = []
         buf.text_updated.connect(lambda: emitted.append(None))
@@ -61,17 +79,20 @@ class TestTypingBuffer:
         buf._on_press(Key.enter)
         buf._on_press(KeyCode.from_char('b'))
         assert list(buf._buffer) == ['a', '\n', 'b']
-        assert len(emitted) == 3
+        _flush_events(qapp)
+        # All three keys coalesce into one burst emission
+        assert len(emitted) == 1
 
-    def test_tab_appends_tab_character_and_emits_signal(self, qapp):
+    def test_tab_appends_tab_character_and_debounce_emits(self, qapp):
         buf = _make_buffer()
         emitted = []
         buf.text_updated.connect(lambda: emitted.append(None))
         buf._on_press(Key.tab)
         assert list(buf._buffer) == ['\t']
+        _flush_events(qapp)
         assert len(emitted) == 1
 
-    def test_space_appends_space_and_emits_signal(self, qapp):
+    def test_space_appends_space_and_debounce_emits(self, qapp):
         buf = _make_buffer()
         emitted = []
         buf.text_updated.connect(lambda: emitted.append(None))
@@ -79,7 +100,9 @@ class TestTypingBuffer:
         buf._on_press(Key.space)
         buf._on_press(KeyCode.from_char('b'))
         assert list(buf._buffer) == ['a', ' ', 'b']
-        assert len(emitted) == 3
+        _flush_events(qapp)
+        # Burst of 3 keys → 1 emission
+        assert len(emitted) == 1
 
     def test_modifier_keys_ignored_and_no_signal(self, qapp):
         buf = _make_buffer()

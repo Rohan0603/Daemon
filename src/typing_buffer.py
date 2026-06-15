@@ -59,20 +59,19 @@ class TypingBuffer(QObject):
     def _on_press(self, key):
         if hasattr(key, 'char') and key.char is not None:
             self._buffer.append(key.char)
-            self.text_updated.emit()
         elif key == keyboard.Key.backspace:
             if self._buffer:
                 self._buffer.pop()
-                self.text_updated.emit()
+            else:
+                return  # Nothing to pop, don't restart timer
         elif key == keyboard.Key.enter:
             self._buffer.append('\n')
-            self.text_updated.emit()
         elif key == keyboard.Key.tab:
             self._buffer.append('\t')
-            self.text_updated.emit()
         elif key == keyboard.Key.space:
             self._buffer.append(' ')
-            self.text_updated.emit()
         else:
-            return  # Don't debounce for non-character keys
+            return  # Non-character key, don't restart timer
+        # Debounce timer emits text_updated after 50ms of inactivity.
+        # Restart on every keystroke to coalesce bursts.
         self._debounce_timer.start()
