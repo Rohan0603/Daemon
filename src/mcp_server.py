@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import time
 import ctypes
 from ctypes import wintypes
 from datetime import datetime
@@ -13,6 +14,8 @@ from functools import lru_cache
 from src.utils.security import get_safe_data_path
 
 logger = logging.getLogger(__name__)
+
+_BOOT_TIME = None  # Set when MCPServer.start() is called
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 ALLOWED_READ_EXTENSIONS = {".py", ".md", ".json", ".ps1", ".txt", ".log", ".yaml", ".yml"}
@@ -316,6 +319,13 @@ class MCPHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path in ("/sse", "/"):
             self._handle_sse()
+        elif self.path == "/health":
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "ok"}).encode("utf-8"))
+        elif self.path == "/metrics":
+            self._handle_metrics()
         else:
             self.send_error(404)
 
@@ -431,6 +441,29 @@ class MCPHandler(BaseHTTPRequestHandler):
                 time.sleep(15)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
+
+    def _handle_metrics(self):
+        """Return basic process metrics as JSON for debugging."""
+        import os
+        import time
+        import threading
+        data = {
+            "pid": os.getpid(),
+            "uptime_seconds": time.monotonic() - _BOOT_TIME,
+            "thread_count": threading.active_count(),
+        }
+        # Try psutil for richer metrics if available (optional dependency)
+        try:
+            import psutil as _psutil
+            proc = _psutil.Process()
+            mem = proc.memory_info()
+            data["memory_rss_bytes"] = mem.rss
+            data["memory_vms_bytes"] = mem.vms
+            data["cpu_percent"] = proc.cpu_percent(interval=0)
+            data["open_handles"] = proc.num_handles()
+        except ImportError:
+            data["psutil"] = "not_installed"
+        self._send_json(data)
 
     def _send_json(self, data):
         body = json.dumps(data).encode("utf-8")
@@ -743,6 +776,8 @@ class MCPServer:
         return self._server.server_address if self._server else (self._host, self._port)
 
     def start(self):
+        global _BOOT_TIME
+        _BOOT_TIME = time.monotonic()
         consent = {}
         if self._config:
             # Extract consent from the consent sub-section

@@ -1609,11 +1609,23 @@ class PetWindow(QWidget):
             self._brain_disconnected = False
             self._fsm.transition_to(PetState.IDLE)
             self._show_bubble("Oh man, I'm back! Who the hell turned out the lights?!")
+        # Also check MCP server health (port 4097), silent — just log
+        self._check_mcp_health()
 
     def _on_restart_brain(self) -> None:
         from src.opencode_serve_manager import ensure_opencode_serve_running
         ensure_opencode_serve_running()
         self._on_health_check()
+
+    def _check_mcp_health(self) -> None:
+        """Check MCP server health (port 4097). Silent — just logs on failure."""
+        from src.constants import MCP_PORT
+        import socket
+        try:
+            with socket.create_connection(("127.0.0.1", MCP_PORT), timeout=2):
+                logger.debug("MCP server health check OK")
+        except (OSError, socket.timeout) as e:
+            logger.warning("MCP server health check FAILED: %s", e)
 
     def _open_thought_log(self) -> None:
         from src.thought_log_dialog import ThoughtLogDialog

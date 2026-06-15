@@ -148,6 +148,9 @@ def main() -> None:
 
     logger.info("=== DAEMON STARTUP (PID %d) ===", os.getpid())
     logger.info("Crash instrumentation active: crash_dump.log = %s", _CRASH_LOG)
+    import time
+    _boot_marks = {}  # Track boot stage timings
+    _boot_marks["config"] = time.monotonic()
 
     # Generate codebase map for Kenny's self-awareness (runs at startup)
     try:
@@ -221,6 +224,17 @@ def main() -> None:
         auth=auth,
         fresh_login=fresh_login,
         pet_id=pet_id,
+    )
+    _boot_marks["petwindow"] = time.monotonic()
+
+    # Log boot timing summary
+    boot_start = _boot_marks["config"]
+    logger.info(
+        "Boot timing: config=%.2fs opencode=%ds petwin=%.2fs total=%.1fs",
+        _boot_marks.get("opencode", boot_start) - boot_start,
+        int(_boot_marks.get("opencode", 0) > 0),
+        _boot_marks["petwindow"] - _boot_marks.get("opencode", boot_start),
+        _boot_marks["petwindow"] - boot_start,
     )
 
     # Register atexit handler for emergency data flush on abnormal exit
