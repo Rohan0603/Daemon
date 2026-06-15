@@ -57,7 +57,7 @@ from src.response_manager import AutonomousResponseManager
 from src.fsm_bridge import FSMActionBridge
 from src.mcp_server import MCPServer
 from src.animator import EmotionAnimator, Emotion
-from src.events import get_event_bus, EventType
+from src.events import get_event_bus, EventType, Event
 from src.behavior_controller import BehaviorController
 
 logger = logging.getLogger(__name__)
@@ -433,6 +433,11 @@ class PetWindow(QWidget):
 
         if apm_state_changed:
             self._last_apm_state_change = current_time
+            self._events.publish(Event(
+                type=EventType.APM_THRESHOLD_CROSSED,
+                source="pet_window",
+                data={"apm": apm, "state": self._apm_state}
+            ))
 
         # Only trigger panic reactions if enough time has passed since last state change
         if (current_time - self._last_apm_state_change) < APM_PANIC_COOLDOWN_SEC:
@@ -480,6 +485,11 @@ class PetWindow(QWidget):
             return
         self._force_quit = True
         logger.info("Initiating Ghost Mode shutdown sequence...")
+        self._events.publish(Event(
+            type=EventType.PET_SHUTDOWN_STARTED,
+            source="pet_window",
+            data={}
+        ))
         
         # Hide UI immediately
         self.hide()
@@ -798,6 +808,11 @@ class PetWindow(QWidget):
                 self._state_elapsed_ms = 0
                 # Handle SLEEP state entry
                 if new_state == PetState.SLEEP and old_state != PetState.SLEEP:
+                    self._events.publish(Event(
+                        type=EventType.PET_SLEEP_STARTED,
+                        source="pet_window",
+                        data={}
+                    ))
                     self._autonomous_query_pending = False
                     self._deferred_trigger_params = None
                     self._last_boredom_fsm_time = time.time()
@@ -823,6 +838,11 @@ class PetWindow(QWidget):
                         self._refill_workers.clear()
                 # Handle SLEEP state exit
                 if old_state == PetState.SLEEP and new_state != PetState.SLEEP:
+                    self._events.publish(Event(
+                        type=EventType.PET_SLEEP_ENDED,
+                        source="pet_window",
+                        data={}
+                    ))
                     self._idle_backoff_seconds = 0.0
                     self._last_context_snapshot = None
                     self._last_boredom_fsm_time = time.time()
@@ -1300,6 +1320,11 @@ class PetWindow(QWidget):
         return super().eventFilter(obj, event)
 
     def _on_global_hotkey(self) -> None:
+        self._events.publish(Event(
+            type=EventType.USER_HOTKEY_PRESSED,
+            source="pet_window",
+            data={}
+        ))
         self.show()
         self.raise_()
         self.activateWindow()
@@ -1382,6 +1407,11 @@ class PetWindow(QWidget):
             self._show_bubble("Holy crap... my brain is offline! I'm trapped locally! Oh man!")
 
         self._fsm.transition_to(PetState.IDLE)
+        self._events.publish(Event(
+            type=EventType.PET_BOOT_COMPLETED,
+            source="pet_window",
+            data={}
+        ))
 
     def _on_health_check(self) -> None:
         from src.opencode_serve_manager import check_health
@@ -1390,10 +1420,20 @@ class PetWindow(QWidget):
             self._brain_disconnected = True
             self._fsm.transition_to(PetState.DEVASTATED)
             self._show_bubble("Oh my god, they killed my server connection! You bastards!")
+            self._events.publish(Event(
+                type=EventType.BRAIN_DISCONNECTED,
+                source="pet_window",
+                data={}
+            ))
         elif alive and self._brain_disconnected:
             self._brain_disconnected = False
             self._fsm.transition_to(PetState.IDLE)
             self._show_bubble("Oh man, I'm back! Who the hell turned out the lights?!")
+            self._events.publish(Event(
+                type=EventType.BRAIN_RECONNECTED,
+                source="pet_window",
+                data={}
+            ))
         # Also check MCP server health (port 4097), silent — just log
         self._check_mcp_health()
 
@@ -1562,19 +1602,22 @@ class PetWindow(QWidget):
         self._on_output_displayed(engaged=False)
 
     def _on_output_displayed(self, engaged: bool) -> None:
-        if engaged:
-            self._consecutive_engaged += 1
-            self._consecutive_silent = 0
-            if self._consecutive_engaged >= ENGAGED_THRESHOLD:
-                self._current_interval = BASE_INTERVAL_SEC
+        if self._behavior:
+            self._behavior.on_output_displayed(engaged)
         else:
-            self._consecutive_engaged = 0
-            self._consecutive_silent += 1
-            if self._consecutive_silent >= SILENCE_THRESHOLD:
-                self._current_interval = min(
-                    self._current_interval * (BACKOFF_MULTIPLIER ** self._consecutive_silent),
-                    MAX_BACKOFF_SEC
-                )
+            if engaged:
+                self._consecutive_engaged += 1
+                self._consecutive_silent = 0
+                if self._consecutive_engaged >= ENGAGED_THRESHOLD:
+                    self._current_interval = BASE_INTERVAL_SEC
+            else:
+                self._consecutive_engaged = 0
+                self._consecutive_silent += 1
+                if self._consecutive_silent >= SILENCE_THRESHOLD:
+                    self._current_interval = min(
+                        self._current_interval * (BACKOFF_MULTIPLIER ** self._consecutive_silent),
+                        MAX_BACKOFF_SEC
+                    )
 
     def _init_diary(self) -> None:
         """Load diary from local file or fetch from Firebase on first run."""

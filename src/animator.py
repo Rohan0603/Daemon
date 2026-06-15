@@ -60,7 +60,7 @@ class ParticleSystem:
     def update(self, dt_ms: int) -> None:
         """Advance all particles by *dt_ms*. Removes dead particles."""
         dt = dt_ms / 1000.0 * 60.0  # normalise to ~60 fps steps
-        remaining: list[dict] = []
+        write_idx = 0
         for p in self.particles:
             p["life"] -= 1
             if p["life"] <= 0:
@@ -68,8 +68,9 @@ class ParticleSystem:
             p["x"] += p["dx"] * dt
             p["dy"] += p["gravity"] * dt
             p["y"] += p["dy"] * dt
-            remaining.append(p)
-        self.particles = remaining
+            self.particles[write_idx] = p
+            write_idx += 1
+        del self.particles[write_idx:]
 
     def draw(self, painter: QPainter) -> None:
         """Alpha-faded circles for every living particle."""

@@ -64,6 +64,12 @@ class EventType(Enum):
     MCP_TOOL_CALLED = "mcp_tool_called"
     MCP_TOOL_BLOCKED = "mcp_tool_blocked"
 
+    # Auth Events
+    AUTH_SUCCESS = "auth_success"
+    AUTH_FAILURE = "auth_failure"
+    AUTH_CLEARED = "auth_cleared"
+    TOKEN_REFRESHED = "token_refreshed"
+
     # Pet Lifecycle Events
     PET_SLEEP_STARTED = "pet_sleep_started"
     PET_SLEEP_ENDED = "pet_sleep_ended"

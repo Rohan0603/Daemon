@@ -216,21 +216,21 @@ class TestBehaviorControllerEngagementTracking(unittest.TestCase):
     def test_engaged_restores_interval(self):
         controller = _make_controller()
         controller._current_interval = 120.0
-        controller._on_output_displayed(engaged=True)
-        controller._on_output_displayed(engaged=True)
+        controller.on_output_displayed(engaged=True)
+        controller.on_output_displayed(engaged=True)
         self.assertEqual(controller._current_interval, 15.0)  # BASE_INTERVAL_SEC
 
     def test_silence_increases_interval(self):
         from src.constants import SILENCE_THRESHOLD, BASE_INTERVAL_SEC
         controller = _make_controller()
         for _ in range(SILENCE_THRESHOLD + 1):
-            controller._on_output_displayed(engaged=False)
+            controller.on_output_displayed(engaged=False)
         self.assertGreater(controller._current_interval, BASE_INTERVAL_SEC)
 
     def test_mixed_engaged_silence_tracking(self):
         controller = _make_controller()
-        controller._on_output_displayed(engaged=True)  # engaged=1
-        controller._on_output_displayed(engaged=False)  # silent=1, engaged reset
+        controller.on_output_displayed(engaged=True)  # engaged=1
+        controller.on_output_displayed(engaged=False)  # silent=1, engaged reset
         self.assertEqual(controller.consecutive_engaged, 0)
         self.assertEqual(controller.consecutive_silent, 1)
 

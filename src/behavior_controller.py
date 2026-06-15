@@ -173,6 +173,24 @@ class BehaviorController:
         self._consecutive_engaged = 0
         self._current_interval = BASE_INTERVAL_SEC
 
+    def on_output_displayed(self, engaged: bool) -> None:
+        """Update engagement counters based on output reception."""
+        if engaged:
+            self._consecutive_engaged += 1
+            self._consecutive_silent = 0
+            if self._consecutive_engaged >= ENGAGED_THRESHOLD:
+                self._current_interval = BASE_INTERVAL_SEC
+        else:
+            self._consecutive_engaged = 0
+            self._consecutive_silent += 1
+            if self._consecutive_silent >= SILENCE_THRESHOLD:
+                self._current_interval = min(
+                    self._current_interval * (
+                        BACKOFF_MULTIPLIER ** self._consecutive_silent
+                    ),
+                    MAX_BACKOFF_SEC,
+                )
+
     # ── Public property access for PetWindow ─────────────────────────
 
     @property
@@ -466,27 +484,6 @@ class BehaviorController:
             return 2.0   # 120s base
         else:
             return 3.0   # 180s base — rare
-
-    def _on_output_displayed(self, engaged: bool) -> None:
-        """Update engagement counters based on output reception.
-
-        Called by PetWindow when a thought pool item is dispatched.
-        """
-        if engaged:
-            self._consecutive_engaged += 1
-            self._consecutive_silent = 0
-            if self._consecutive_engaged >= ENGAGED_THRESHOLD:
-                self._current_interval = BASE_INTERVAL_SEC
-        else:
-            self._consecutive_engaged = 0
-            self._consecutive_silent += 1
-            if self._consecutive_silent >= SILENCE_THRESHOLD:
-                self._current_interval = min(
-                    self._current_interval * (
-                        BACKOFF_MULTIPLIER ** self._consecutive_silent
-                    ),
-                    MAX_BACKOFF_SEC,
-                )
 
 
 def clear_screen_cache() -> None:

@@ -21,7 +21,7 @@ class APMWorker(QThread):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._events: deque = deque()
+        self._events: deque = deque(maxlen=APM_WINDOW_SECONDS * 10)
         self._running = False
         self.apm: int = 0
 

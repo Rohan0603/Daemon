@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 import requests
 from src.firebase_auth import FirebaseAuth
+from src.events import EventBus, EventType
 
 
 @pytest.fixture
@@ -128,3 +129,89 @@ def test_network_error_returns_none(auth: FirebaseAuth) -> None:
     with patch("requests.post", side_effect=requests.exceptions.ConnectionError("connection refused")):
         result = auth.sign_in("a@b.com", "pass")
     assert result is None
+
+
+@pytest.fixture
+def auth_with_bus(tmp_path: Path) -> FirebaseAuth:
+    token_path = tmp_path / ".daemon_auth.json"
+    bus = EventBus()
+    return FirebaseAuth(api_key="test-key", project_id="test-project", token_path=token_path, event_bus=bus)
+
+
+def test_sign_in_emits_auth_success_event(auth_with_bus: FirebaseAuth) -> None:
+    bus = auth_with_bus._event_bus
+    events = []
+    bus.subscribe(EventType.AUTH_SUCCESS, lambda e: events.append(e))
+    
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "idToken": "id1", "refreshToken": "rt1",
+        "localId": "uid1", "email": "a@b.com", "expiresIn": "3600",
+    }
+    with patch("requests.post", return_value=mock_resp):
+        auth_with_bus.sign_in("a@b.com", "pass123")
+    
+    assert len(events) == 1
+    assert events[0].type == EventType.AUTH_SUCCESS
+    assert events[0].data["uid"] == "uid1"
+
+
+def test_sign_in_failure_emits_auth_failure_event(auth_with_bus: FirebaseAuth) -> None:
+    bus = auth_with_bus._event_bus
+    events = []
+    bus.subscribe(EventType.AUTH_FAILURE, lambda e: events.append(e))
+    
+    mock_resp = MagicMock()
+    mock_resp.status_code = 400
+    mock_resp.json.return_value = {"error": {"message": "INVALID_LOGIN_CREDENTIALS"}}
+    with patch("requests.post", return_value=mock_resp):
+        auth_with_bus.sign_in("a@b.com", "wrong")
+    
+    assert len(events) == 1
+    assert events[0].type == EventType.AUTH_FAILURE
+    assert events[0].data["reason"] == "http_400"
+
+
+def test_refresh_emits_token_refreshed_event(auth_with_bus: FirebaseAuth) -> None:
+    bus = auth_with_bus._event_bus
+    events = []
+    bus.subscribe(EventType.TOKEN_REFRESHED, lambda e: events.append(e))
+    
+    auth_with_bus._refresh_token = "old_rt"
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "id_token": "new_id", "refresh_token": "new_rt",
+        "expires_in": "3600",
+    }
+    with patch("requests.post", return_value=mock_resp):
+        auth_with_bus.refresh()
+    
+    assert len(events) == 1
+    assert events[0].type == EventType.TOKEN_REFRESHED
+
+
+def test_clear_emits_auth_cleared_event(auth_with_bus: FirebaseAuth) -> None:
+    bus = auth_with_bus._event_bus
+    events = []
+    bus.subscribe(EventType.AUTH_CLEARED, lambda e: events.append(e))
+    
+    auth_with_bus._uid = "u1"
+    auth_with_bus.clear()
+    
+    assert len(events) == 1
+    assert events[0].type == EventType.AUTH_CLEARED
+
+
+def test_no_event_bus_does_not_crash(auth: FirebaseAuth) -> None:
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "idToken": "id1", "refreshToken": "rt1",
+        "localId": "uid1", "email": "a@b.com", "expiresIn": "3600",
+    }
+    with patch("requests.post", return_value=mock_resp):
+        result = auth.sign_in("a@b.com", "pass123")
+    
+    assert result == "uid1"

@@ -30,17 +30,36 @@ class ThoughtPool(QObject):
         if len(self._items) < self._threshold:
             if not self._refilling:
                 self._request_refill()
-        candidates = sorted(self._items, key=lambda x: x.get("priority", 3), reverse=True)
-        for item in candidates:
+
+        best_idx = -1
+        best_priority = -1
+        stale_indices: list[int] = []
+
+        for idx, item in enumerate(self._items):
             if item.get("type") != target_type:
                 continue
             item_hash = item.get("context_hash")
             if item_hash is not None and current_context_hash is not None and item_hash != current_context_hash:
-                self._items.remove(item)
+                stale_indices.append(idx)
                 continue
-            self._items.remove(item)
+            priority = item.get("priority", 3)
+            if priority > best_priority:
+                best_priority = priority
+                best_idx = idx
+
+        # Remove stale items (reverse order to preserve index validity)
+        for idx in reversed(stale_indices):
+            self._items.pop(idx)
+
+        if best_idx >= 0:
+            # Adjust index after stale removal
+            for si in stale_indices:
+                if si < best_idx:
+                    best_idx -= 1
+            item = self._items.pop(best_idx)
             item["last_used"] = datetime.now().isoformat()
             return [item]
+
         if not self._refilling:
             self._request_refill()
         return []

@@ -9,6 +9,7 @@ import requests
 
 from src.constants import FIREBASE_PROJECT_ID, AUTH_TOKEN_PATH
 from src.config import load_config
+from src.events import EventBus, EventType, Event
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class FirebaseAuth:
         api_key: str = "",
         project_id: str = "",
         token_path: Path | None = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         if not api_key:
             cfg = load_config()
@@ -34,7 +36,8 @@ class FirebaseAuth:
             self._project_id = cfg.get("firebase", {}).get("project_id", FIREBASE_PROJECT_ID)
         else:
             self._project_id = project_id
-        self._token_path = Path(token_path) if token_path else AUTH_TOKEN_PATH
+        self._token_path = Path(token_path) if token_path else Path(AUTH_TOKEN_PATH)
+        self._event_bus = event_bus
 
         self._uid: Optional[str] = None
         self._email: Optional[str] = None
@@ -67,15 +70,18 @@ class FirebaseAuth:
             )
         except requests.RequestException as e:
             logger.warning("[FirebaseAuth] %s network error: %s", endpoint, e)
+            self._publish_auth_failure(f"network_error: {e}")
             return None
 
         if resp.status_code != 200:
             logger.warning("[FirebaseAuth] %s failed: %s", endpoint, resp.text)
+            self._publish_auth_failure(f"http_{resp.status_code}")
             return None
 
         data = resp.json()
         if "localId" not in data:
             logger.warning("[FirebaseAuth] %s returned 200 but missing localId", endpoint)
+            self._publish_auth_failure("missing_local_id")
             return None
 
         self._set_tokens(data)
@@ -111,6 +117,7 @@ class FirebaseAuth:
         self._refresh_token = data.get("refresh_token", self._refresh_token)
         self._expires_at = time.time() + int(data.get("expires_in", 3600))
         self.save()
+        self._publish_token_refreshed()
         return True
 
     def get_valid_token(self) -> Optional[str]:
@@ -161,6 +168,12 @@ class FirebaseAuth:
             self._token_path.unlink(missing_ok=True)
         except OSError:
             pass
+        if self._event_bus:
+            self._event_bus.publish(Event(
+                type=EventType.AUTH_CLEARED,
+                source="firebase_auth",
+                data={}
+            ))
 
     def _set_tokens(self, data: dict) -> None:
         self._uid = data.get("localId")
@@ -169,3 +182,25 @@ class FirebaseAuth:
         self._refresh_token = data.get("refreshToken")
         expires_in = int(data.get("expiresIn", 3600))
         self._expires_at = time.time() + expires_in
+        if self._event_bus:
+            self._event_bus.publish(Event(
+                type=EventType.AUTH_SUCCESS,
+                source="firebase_auth",
+                data={"uid": self._uid, "email": self._email}
+            ))
+
+    def _publish_auth_failure(self, reason: str) -> None:
+        if self._event_bus:
+            self._event_bus.publish(Event(
+                type=EventType.AUTH_FAILURE,
+                source="firebase_auth",
+                data={"reason": reason}
+            ))
+
+    def _publish_token_refreshed(self) -> None:
+        if self._event_bus:
+            self._event_bus.publish(Event(
+                type=EventType.TOKEN_REFRESHED,
+                source="firebase_auth",
+                data={"uid": self._uid}
+            ))
