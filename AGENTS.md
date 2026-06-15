@@ -25,7 +25,7 @@ Transparent always-on-top Windows desktop companion built with PyQt6. Named **Da
 **Python:** use `py` (not `python` or `python3`) — Windows py launcher
 **Tests:** `py -m pytest tests/ -v`
 **Stack:** Python 3.11+, PyQt6, pynput, ctypes (Win32), requests, comtypes, Pillow, pyttsx3
-**Test count:** ~450+ across 49 test files
+**Test count:** ~617 across 49 test files
 
 ---
 
@@ -314,7 +314,7 @@ All 9 emotions are now declared as `EmotionProfile` dataclasses in `EMOTION_PROF
 
 ---
 
-## MCP Server (12 Tools on port 4097)
+## MCP Server (11 Tools on port 4097)
 
 In-process JSON-RPC 2.0 HTTP server. SSE init at GET /sse, messages at POST /message.
 
@@ -325,10 +325,10 @@ In-process JSON-RPC 2.0 HTTP server. SSE init at GET /sse, messages at POST /mes
 | 3 | `capture_blackmail_evidence` | allow_window_management | — |
 | 4 | `send_system_toast` | allow_audio_disruptions | title, message |
 | 5 | `list_directory` | — (always allowed) | relative_path |
-| 6 | `read_file` | — | file_path, start_line, end_line |
-| 7 | `search_codebase` | — | search_term (regex) |
-| 8 | `get_memory` | — | — |
-| 9 | `get_diary` | — | limit (1-50) |
+| 6 | `read_file` | — (always allowed) | file_path, start_line, end_line |
+| 7 | `search_codebase` | — (always allowed) | search_term (regex) |
+| 8 | `get_memory` | — (always allowed) | — |
+| 9 | `get_diary` | — (always allowed) | limit (1-50) |
 | 10 | `simulate_keystroke` | allow_keyboard_injection | keys (max 50 chars) |
 | 11 | `move_mouse` | allow_mouse_interference | x, y, click |
 | 12 | `browser_navigation` | allow_browser_redirection | url (http/https only) |
@@ -337,6 +337,8 @@ In-process JSON-RPC 2.0 HTTP server. SSE init at GET /sse, messages at POST /mes
 - Tier 1 (Low Risk): allow_intrusive_animations (default: True)
 - Tier 2 (Medium Risk): allow_audio_disruptions, allow_browser_redirection (default: False)
 - Tier 3 (High Risk): allow_clipboard_hijacking, allow_mouse_interference, allow_window_management, allow_keyboard_injection (default: False)
+
+**Note:** Tools `list_directory`, `read_file`, `search_codebase`, `get_memory`, and `get_diary` are read-only operations that do not require consent and are always allowed.
 
 ---
 
@@ -430,7 +432,7 @@ Single unified `ThoughtPool` with 4 item types:
 | `thought_log_dialog.py` | `ThoughtLogDialog(QDialog)` | Matrix-style green-on-black log viewer, 1s refresh |
 | `login_dialog.py` | `LoginDialog(QDialog)` | Kenny-persona email/password auth modal |
 | `fsm_bridge.py` | `FSMActionBridge(QObject)` | pyqtSignal relay: MCP thread → Qt main thread |
-| `mcp_server.py` | `MCPServer`, `MCPHandler` | JSON-RPC 2.0 HTTP on :4097, 12 tools, consent gating |
+| `mcp_server.py` | `MCPServer`, `MCPHandler` | JSON-RPC 2.0 HTTP on :4097, 11 tools, consent gating |
 | `logging_setup.py` | `setup_logging` | RotatingFileHandler, 7-day cleanup, per-module levels |
 | `system_dialogs.json` | — | 21 pre-baked Kenny system event responses |
 | `utils/security.py` | `is_safe_write_path` | Write sandbox: all writes restricted to data/ |
