@@ -334,6 +334,12 @@ class PetWindow(QWidget):
         self._boot_timer.start()
         self._mcp_server.start()
 
+        # Wire EventBus subscriber for autonomous triggers from BehaviorController
+        self._events.subscribe(
+            EventType.AUTONOMOUS_TRIGGER_FIRED,
+            self._on_autonomous_trigger,
+        )
+
     def _setup_window(self) -> None:
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
@@ -1605,6 +1611,43 @@ class PetWindow(QWidget):
             logger.debug(f"[{mode}] Skipping: FSM state={self._fsm.current_state.name}")
             return False
         return True
+
+    def _on_autonomous_trigger(self, event) -> None:
+        """EventBus subscriber: handle autonomous trigger from BehaviorController.
+
+        Dispatches the trigger through the thought pool or local FSM action
+        depending on mode. Called on AUTONOMOUS_TRIGGER_FIRED.
+        """
+        mode = event.data.get("mode", "")
+        if not self._should_fire_autonomous(mode):
+            return
+
+        if mode == "boredom":
+            # Local FSM action only — no GCD, no opencode
+            actions = ["PERIMETER", "SHAKING", "SPINNING", "LOOK_AWAY", "BOUNCING"]
+            action = random.choice(actions)
+            target_state = getattr(PetState, action)
+            self._fsm.transition_to(target_state)
+            self._on_output_displayed(engaged=False)
+            return
+
+        # active_chat or joke: draw from thought pool
+        draw_type = "typing_reaction" if mode == "active_chat" else "intel_roast"
+        items = self._response_manager.draw(draw_type)
+        if not items and mode == "joke":
+            items = self._response_manager.draw("observation")
+        if items:
+            self._dispatch_structured(items[0])
+            self._on_output_displayed(engaged=True)
+        else:
+            # No local cache hit — trigger opencode dispatch
+            self._dispatch_trigger(
+                mode=mode,
+                apm=event.data.get("apm", 0),
+                idle_seconds=event.data.get("idle_seconds", 0.0),
+                typing_content=self._typing_buffer.get_context() if hasattr(self, "_typing_buffer") else "",
+                is_autonomous=True,
+            )
 
     _BOREDOM_FALLBACK_JOKES = [
         {"dialogue": "Holy crap, you're still alive? I was drafting your eulogy in Python comments.", "action": "idle", "target_x": 0},

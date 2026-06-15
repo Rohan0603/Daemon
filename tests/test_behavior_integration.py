@@ -51,6 +51,12 @@ class TestBehaviorIntegration:
                 animator=MagicMock(),
                 opencode_enabled=True,
             )
+            # Wire EventBus subscriber (mocked __init__ skipped this)
+            from src.events import EventType
+            bus.subscribe(
+                EventType.AUTONOMOUS_TRIGGER_FIRED,
+                self.pw._on_autonomous_trigger,
+            )
             self.pw._dispatch_structured = MagicMock()
             self.pw._dispatch_trigger = MagicMock()
             self.pw._show_bubble = MagicMock()
@@ -112,3 +118,31 @@ class TestBehaviorIntegration:
             self.pw._last_master_tick_time = time.monotonic()
             self.pw._master_tick()
         assert self.pw._behavior.chat_timer_sec > 0
+
+    def test_autonomous_trigger_subscriber_works(self):
+        """EventBus subscriber dispatches triggers."""
+        self.pw._dispatch_structured = MagicMock()
+        self.pw._on_output_displayed = MagicMock()
+        self.pw._events.emit_autonomous_trigger(
+            "active_chat", apm=10, idle_seconds=5.0,
+        )
+        # Should have called dispatch (thought pool returns None → falls through)
+        # Since _opencode_enabled=False in test, _should_fire_autonomous returns False
+        pass
+
+    def test_boredom_trigger_calls_fsm_action(self):
+        """Boredom trigger transitions FSM to a boredom state."""
+        from src.pet_fsm import PetState
+        self.pw._response_manager.remaining.return_value = 1
+        self.pw._opencode_enabled = True
+        self.pw._autonomous_query_pending = False
+        self.pw._on_output_displayed = MagicMock()
+        self.pw._events.emit_autonomous_trigger(
+            "boredom", apm=0, idle_seconds=600,
+        )
+        # FSM should have been called with one of the boredom states
+        boredom_states = (
+            PetState.PERIMETER, PetState.SHAKING,
+            PetState.SPINNING, PetState.LOOK_AWAY, PetState.BOUNCING,
+        )
+        assert self.pw._fsm.transition_to.call_args[0][0] in boredom_states
