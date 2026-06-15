@@ -55,6 +55,8 @@ def setup_logging(
     if config_overrides:
         default_overrides.update(config_overrides)
     for name, level in default_overrides.items():
+        if not isinstance(level, str):
+            continue
         logging.getLogger(name).setLevel(getattr(logging, level.upper(), logging.INFO))
 
     logging.captureWarnings(True)

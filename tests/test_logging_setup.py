@@ -33,6 +33,13 @@ def test_setup_logging_applies_module_overrides(tmp_path):
     assert test_logger.level == logging.WARNING
 
 
+def test_setup_logging_skips_non_string_overrides(tmp_path):
+    """config_overrides with int values shouldn't crash (fixed AttributeError)."""
+    setup_logging(debug=True, log_dir=str(tmp_path), config_overrides={"some_module": "WARNING", "retention_days": 7})
+    test_logger = logging.getLogger("some_module")
+    assert test_logger.level == logging.WARNING
+
+
 def test_setup_logging_file_handler_present(tmp_path):
     setup_logging(debug=True, log_dir=str(tmp_path))
     root = logging.getLogger()
