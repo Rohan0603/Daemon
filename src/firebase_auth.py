@@ -29,7 +29,11 @@ class FirebaseAuth:
             self._api_key = cfg.get("firebase", {}).get("api_key", "")
         else:
             self._api_key = api_key
-        self._project_id = project_id or FIREBASE_PROJECT_ID
+        if not project_id:
+            cfg = load_config()
+            self._project_id = cfg.get("firebase", {}).get("project_id", FIREBASE_PROJECT_ID)
+        else:
+            self._project_id = project_id
         self._token_path = Path(token_path) if token_path else AUTH_TOKEN_PATH
 
         self._uid: Optional[str] = None

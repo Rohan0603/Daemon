@@ -5,6 +5,10 @@ import logging
 import copy
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Try to load .env from project root
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +21,7 @@ DEFAULT_CONFIG = {
       "provider": "opencode-zen",
       "server_url": "http://127.0.0.1:4096",
       "timeout_sec": 180,
-      "api_key": os.environ.get("OPENCODE_API_KEY", "your-opencode-api-key-here")
+      "api_key": ""  # loaded from .env or env var
     },
     "pet": {
         "id": "kenny",
@@ -46,8 +50,9 @@ DEFAULT_CONFIG = {
         "monitor": False
     },
     "firebase": {
-        "api_key": os.environ.get("FIREBASE_API_KEY", "your-firebase-api-key-here")
-    }
+        "api_key": "",        # loaded from .env or env var
+        "project_id": "daemon-87f81"
+    },
 }
 
 FLAT_TO_NESTED = {
@@ -76,6 +81,7 @@ FLAT_TO_NESTED = {
     "allow_window_management": ("consent", "allow_window_management"),
     "window_monitor": ("window", "monitor"),
     "FIREBASE_API_KEY": ("firebase", "api_key"),
+    "FIREBASE_PROJECT_ID": ("firebase", "project_id"),
 }
 
 NESTED_TO_FLAT = {
@@ -103,6 +109,7 @@ NESTED_TO_FLAT = {
     ("consent", "allow_window_management"): "allow_window_management",
     ("window", "monitor"): "window_monitor",
     ("firebase", "api_key"): "FIREBASE_API_KEY",
+    ("firebase", "project_id"): "FIREBASE_PROJECT_ID",
 }
 
 # Keep _CONFIG_PATH for test compatibility
@@ -119,8 +126,26 @@ def _deep_merge(target: dict, source: dict) -> None:
                 target[k] = v
 
 
+def _apply_env_overrides(cfg: dict) -> dict:
+    """Override config from environment variables (highest priority).
+    Called after JSON file merge so .env / env vars win over file values.
+    """
+    env_map: dict[str, tuple[str, str]] = {
+        "OPENCODE_API_KEY": ("llm", "api_key"),
+        "FIREBASE_API_KEY": ("firebase", "api_key"),
+        "FIREBASE_PROJECT_ID": ("firebase", "project_id"),
+    }
+    for env_key, (section, subkey) in env_map.items():
+        val = os.environ.get(env_key)
+        if val and val.strip():
+            if section not in cfg:
+                cfg[section] = {}
+            cfg[section][subkey] = val.strip()
+    return cfg
+
+
 def load_config() -> dict:
-    """Load config from CONFIG_PATH, deep-merge with defaults, and return nested dict."""
+    """Load config from CONFIG_PATH, deep-merge with defaults, apply env overrides."""
     cfg = copy.deepcopy(DEFAULT_CONFIG)
     try:
         # Resolve path dynamically in case it's patched in tests
@@ -137,7 +162,7 @@ def load_config() -> dict:
             save_config(cfg)
     except Exception as e:
         logger.warning("Failed to load config from %s: %s", _CONFIG_PATH, e)
-    return cfg
+    return _apply_env_overrides(cfg)
 
 
 def save_config(config: dict) -> bool:
