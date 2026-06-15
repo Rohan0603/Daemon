@@ -6,10 +6,10 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-13 (Phase 47 — SKILL.md Complete Rewrite + Doc Sync)
+**Date updated:** 2026-06-15 (Phase 50 — Config Consolidation)
 **Current branch:** `master`
-**Latest commit:** `a97b55b` docs(skill): incorporate Phase 46 alignment — 15-point complete rewrite
-**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46
+**Latest commit:** `ddb064c` fix: replace hardcoded 127.0.0.1:4096 URLs with DEFAULT_SERVER_URL constant
+**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50
 **Git root:** `C:\Users\ponna\Project\Daemon`
 **Python command:** `py` (Windows py launcher — not `python` or `python3`)
 **Test command:** `py -m pytest tests/ -v --ignore=tests/test_output.txt --ignore=tests/test_firebase_crud.py`
@@ -1399,31 +1399,43 @@ Comprehensive architecture review and critical bug fixes across the codebase.
 
 ---
 
-### Phase 49.1 — Consent Matrix Refinement (2026-06-14)
+### Phase 50 — Config Consolidation (2026-06-15)
 
-**Branch:** `task-49-consent-refinement`
+**Summary:** Consolidated all model, API, and placeholder settings scattered across the source tree into `src/config.py`, relocated API keys to `.env`, cleaned hardcoded URLs, and added config sections for MCP, behavior, logging, and storage.
 
-**What was done:**
-- **Renamed consent keys:**
-  - `allow_system_notifications` → `allow_audio_disruptions`
-  - `allow_clipboard_reading` → `allow_clipboard_hijacking`
-  - `allow_screenshot_capture` → `allow_window_management`
-- **Removed consent gating for file operations:** `list_directory`, `read_file`, `search_codebase`, `get_memory`, `get_diary` are now always-allowed tools (no consent required)
-- **Renamed tool:** `capture_screenshot` → `capture_blackmail_evidence`
-- **Tool count:** 12 → 11 (after tool rename)
-- **Consent matrix:** Simplified to 3 tiers (Tier 1: intrusive_animations, Tier 2: audio_disruptions/browser_redirection, Tier 3: clipboard_hijacking/mouse_interference/window_management/keyboard_injection)
+**Commits (on master):**
+- `f9008e2` feat: wire python-dotenv into config, add _apply_env_overrides for env var overrides
+- `d96a986` feat: add config sections for mcp, behavior, logging, storage; wire consumers
+- `ddb064c` fix: replace hardcoded 127.0.0.1:4096 URLs with DEFAULT_SERVER_URL constant
+
+**Task breakdown:**
+
+| Task | Description | Commit |
+|------|-------------|--------|
+| Task 1 | `.env.example`, `.gitignore` (add `.env`), `requirements.txt` (+python-dotenv) | `f9008e2` plus earlier |
+| Task 2 | Strip real API keys from `data/daemon_config.json` | earlier |
+| Task 3 | Wire `python-dotenv` into `config.py`, add `_apply_env_overrides()` | `f9008e2` |
+| Tasks 4-7 | Add config sections: firebase/credentials_path, mcp/host+port, behavior (40+ tunables), logging (level/dir/retention), storage (7 file paths) | `d96a986` |
+| Task 9 | Replace all hardcoded `"http://127.0.0.1:4096"` fallbacks with `DEFAULT_SERVER_URL` from config | `ddb064c` |
+| Task 10 | Update test files to use config constant (test input URLs left explicit) | `ddb064c` |
+| Task 11 | Update dev memory (this entry) | — |
 
 **Files changed:**
-- `src/config.py` — Updated consent keys and flat/nested mappings
-- `src/mcp_server.py` — Updated tool names, consent map, removed gating for read-only tools
-- `src/pet_window.py` — Updated saved_consent keys
-- `src/settings_dialog.py` — Updated checkbox labels and wiring
-- `tests/test_mcp_server.py` — Updated tool count assertions, consent tests
-- `tests/test_settings_dialog.py` — Updated consent key assertions
+- `src/config.py` — New sections: firebase.credentials_path, mcp, behavior (41 keys), logging, storage (7 keys); new `DEFAULT_SERVER_URL` convenience constant; `_apply_env_overrides()` for env var overrides
+- `src/firebase_crud.py` — Read `credentials_path` from config instead of hardcoded constant
+- `src/mcp_server.py` — Read host/port from config mcp section; extract consent from nested config dict
+- `src/event_worker.py` — Default URL uses `DEFAULT_SERVER_URL`
+- `src/opencode_serve_manager.py` — `_DEFAULT_URL` uses `DEFAULT_SERVER_URL`
+- `src/opencode_worker.py` (2 occurrences), `src/pet_window.py` (1), `daemon.py` (1), `scripts/test_connections.py` (1) — Fallback URLs use `DEFAULT_SERVER_URL`
+- `daemon.py` — Pass `log_dir` from config logging section to `setup_logging`
 
 **Key decisions:**
-- Read-only tools (`list_directory`, `read_file`, `search_codebase`, `get_memory`, `get_diary`) are always allowed for transparency
-- `capture_blackmail_evidence` renamed to reflect actual usage (screenshots go to `data/blackmail/`)
-- Consent matrix simplified from 11-tier to 7-tool system
+- `DEFAULT_SERVER_URL` exported from `config.py` as a single source of truth for `http://127.0.0.1:4096`
+- Test files keep explicit URL strings for test input data (not fallback defaults)
+- `_apply_env_overrides()` runs after JSON file merge so `.env`/env vars always win
+- `load_config()` called once at startup, returns nested dict; consumers read their section
+- MCP and logging consumers already supported config dicts — only needed wiring updates
 
-**Test Results:** All 68 MCP/settings/config tests pass
+**Test Results:** All 134 config/FSM/MCP/auth/CRUD/worker tests pass.
+
+---
