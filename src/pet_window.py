@@ -1432,6 +1432,9 @@ class PetWindow(QWidget):
         self._autonomous_query_pending = False
         self._deferred_trigger_params = None
         self._fsm.current_state = PetState.IDLE
+        # Invalidate session ID — the worker that errored may have been aborted,
+        # leaving a stale server-side session. Next worker will create a fresh one.
+        self._opencode_session_id = None
 
         user_name = self._memory.get_all().get("user_name")
         name = "Appi"
