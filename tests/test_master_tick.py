@@ -1,4 +1,9 @@
-"""Tests for _master_tick behavioral loop."""
+"""Tests for _master_tick delegation to BehaviorController.
+
+Note: The priority tree logic has moved to BehaviorController
+(tested in test_behavior_controller.py). These tests verify that
+_master_tick correctly delegates and handles errors.
+"""
 import time
 import pytest
 from unittest.mock import MagicMock, patch
@@ -15,77 +20,40 @@ def app():
     return _app
 
 
-class TestMasterTick:
+class TestMasterTickDelegation:
     def setup_method(self):
-        self._pw_app = app()  # ensure QApplication exists
+        self._pw_app = app()
         from PyQt6.QtWidgets import QWidget
         def mock_init(self, *a, **kw):
             QWidget.__init__(self)
         with patch.object(PetWindow, '__init__', mock_init):
             self.pw = PetWindow()
-            self.pw._emotion_timer_sec = 0
-            self.pw._last_evaluated_window = ""
-            self.pw._window_switch_count = 0
             self.pw._fsm = MagicMock()
-            self.pw._fsm.current_state = PetState.IDLE
-            self.pw._chat_timer_sec = 0
-            self.pw._joke_timer_sec = 0
-            self.pw._gcd_expiry_timestamp = 0.0
-            self.pw._chattiness = 1.0
-            self.pw._current_apm = 0
+            self.pw._behavior = MagicMock()
             self.pw._idle_seconds = 0
-            self.pw._has_significant_delta = MagicMock(return_value=False)
-            self.pw._trigger_chat = MagicMock()
-            self.pw._trigger_joke = MagicMock()
-            self.pw._trigger_boredom_fsm = MagicMock()
-            self.pw._calculate_joke_modifier = MagicMock(return_value=1.0)
-            # Exponential backoff fields
-            self.pw._last_context_snapshot = None
-            self.pw._idle_backoff_seconds = 0.0
-            self.pw._base_boredom_interval = 30
-            self.pw._max_idle_backoff = 300
-            self.pw._last_boredom_fsm_time = time.time()
-            self.pw._boredom_timer_ms = 30000
-            self.pw._boredom_tick_count = 0
-            self.pw._is_context_stable = MagicMock(return_value=True)
-            # Monotonic time tracking for drift-free timers
-            self.pw._last_master_tick_time = time.monotonic() - 1.0  # So first call gives master_dt = 1.0
-            self.pw._last_tick_time = time.monotonic()
+            self.pw._last_master_tick_time = time.monotonic() - 1.0
 
-    def test_increments_timers(self):
+    def test_delegates_to_behavior_tick(self):
         self.pw._master_tick()
-        # Use approximate equality since master_dt is real elapsed time
-        import math
-        # Allow tolerance for test execution overhead
-        assert math.isclose(self.pw._chat_timer_sec, 1.0, abs_tol=0.5)
-        assert math.isclose(self.pw._joke_timer_sec, 1.0, abs_tol=0.5)
+        self.pw._behavior.tick.assert_called_once()
 
-    def test_gcd_blocks_all(self):
-        self.pw._gcd_expiry_timestamp = time.time() + 100
+    def test_syncs_idle_seconds(self):
+        self.pw._idle_seconds = 42.5
         self.pw._master_tick()
-        self.pw._trigger_chat.assert_not_called()
-        self.pw._trigger_joke.assert_not_called()
+        self.pw._behavior.set_idle_seconds.assert_called_once_with(42.5)
 
-    def test_flow_state_silence(self):
-        self.pw._current_apm = 85
+    def test_updates_last_master_tick_time(self):
+        old = self.pw._last_master_tick_time
         self.pw._master_tick()
-        self.pw._trigger_chat.assert_not_called()
-        self.pw._trigger_joke.assert_not_called()
+        assert self.pw._last_master_tick_time != old
 
-    def test_chat_fires_on_delta(self):
-        self.pw._chat_timer_sec = 25  # >= threshold
-        self.pw._has_significant_delta.return_value = True
+    def test_behavior_tick_receives_delta(self):
         self.pw._master_tick()
-        self.pw._trigger_chat.assert_called_once()
+        args, _ = self.pw._behavior.tick.call_args
+        dt = args[0]
+        assert 0.5 < dt < 2.0  # Should be ~1s with tolerance
 
-    def test_joke_fires_on_low_apm(self):
-        self.pw._joke_timer_sec = 60  # >= threshold
-        self.pw._current_apm = 5  # < 20
-        self.pw._master_tick()
-        self.pw._trigger_joke.assert_called_once()
-
-    def test_boredom_fires(self):
-        self.pw._idle_seconds = 60
-        self.pw._current_apm = 0
-        self.pw._master_tick()
-        self.pw._trigger_boredom_fsm.assert_called_once()
+    def test_exception_in_behavior_bubbles_up(self):
+        self.pw._behavior.tick.side_effect = ValueError("boom")
+        with pytest.raises(ValueError):
+            self.pw._master_tick()

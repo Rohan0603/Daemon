@@ -58,6 +58,7 @@ from src.fsm_bridge import FSMActionBridge
 from src.mcp_server import MCPServer
 from src.animator import EmotionAnimator, Emotion
 from src.events import get_event_bus, EventType
+from src.behavior_controller import BehaviorController
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +230,17 @@ class PetWindow(QWidget):
         self._response_manager.start()
         self._log_data_state("Startup+Cache")
 
+        # BehaviorController — autonomous behavior engine
+        self._behavior = BehaviorController(
+            event_bus=self._events,
+            response_manager=self._response_manager,
+            typing_buffer=self._typing_buffer,
+            fsm=self._fsm,
+            animator=self._animator,
+            opencode_enabled=self._opencode_enabled,
+            chattiness=self._chattiness,
+        )
+
         self._typing_last_len = 0
         self._typing_debounce_timer = QTimer(self)
         self._typing_debounce_timer.setSingleShot(True)
@@ -287,25 +299,7 @@ class PetWindow(QWidget):
         self._health_timer.timeout.connect(self._on_health_check)
         self._health_timer.start()
 
-        # Exponential backoff for idle/boredom
-        self._last_context_snapshot = None
-        self._idle_backoff_seconds = 0.0
-        self._base_boredom_interval = BOREDOM_TIMEOUT_SEC
-        self._max_idle_backoff = 300
-        self._last_boredom_fsm_time = 0.0
-
-        self._consecutive_silent = 0
-        self._consecutive_engaged = 0
-        self._current_interval = BASE_INTERVAL_SEC
-
-        self._last_active_window = ""
-        self._last_typing_snapshot = ""
-        self._boredom_tick_count = 0
-        self._gcd_expiry_timestamp = 0.0
-        self._chat_timer_sec = 0
-        self._joke_timer_sec = 0
-        self._chattiness = 1.0
-        self._last_boredom_trigger_time = 0.0
+        # Refill worker state
         self._last_refill_attempt = 0.0
         self._refill_failed_count = 0
 
@@ -412,11 +406,10 @@ class PetWindow(QWidget):
 
     def _on_apm_updated(self, apm: int) -> None:
         self._current_apm = apm
+        self._behavior.set_apm(apm)
         if apm > 0:
             self._boredom_timer_ms = BOREDOM_TIMEOUT_SEC * 1000
-            self._idle_backoff_seconds = 0.0
-            self._last_context_snapshot = None
-            self._last_boredom_fsm_time = time.time()
+            self._behavior.on_activity_detected()
 
         # APM Hysteresis - prevent overreactions to normal variations
         current_time = time.time()
@@ -589,100 +582,15 @@ class PetWindow(QWidget):
         return Emotion.MIRTH
 
     def _master_tick(self) -> None:
-        """Centralized behavioral tick — runs every BEHAVIOR_TICK_MS.
+        """Delegate autonomous behavior to BehaviorController.
 
-        Uses time.monotonic() for drift-free timer accumulation.
+        Uses time.monotonic() for drift-free behavioral timing.
         """
         try:
-            from src.pet_fsm import PetState
-
-            # --- Monotonic time delta for drift-free behavioral timers ---
             now = time.monotonic()
-            master_dt = now - self._last_master_tick_time
+            self._behavior.set_idle_seconds(self._idle_seconds)
+            self._behavior.tick(now - self._last_master_tick_time)
             self._last_master_tick_time = now
-
-            # SLEEP guard: freeze all behavioral timers
-            if self._fsm.current_state == PetState.SLEEP:
-                return
-
-            # Window switch tracking for WONDER
-            current_window = get_active_window_title()
-            if current_window and current_window != self._last_evaluated_window:
-                self._window_switch_count += 1
-                self._last_evaluated_window = current_window
-
-            # Emotion evaluation every EMOTION_TICK_SEC seconds
-            self._emotion_timer_sec += master_dt
-            if self._emotion_timer_sec >= EMOTION_TICK_SEC:
-                self._emotion_timer_sec = 0
-                emotion = self._evaluate_emotion()
-                old_emotion = self._animator.current_emotion
-                self._animator.set_emotion(emotion, self._animator._elapsed_ms)
-                if old_emotion != emotion:
-                    self._events.emit_emotion_shifted(old_emotion.name, emotion.name)
-                self._window_switch_count = 0
-                if emotion == Emotion.FEAR:
-                    self._fsm.transition_to(PetState.FALLING)
-
-            # 1. Accumulate time using actual elapsed delta
-            self._chat_timer_sec += master_dt
-            self._joke_timer_sec += master_dt
-
-            # 2. GATEKEEPER: Dynamic Global Cooldown
-            if time.time() < self._gcd_expiry_timestamp:
-                return  # Speech in progress — lockdown
-
-            # 3. Dynamic Thresholds (Chattiness scaling)
-            chat_threshold = ACTIVE_CHAT_INTERVAL_SEC / self._chattiness
-            joke_mod = self._calculate_joke_modifier()
-            joke_threshold = (JOKE_INTERVAL_SEC * joke_mod) / self._chattiness
-
-            # 4. BEHAVIORAL PRIORITY TREE
-            # P1: Flow State (APM > 80) — TOTAL SILENCE
-            if self._current_apm > 80:
-                return
-
-            # P2: Active Chat Delta
-            if self._chat_timer_sec >= chat_threshold and self._has_significant_delta():
-                self._trigger_chat()
-                return
-
-            # P3: Joke (APM < 20) — only if no active backoff
-            if self._joke_timer_sec >= joke_threshold and self._current_apm < 20:
-                elapsed_since_boredom = time.time() - self._last_boredom_fsm_time
-                if elapsed_since_boredom >= self._idle_backoff_seconds:
-                    self._trigger_joke()
-                    return
-
-            # P4: Boredom (APM == 0, Idle >= 60s) — WITH EXPONENTIAL BACKOFF
-            if self._idle_seconds >= 60 and self._current_apm == 0:
-                # Debounce boredom triggers to prevent rapid state changes
-                current_time = time.time()
-                if hasattr(self, "_last_boredom_trigger_time"):
-                    time_since_last_boredom = current_time - self._last_boredom_trigger_time
-                    if time_since_last_boredom < 30:  # 30 second cooldown between boredom triggers
-                        return
-
-                # 1. Update stability and base timer first
-                if not self._is_context_stable():
-                    self._idle_backoff_seconds = self._base_boredom_interval
-                    self._last_context_snapshot = self._get_context_signature()
-                    self._last_boredom_fsm_time = time.time()
-
-                # 2. Check if it's time to fire
-                elapsed = time.time() - self._last_boredom_fsm_time
-                if elapsed >= self._idle_backoff_seconds:
-                    self._trigger_boredom_fsm()
-                    self._last_boredom_fsm_time = time.time()
-                    self._last_boredom_trigger_time = current_time
-
-                    # 3. ONLY increase backoff AFTER we've fired
-                    if self._idle_backoff_seconds == 0:
-                        self._idle_backoff_seconds = self._base_boredom_interval
-                    else:
-                        self._idle_backoff_seconds = min(self._idle_backoff_seconds * 2.0, self._max_idle_backoff)
-                return
-
         except Exception as e:
             logger.critical("CRASH in _master_tick: %s", e, exc_info=True)
             raise
