@@ -227,6 +227,9 @@ class PetWindow(QWidget):
         self._response_manager.start()
         self._log_data_state("Startup+Cache")
 
+        # Event bus for decoupled communication
+        self._events = get_event_bus()
+
         # BehaviorController — autonomous behavior engine
         self._behavior = BehaviorController(
             event_bus=self._events,
@@ -303,9 +306,6 @@ class PetWindow(QWidget):
         # Monotonic time tracking for drift-free timers
         self._last_tick_time = time.monotonic()
         self._last_master_tick_time = time.monotonic()
-
-        # Event bus for decoupled communication
-        self._events = get_event_bus()
 
         self._input_field = QLineEdit(self)
         self._input_field.setFixedSize(INPUT_WIDTH, INPUT_HEIGHT)
