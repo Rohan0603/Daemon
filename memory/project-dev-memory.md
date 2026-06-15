@@ -1438,4 +1438,22 @@ Comprehensive architecture review and critical bug fixes across the codebase.
 
 **Test Results:** All 134 config/FSM/MCP/auth/CRUD/worker tests pass.
 
+### Phase 50.5 — Codebase Cleanup ✅
+
+**Date:** 2026-06-15
+**Latest commit:** `6e37e2c`
+**Commits:** `87bb405`, `6e37e2c`
+
+**What was cleaned:**
+
+| # | Item | Type | Details |
+|---|------|------|---------|
+| 1 | `.gitignore` | Edit | Deduplicated `crash_dump.log` (was listed twice); added `.hermes/` pattern |
+| 2 | `crash_dump.log` | Delete | 0-byte empty file at repo root |
+| 3 | `docs/superpowers/` | Delete (9 files) | Stale Phase 36-37 design docs superseded by `.hermes/plans/` system |
+| 4 | `.git/.COMMIT_EDITMSG.swp` | Delete | Vim swap artifact |
+| 5 | 5 x `__pycache__/` | Delete | Bytecode caches at root, src/, src/utils/, tests/, scripts/ |
+
+**Verification:** `git status` clean, 603 tests pass (unchanged).
+
 ---
