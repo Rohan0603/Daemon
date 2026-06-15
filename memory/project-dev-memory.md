@@ -6,14 +6,14 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-15 (Phase 50 — Config Consolidation)
+**Date updated:** 2026-06-15 (Phase 52 — PetController Extraction)
 **Current branch:** `master`
-**Latest commit:** `ddb064c` fix: replace hardcoded 127.0.0.1:4096 URLs with DEFAULT_SERVER_URL constant
-**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50
+**Latest commit:** `a05c513` fix: move EventBus init before BehaviorController, delete stale test files
+**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52
 **Git root:** `C:\Users\ponna\Project\Daemon`
 **Python command:** `py` (Windows py launcher — not `python` or `python3`)
 **Test command:** `py -m pytest tests/ -v --ignore=tests/test_output.txt --ignore=tests/test_firebase_crud.py`
-**Test count:** ~617 across 49 test files
+**Test count:** ~610 across 47 test files
 
 ---
 
@@ -934,6 +934,7 @@ Install: `pip install PyQt6 pynput pytest requests pyttsx3 comtypes Pillow`
 src/
   __init__.py
   constants.py           ← All tunable values — import from here everywhere
+  behavior_controller.py  ← BehaviorController (495 lines) — pure-logic autonomous behavior system: timers, engagement, emotion, backoff, EventBus dispatch. No Qt imports.
   brain_schema.py        ← 26-field brain schema, apply_brain_update, DEFAULT_BRAIN, validation
   pet_fsm.py             ← 15-state PetFSM, FSMContext dataclass, zero Qt imports
   pet_renderer.py        ← Stateless QPainter renderer, eye tracking, squash/stretch, 8-way perimeter
@@ -1457,3 +1458,88 @@ Comprehensive architecture review and critical bug fixes across the codebase.
 **Verification:** `git status` clean, 603 tests pass (unchanged).
 
 ---
+
+### Phase 51 — High-Priority Bug Fixes + Observability (2026-06-15)
+
+**Summary:** Fixed 3 high-priority bugs (TTS temp file leak, TypingBuffer signal spam, stale opencode session reuse), investigated 2 false alarms (Firestore per-field writes, double window title call), added atexit emergency flush, JSON parse diagnostics, MCP health/metrcis endpoints, and boot timing instrumentation.
+
+**Commits (on master, 4 total):**
+- `3f32d9d` fix: TTS temp file cleanup and TypingBuffer signal debounce
+- `bc029b2` fix: clear stale _opencode_session_id on worker error
+- `1cb2845` fix: atexit emergency flush + JSON parse diagnostics
+- `bcdfb33` feat: add MCP server health endpoint + metrics + boot timing instrumentation
+
+**Task breakdown:**
+
+| Task | Description | Status | Notes |
+|------|-------------|--------|-------|
+| A1 | Firestore write batching | ✅ False alarm | `firebase_crud.set()` is single-doc with merge=True; `update_brain()` writes all fields per response; `batch_update_brain()`/`flush_batch()` exist but are dead code |
+| A2 | TTS temp file leak | ✅ Fixed | Track all temp files in `_process_utterance`, clean in `finally` block (was leaking edge-tts MP3 + pyttsx3 WAV fallback) |
+| A3 | TypingBuffer signal spam | ✅ Fixed | Remove redundant `text_updated.emit()` from `_on_press`; rely on existing 50ms debounce timer. Burst keystrokes coalesce into one emission |
+| A4 | Stale opencode session reuse | ✅ Fixed | Clear `_opencode_session_id = None` in `_on_opencode_error()` so next worker creates fresh session |
+| A5 | Double window title call | ✅ False alarm | `_evaluate_emotion` already caches `get_active_window_title()` once at line 555 |
+| B1 | Memory sync race (atexit) | ✅ Fixed | Added `_emergency_flush()` atexit handler for last-resort WriteCoalescer/Memory/History save on abnormal exit |
+| B2 | JSON parse hardening | ✅ Fixed | Added line/col/context diagnostic logging on JSON decode error + "all strategies failed" fallback warning |
+| B3 | MCP server health check | ✅ Fixed | Added `/health` GET endpoint to MCPHandler; `_check_mcp_health()` TCP-checks port 4097, wired into `_on_health_check` |
+| B4 | Observability boot + /metrics | ✅ Fixed | Added `/metrics` endpoint returning pid, uptime, thread count (psutil optional); boot timing marks and summary log in daemon.py |
+| B5 | Consent matrix tier audit | ⏭️ Skipped | Code/docs already correct from Phase 48 |
+|| B6 | PetController extraction pilot | ✅ Completed (Phase 52) | Extracted to `src/behavior_controller.py` with 40 tests |
+
+**Files changed:**
+- `src/tts_worker.py` — Temp file tracking + finally cleanup
+- `src/typing_buffer.py` — Removed redundant emit calls
+- `tests/test_typing_buffer.py` — Updated for debounced signal behavior
+- `src/pet_window.py` — `_check_mcp_health()` method + `_on_opencode_error` session invalidation + health check wiring
+- `src/opencode_worker.py` — JSON parse diagnostic logging with line/col/context
+- `src/mcp_server.py` — `/health` + `/metrics` GET endpoints; `_BOOT_TIME` module-level tracking
+- `daemon.py` — `_emergency_flush()` atexit handler; boot timing marks + summary log
+
+**Test Results:** 241 tests pass across 8 test files covering all changed modules.
+
+---
+
+### Phase 52 — PetController Extraction (2026-06-15)
+
+**Commits (on master, 4 total):**
+- `b81365f` feat: create BehaviorController with autonomous behavior logic
+- `9515e69` refactor: wire BehaviorController into PetWindow
+- `6fc8193` refactor: wire EventBus subscribers for autonomous trigger dispatch
+- `50893ba` refactor: remove duplicated behavior logic from PetWindow
+- `a05c513` fix: move EventBus init before BehaviorController, delete stale test files
+
+**What was built:**
+
+Extracted the autonomous behavior system from PetWindow's ~2175-line god object into a dedicated `BehaviorController` class.
+
+| Task | Description | Status | Files |
+|------|-------------|--------|-------|
+| 1 | Create `src/behavior_controller.py` — Timer accumulation (chat/joke/emotion/idle/boredom), engagement tracking (consecutive silent/engaged, adaptive backoff), boredom backoff (exponential, context-sensitive), context stability (window/APM/typing/screen), emotion evaluation (OS context → Emotion), FSM trigger dispatch via EventBus | ✅ | Created: `behavior_controller.py`, `test_behavior_controller.py` (40 tests) |
+| 2 | Wire `BehaviorController` into PetWindow — `_behavior.tick()` called from `_master_tick()`, delegates all timer/engagement/emotion logic | ✅ | +124/-258 lines across `pet_window.py`, `test_master_tick.py`, `test_behavior_integration.py` |
+| 3 | EventBus subscribers — `_on_autonomous_trigger` dispatches chat/joke/boredom triggers via EventBus, replacing direct `_trigger_*()` method calls | ✅ | +77 lines in `pet_window.py`, event subscriber test in `test_behavior_integration.py` |
+| 4 | Remove duplicated logic — 8 dead methods removed from PetWindow: `_trigger_chat`, `_trigger_joke`, `_trigger_boredom_fsm`, `_evaluate_emotion`, `_calculate_joke_modifier`, `_is_context_stable`, `_has_significant_delta`, `_get_context_signature`. Removed stale fields (`_emotion_timer_sec`, `_window_switch_count`, `_last_evaluated_window`). Deleted 4 stale test files. | ✅ | -130 lines in `pet_window.py`, -73 lines test code |
+| 5 | Documentation update — dev memory, commit hashes, test counts | ✅ | `project-dev-memory.md` |
+
+**Key design decisions:**
+- Pure business logic class — NO Qt imports, zero Qt dependency. Communicates with PetWindow via EventBus pub/sub.
+- EventBus initialized before BehaviorController (fixes AttributeError in tests that hit real `__init__`)
+- `_evaluate_emotion()` is a pure function based on current state — no side effects, easy to test
+- `tick()` at 1s interval handles: emotion evaluation (every 5s), timer accumulation, engagement tracking, backoff, boredom trigger selection
+- BehaviorController owns all internal field tracking (`_chat_timer_sec`, `_joke_timer_sec`, etc.) — PetWindow no longer touches these
+
+**Files changed:**
+- **Created:** `src/behavior_controller.py` (495 lines), `tests/test_behavior_controller.py` (414 lines, 40 tests)
+- **Modified:** `src/pet_window.py` (-130 lines, EventBus wiring, EventBus init ordering)
+- **Deleted:** `tests/test_delta_detection.py`, `tests/test_joke_modifier.py`, `tests/test_trigger_chat.py`, `tests/test_trigger_joke.py`
+- **Rewritten:** `tests/test_master_tick.py`, `tests/test_behavior_integration.py`, `tests/test_sleep_timers.py`
+
+**Bugs fixed during Phase 52:**
+| Bug | Cause | Fix |
+|-----|-------|------|
+| EventBus use-before-init in `__init__` | BehaviorController constructed before `self._events` | Moved `get_event_bus()` to line 229 (before BehaviorController ctor) |
+| TRANQUILITY test failure | Patch target `src.active_window` doesn't affect module-level import in `behavior_controller` | Changed patch target to `src.behavior_controller.get_active_window_title` |
+
+**Test results:** 246 pass across 13 targeted test files. 0 failures.
+
+---
+
+**Done — End of Project Dev Memory**

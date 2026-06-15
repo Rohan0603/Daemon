@@ -421,6 +421,7 @@ Single unified `ThoughtPool` with 4 item types:
 | `memory.py` | `Memory` | Local JSON key-value facts, 50 max, .bak recovery |
 | `history.py` | `History` | Local JSON conversation log, 100 max, .bak recovery |
 | `diary_store.py` | `DiaryStore` | Atomic diary I/O, SHA-256 dedup, 200 cap, .bak backup |
+| `behavior_controller.py` | `BehaviorController` | Pure-logic autonomous behavior: timers, engagement, emotion, backoff, EventBus dispatch. Zero Qt imports |
 | `brain_schema.py` | `BRAIN_SCHEMA`, `apply_brain_update` | 22-field schema, locked fields, type validation |
 | `memory_manager.py` | `MemoryManager` | Firebase bridge: sync_to/from_local, user/pet field split |
 | `firebase_crud.py` | `FirebaseCRUD` | Firestore REST via firebase-admin SDK, 3-attempt retry |
