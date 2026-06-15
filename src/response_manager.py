@@ -62,6 +62,19 @@ class AutonomousResponseManager(QObject):
         ]
         self.thought_pool.add_items(items)
 
+        logger.debug("[VERIFY] ThoughtPool: seeding with %d local idle thoughts", 3)
+        kenny_idle_lines = [
+            "Wonder if the FSM has considered switching to a waltz state yet.",
+            "I should probably implement a nap state. Oh wait, I already have one.",
+            "If I stare at this cursor long enough, maybe it'll blink first.",
+        ]
+        idle_items = [
+            {"dialogue": line, "type": "idle_thought", "action": "idle",
+             "target_x": 0, "priority": 5}
+            for line in kenny_idle_lines
+        ]
+        self.thought_pool.add_items(idle_items)
+
     def draw(self, target_type: str, current_context_hash: str = None) -> list[dict]:
         return self.thought_pool.draw_by_type(target_type, current_context_hash)
 
