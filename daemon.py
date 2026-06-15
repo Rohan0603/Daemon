@@ -81,11 +81,12 @@ def _release_lock(pet_id: str) -> None:
 
 def main() -> None:
     _ensure_ffmpeg_on_path()
-    from src.config import load_config
+    from src.config import load_config, flatten_config
     import src.constants as constants
 
     cfg = load_config()
-    for key, val in cfg.items():
+    flat_cfg = flatten_config(cfg)
+    for key, val in flat_cfg.items():
         if hasattr(constants, key):
             setattr(constants, key, val)
 
@@ -97,7 +98,7 @@ def main() -> None:
     parser.add_argument("--pet-id", type=str, default=None, help="Pet persona ID (default: kenny)")
     args = parser.parse_args()
 
-    pet_id = args.pet_id or cfg.get("pet_id", "kenny")
+    pet_id = args.pet_id or cfg["pet"]["id"]
     constants.CURRENT_PET_ID = pet_id
 
     if not _acquire_lock(pet_id):

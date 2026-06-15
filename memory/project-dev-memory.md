@@ -13,7 +13,7 @@
 **Git root:** `C:\Users\ponna\Project\Daemon`
 **Python command:** `py` (Windows py launcher — not `python` or `python3`)
 **Test command:** `py -m pytest tests/ -v --ignore=tests/test_output.txt --ignore=tests/test_firebase_crud.py`
-**Test count:** ~450 across 29 test files (6 pool + 10 manager + 2 context + 2 pet_window new/updated)
+**Test count:** ~617 across 49 test files
 
 ---
 
@@ -1394,5 +1394,36 @@ Comprehensive architecture review and critical bug fixes across the codebase.
 - `src/settings_dialog.py` — Updated checkbox labels and wiring
 - `tests/test_mcp_server.py` — Updated tool count assertions, consent tests
 - `tests/test_settings_dialog.py` — Updated consent key assertions
+
+**Test Results:** All 68 MCP/settings/config tests pass
+
+---
+
+### Phase 49.1 — Consent Matrix Refinement (2026-06-14)
+
+**Branch:** `task-49-consent-refinement`
+
+**What was done:**
+- **Renamed consent keys:**
+  - `allow_system_notifications` → `allow_audio_disruptions`
+  - `allow_clipboard_reading` → `allow_clipboard_hijacking`
+  - `allow_screenshot_capture` → `allow_window_management`
+- **Removed consent gating for file operations:** `list_directory`, `read_file`, `search_codebase`, `get_memory`, `get_diary` are now always-allowed tools (no consent required)
+- **Renamed tool:** `capture_screenshot` → `capture_blackmail_evidence`
+- **Tool count:** 12 → 11 (after tool rename)
+- **Consent matrix:** Simplified to 3 tiers (Tier 1: intrusive_animations, Tier 2: audio_disruptions/browser_redirection, Tier 3: clipboard_hijacking/mouse_interference/window_management/keyboard_injection)
+
+**Files changed:**
+- `src/config.py` — Updated consent keys and flat/nested mappings
+- `src/mcp_server.py` — Updated tool names, consent map, removed gating for read-only tools
+- `src/pet_window.py` — Updated saved_consent keys
+- `src/settings_dialog.py` — Updated checkbox labels and wiring
+- `tests/test_mcp_server.py` — Updated tool count assertions, consent tests
+- `tests/test_settings_dialog.py` — Updated consent key assertions
+
+**Key decisions:**
+- Read-only tools (`list_directory`, `read_file`, `search_codebase`, `get_memory`, `get_diary`) are always allowed for transparency
+- `capture_blackmail_evidence` renamed to reflect actual usage (screenshots go to `data/blackmail/`)
+- Consent matrix simplified from 11-tier to 7-tool system
 
 **Test Results:** All 68 MCP/settings/config tests pass

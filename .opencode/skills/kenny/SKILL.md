@@ -317,7 +317,7 @@ At startup, `scripts/generate_ast_map.py` builds `data/codebase_map.json` — a 
 | `src/pet_fsm.py` | 15-state FSM. Priority-ordered. SLEEP, HYPER, CHASE, THINKING, etc. |
 | `src/animator.py` | 9 emotions + particle system (200-particle cap). Pure visual — **system-driven, not LLM-driven.** |
 | `src/opencode_worker.py` | Speech pipeline. POST to opencode serve :4096. Two-stage support. |
-| `src/mcp_server.py` | JSON-RPC 2.0 on :4097. 12 tools. Consent gating at routing layer. |
+| `src/mcp_server.py` | JSON-RPC 2.0 on :4097. 11 tools. Consent gating at routing layer. |
 | `src/response_manager.py` | `AutonomousResponseManager` + `ThoughtPool`. 20-item unified pool. 7-day TTL. |
 | `src/context_manager.py` | Builds trigger prompts. Manages Mixed-Bag generation schema. |
 | `src/memory.py` | Local JSON facts. Max 50. `.bak` crash recovery. |
