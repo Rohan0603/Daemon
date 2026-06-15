@@ -276,6 +276,9 @@ NESTED_TO_FLAT = {
 # Keep _CONFIG_PATH for test compatibility
 _CONFIG_PATH = CONFIG_PATH
 
+# Convenience reference for the default opencode serve URL
+DEFAULT_SERVER_URL: str = DEFAULT_CONFIG["llm"]["server_url"]
+
 
 def _deep_merge(target: dict, source: dict) -> None:
     """Recursively merge source dict into target dict in-place, filtering by target keys."""

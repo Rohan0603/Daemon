@@ -14,6 +14,8 @@ from typing import Optional
 from urllib.parse import urlparse
 import logging
 
+from src.config import DEFAULT_SERVER_URL
+
 logger = logging.getLogger(__name__)
 
 _SERVE_PID: int | None = None
@@ -23,7 +25,7 @@ _DETACHED_PROCESS = 0x00000008
 _CREATE_NO_WINDOW = 0x08000000
 
 # Reasonable defaults; override via kwargs for tests
-_DEFAULT_URL = "http://127.0.0.1:4096"
+_DEFAULT_URL: str = DEFAULT_SERVER_URL
 _DEFAULT_MAX_WAIT_SEC = 5.0
 _DEFAULT_POLL_INTERVAL_SEC = 0.1
 _DEFAULT_BIND_CHECK_TIMEOUT_SEC = 0.5

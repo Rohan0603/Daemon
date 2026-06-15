@@ -2141,10 +2141,10 @@ class PetWindow(QWidget):
         if not self._opencode_session_id:
             return
         import requests as _req
-        from src.config import load_config
+        from src.config import load_config, DEFAULT_SERVER_URL
         
         cfg = load_config()
-        opencode_server_url = cfg.get("llm", {}).get("server_url", "http://127.0.0.1:4096")
+        opencode_server_url = cfg.get("llm", {}).get("server_url", DEFAULT_SERVER_URL)
         
         try:
             _req.delete(

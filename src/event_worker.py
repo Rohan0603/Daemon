@@ -4,7 +4,10 @@ import requests
 import logging
 from PyQt6.QtCore import QThread, pyqtSignal
 
+from src.config import DEFAULT_SERVER_URL
+
 logger = logging.getLogger(__name__)
+
 
 class EventStreamWorker(QThread):
     lsp_error_detected = pyqtSignal(dict)
@@ -12,7 +15,7 @@ class EventStreamWorker(QThread):
     command_completed = pyqtSignal(str, int)
     file_edited = pyqtSignal(str)
 
-    def __init__(self, server_url: str = "http://127.0.0.1:4096"):
+    def __init__(self, server_url: str = DEFAULT_SERVER_URL):
         super().__init__()
         self.server_url = server_url
         self._running = True

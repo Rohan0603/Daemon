@@ -4,7 +4,7 @@ import logging
 import re
 import requests
 from PyQt6.QtCore import QThread, pyqtSignal
-from src.config import load_config
+from src.config import load_config, DEFAULT_SERVER_URL
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ class OpencodeWorker(QThread):
                 import requests
                 from src.config import load_config
                 config = load_config()
-                server_url = config.get("llm", {}).get("server_url", "http://127.0.0.1:4096")
+                server_url = config.get("llm", {}).get("server_url", DEFAULT_SERVER_URL)
                 requests.delete(
                     f"{server_url}/session/{self._session_id}",
                     timeout=5,
@@ -60,7 +60,7 @@ class OpencodeWorker(QThread):
         if self._abort:
             return None
         llm_cfg = self._config.get("llm", {})
-        server_url = llm_cfg.get("server_url", "http://127.0.0.1:4096")
+        server_url = llm_cfg.get("server_url", DEFAULT_SERVER_URL)
         model_id = llm_cfg.get("model_id", "")
         # Use longer timeout for refill operations (two-stage takes 2x API calls)
         timeout_sec = llm_cfg.get("timeout_sec", 180)

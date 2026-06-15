@@ -5,7 +5,7 @@ import requests
 # Ensure src is in PYTHONPATH
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.config import load_config
+from src.config import load_config, DEFAULT_SERVER_URL
 from src.firebase_auth import FirebaseAuth
 from src.firebase_crud import FirebaseCRUD
 
