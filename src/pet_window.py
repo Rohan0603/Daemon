@@ -517,7 +517,15 @@ class PetWindow(QWidget):
         self._shutdown_timer.start(15000)
         
         import time
-        history_text = "\n".join([f"{item.get('role', 'unknown')}: {item.get('content', '')}" for item in self._history.get_recent(50)])
+        recent = self._history.get_recent(50)
+        # Skip API call if session was too short to summarise
+        if not recent or len(recent) < 10:
+            logger.debug("Skipping summary: only %d history items", len(recent) if recent else 0)
+            if on_complete:
+                on_complete()
+            return
+        
+        history_text = "\n".join([f"{item.get('role', 'unknown')}: {item.get('content', '')}" for item in recent])
         prompt = f"Summarize this session strictly into a single observation about the user's habits:\n{history_text}"
         
         from src.opencode_worker import OpencodeWorker
@@ -809,7 +817,7 @@ class PetWindow(QWidget):
             ctx = self._build_fsm_context()
             new_state = self._fsm.update(FSM_TICK_MS, ctx)
             if new_state != old_state:
-                logger.debug(f"FSM state transition: {old_state.name} -> {new_state.name}")
+                logger.debug("FSM state transition: %s -> %s", old_state.name, new_state.name)
                 self._events.emit_fsm_state_changed(old_state.name, new_state.name)
                 self._state_elapsed_ms = 0
                 # Handle SLEEP state entry
@@ -1229,7 +1237,7 @@ class PetWindow(QWidget):
         self._session_active = True
         self._fsm.current_state = PetState.IDLE
         user_input = self._opencode_worker._user_input if self._opencode_worker else ""
-        logger.debug(f"_on_opencode_result | text='{text[:40]}...' | user_input='{user_input}'")
+        logger.debug("_on_opencode_result | text='%.40s...' | user_input='%s'", text, user_input)
         self._show_bubble(text)
         self._history.add_entry(user_input, text, "idle")
         if self._opencode_worker is not None:
@@ -1513,19 +1521,19 @@ class PetWindow(QWidget):
         """Return True if autonomous tick is allowed to fire right now."""
         if mode == "boredom":
             if self._response_manager.remaining() == 0:
-                logger.debug(f"[{mode}] Skipping: thought pool empty")
+                logger.debug("[%s] Skipping: thought pool empty", mode)
                 return False
         elif not self._opencode_enabled:
-            logger.debug(f"[{mode}] Skipping: opencode disabled")
+            logger.debug("[%s] Skipping: opencode disabled", mode)
             return False
         if self._autonomous_query_pending:
-            logger.debug(f"[{mode}] Skipping: autonomous query pending")
+            logger.debug("[%s] Skipping: autonomous query pending", mode)
             return False
         if self._fsm.current_state in (
             PetState.THINKING, PetState.DRAGGED, PetState.FALLING,
             PetState.SLEEP,
         ):
-            logger.debug(f"[{mode}] Skipping: FSM state={self._fsm.current_state.name}")
+            logger.debug("[%s] Skipping: FSM state=%s", mode, self._fsm.current_state.name)
             return False
         return True
 
@@ -1863,6 +1871,12 @@ class PetWindow(QWidget):
         if new_chars >= 10 and not self._autonomous_query_pending:
             if self._current_apm > 80:
                 return
+            # Try pool first before hitting API
+            items = self._response_manager.draw("typing_reaction")
+            if items:
+                self._dispatch_structured(items[0])
+                self._on_output_displayed(engaged=False)
+                return
             self._trigger_autonomous_query()
 
     def _trigger_autonomous_query(self) -> None:
@@ -1905,24 +1919,21 @@ class PetWindow(QWidget):
                 return
 
         count = THOUGHT_POOL_REFILL_COUNT
-        prompt = self._context_manager.build_mixed_bag_prompt(count)
+        base_prompt = self._context_manager.build_mixed_bag_prompt(count)
         window = get_active_window_title() or "unknown"
-        logger.debug("[VERIFY] two-stage agentic refill: window=%s, APM=%d",
-                     window, self._current_apm)
-        stage1 = (
-            f"INVESTIGATION — DO NOT generate JSON yet.\n"
-            f"Investigate the user's current context to understand what they're doing:\n"
-            f"- Active window: {window}\n"
-            f"- APM: {self._current_apm}\n"
-            f"- Refill type: thought_pool\n\n"
-            f"Use MCP tools (read_file, git_status, etc.) to learn more. "
-            f"Report your findings — they will be used to generate appropriate content next."
+        # Single-stage refill: context included inline, no separate investigation call
+        single_prompt = (
+            f"Context — window: {window}, APM: {self._current_apm}.\n"
+            f"Generate thoughts a panicked pet would have in this context.\n\n"
+            f"{base_prompt}"
         )
+        logger.debug("[VERIFY] single-stage refill: window=%s, APM=%d",
+                     window, self._current_apm)
         worker = OpencodeWorker(
             "",
             is_autonomous=True,
             session_id=None,
-            two_stage_prompts=(stage1, prompt),
+            prompt=single_prompt,
         )
         worker.response_ready.connect(lambda items: self._on_refill_result(items))
         worker.error_occurred.connect(lambda err: self._on_refill_error())

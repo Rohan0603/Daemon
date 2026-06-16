@@ -20,6 +20,7 @@ class MemoryManager:
         self.crud = crud
         self._uid = uid
         self._pet_id = pet_id
+        self._last_sync_hash: int = 0
 
     @property
     def _brain_collection(self) -> str:
@@ -40,13 +41,13 @@ class MemoryManager:
         try:
             data = self.crud.get(self._brain_collection, self._brain_doc_id)
         except Exception as e:
-            logger.warning(f"[MemoryManager] load_current_brain failed: {e}")
+            logger.warning("[MemoryManager] load_current_brain failed: %s", e)
             return dict(_DEFAULT_BRAIN)
         if data:
-            logger.debug(f"  core_brain loaded ({len(data)} fields)")
-            logger.info(f"[MemoryManager] core_brain loaded ({len(data)} fields)")
+            logger.debug("core_brain loaded (%d fields)", len(data))
+            logger.info("[MemoryManager] core_brain loaded (%d fields)", len(data))
             return data
-        logger.debug("  core_brain missing or unavailable, returning defaults")
+        logger.debug("core_brain missing or unavailable, returning defaults")
         logger.info("[MemoryManager] core_brain missing — using defaults")
         return dict(_DEFAULT_BRAIN)
 
@@ -55,7 +56,7 @@ class MemoryManager:
             logger.warning("[MemoryManager] update_brain failed after retries — queued for retry")
             self._pending_writes.append(("brain", new_data))
         else:
-            logger.info(f"[MemoryManager] core_brain updated ({len(new_data)} fields merged)")
+            logger.info("[MemoryManager] core_brain updated (%d fields merged)", len(new_data))
 
     def batch_update_brain(self, new_data: dict) -> None:
         """Accumulate brain updates in a batch, write on flush."""
@@ -67,7 +68,7 @@ class MemoryManager:
         if not self._batch_dirty or not self._batch_cache:
             return
         if self.crud.set(self._brain_collection, self._brain_doc_id, self._batch_cache, merge=True):
-            logger.info(f"[MemoryManager] batch update flushed ({len(self._batch_cache)} fields)")
+            logger.info("[MemoryManager] batch update flushed (%d fields)", len(self._batch_cache))
         else:
             logger.warning("[MemoryManager] batch update failed — queued for retry")
             self._pending_writes.append(("brain", dict(self._batch_cache)))
@@ -101,8 +102,8 @@ class MemoryManager:
             if val_str:
                 memory.remember(key, val_str)
                 count += 1
-        logger.debug(f"  synced {count} brain fields to local memory")
-        logger.info(f"[MemoryManager] synced {count} brain fields to local memory")
+        logger.debug("synced %d brain fields to local memory", count)
+        logger.info("[MemoryManager] synced %d brain fields to local memory", count)
 
     def sync_from_local(self, memory: "Memory") -> None:
         if not self.crud.available:
@@ -111,6 +112,13 @@ class MemoryManager:
         if not facts:
             logger.info("[MemoryManager] sync_from_local: nothing to push (memory empty)")
             return
+
+        # Content-hash guard: skip if nothing changed since last sync
+        current_hash = hash(tuple(sorted(facts.items())))
+        if getattr(self, '_last_sync_hash', 0) == current_hash:
+            logger.debug("[MemoryManager] sync_from_local: hash unchanged, skipping Firestore write")
+            return
+        self._last_sync_hash = current_hash
 
         user_facts = {}
         pet_facts = {}
@@ -137,7 +145,7 @@ class MemoryManager:
                 else:
                     merged[key] = value
             self.crud.set("users", self._uid, merged, merge=True)
-            logger.info(f"[MemoryManager] sync_from_local: merged {len(user_facts)} user fields into users/{self._uid}")
+            logger.info("[MemoryManager] sync_from_local: merged %d user fields into users/%s", len(user_facts), self._uid)
 
         if pet_facts:
             existing = self.crud.get(self._brain_collection, self._brain_doc_id) or {}
@@ -154,7 +162,8 @@ class MemoryManager:
                 else:
                     merged[key] = value
             self.crud.set(self._brain_collection, self._brain_doc_id, merged, merge=True)
-            logger.info(f"[MemoryManager] sync_from_local: merged {len(pet_facts)} pet fields into {self._brain_collection}/{self._brain_doc_id}")
+            logger.info("[MemoryManager] sync_from_local: merged %d pet fields into %s/%s",
+                         len(pet_facts), self._brain_collection, self._brain_doc_id)
 
         if not user_facts and not pet_facts:
             logger.info("[MemoryManager] sync_from_local: no relevant facts to push (all non-schema keys)")
@@ -165,7 +174,7 @@ class MemoryManager:
         data = {"text": text, "timestamp": int(time.time())}
         result = self.crud.add(self._diary_collection, data)
         if result:
-            logger.info(f"[MemoryManager] diary entry written (id={result})")
+            logger.info("[MemoryManager] diary entry written (id=%s)", result)
         else:
             logger.warning("[MemoryManager] add_diary_entry failed — queued for retry")
             self._pending_writes.append(("diary", data))
@@ -205,11 +214,11 @@ class MemoryManager:
                 ascending=True,
             )
         except Exception as e:
-            logger.warning(f"[MemoryManager] fetch_all_diary_entries failed: {e}")
+            logger.warning("[MemoryManager] fetch_all_diary_entries failed: %s", e)
             return []
-        logger.debug(f"  fetched {len(entries)} diary entries from Firebase")
+        logger.debug("fetched %d diary entries from Firebase", len(entries))
         if entries:
-            logger.info(f"[MemoryManager] fetched {len(entries)} diary entries from Firebase")
+            logger.info("[MemoryManager] fetched %d diary entries from Firebase", len(entries))
         return entries
 
     def push_pending_diaries(self, diary_store, entries: list[str], synced: int) -> int:
@@ -218,11 +227,15 @@ class MemoryManager:
         pending = entries[synced:]
         if not pending:
             return synced
+        # Use Firestore batched write (1 API call instead of N)
+        batch = self.crud.client.batch()
         for text in pending:
-            self.crud.add(self._diary_collection, {"text": text, "timestamp": int(time.time())})
+            doc_ref = self.crud.client.collection(self._diary_collection).document()
+            batch.set(doc_ref, {"text": text, "timestamp": int(time.time())})
+        batch.commit()
         new_synced = len(entries)
         diary_store.write(entries, new_synced)
-        logger.info(f"[MemoryManager] pushed {len(pending)} pending diary entries to Firebase")
+        logger.info("[MemoryManager] pushed %d diary entries in 1 batch", len(pending))
         return new_synced
 
     def get_current_brain(self) -> dict:

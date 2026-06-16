@@ -136,10 +136,10 @@ def ensure_opencode_serve_running(
         try:
             os.makedirs(log_dir, exist_ok=True)
         except OSError as e:
-            logger.debug(f"[serve] could not create log dir {log_dir}: {e}")
+            logger.debug("[serve] could not create log dir %s: %s", log_dir, e)
             return False
 
-    logger.debug(f"[serve] spawning {bin_path} serve --port {port}")
+    logger.debug("[serve] spawning %s serve --port %s", bin_path, port)
     try:
         env = os.environ.copy()
         if api_key:
@@ -157,7 +157,7 @@ def ensure_opencode_serve_running(
             start_new_session=True,
         )
     except OSError as e:
-        logger.debug(f"[serve] spawn failed: {e}")
+        logger.debug("[serve] spawn failed: %s", e)
         return False
 
     global _SERVE_PID
@@ -167,14 +167,14 @@ def ensure_opencode_serve_running(
     deadline = time.monotonic() + max_wait
     while time.monotonic() < deadline:
         if proc.poll() is not None:
-            logger.debug(f"[serve] child exited early with code {proc.returncode}")
+            logger.debug("[serve] child exited early with code %s", proc.returncode)
             return False
         if _is_port_bound(host, port, _DEFAULT_BIND_CHECK_TIMEOUT_SEC):
-            logger.debug(f"[serve] bound to {host}:{port} (pid {proc.pid})")
+            logger.debug("[serve] bound to %s:%s (pid %s)", host, port, proc.pid)
             return True
         time.sleep(_DEFAULT_POLL_INTERVAL_SEC)
 
-    logger.debug(f"[serve] did not bind within {max_wait}s; giving up")
+    logger.debug("[serve] did not bind within %ss; giving up", max_wait)
     return False
 
 

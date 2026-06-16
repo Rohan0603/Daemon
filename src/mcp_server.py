@@ -364,7 +364,7 @@ class MCPHandler(BaseHTTPRequestHandler):
                     with open(THOUGHTS_LOG_PATH, "a", encoding="utf-8") as f:
                         f.write(f"[{service}] {message}\n")
                 except Exception as e:
-                    logger.error(f"Failed to write to thoughts log: {e}")
+                    logger.error("Failed to write to thoughts log: %s", e)
             
             self._send_json({"success": True})
             return

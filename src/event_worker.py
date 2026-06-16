@@ -38,10 +38,10 @@ class EventStreamWorker(QThread):
                                 event_data = json.loads(decoded[6:])
                                 self._handle_event(event_data)
                             except json.JSONDecodeError as e:
-                                logger.warning(f"Failed to parse SSE JSON: {e}")
+                                logger.warning("Failed to parse SSE JSON: %s", e)
             except Exception as e:
                 if self._running:
-                    logger.error(f"EventStreamWorker network error: {e}")
+                    logger.error("EventStreamWorker network error: %s", e)
                     time.sleep(backoff)
                     backoff = min(backoff * 2, 15)
             finally:
