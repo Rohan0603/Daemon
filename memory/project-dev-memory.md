@@ -896,7 +896,7 @@ Never commit to master directly. Never put AI assistant names in commit messages
 | SLEEP deferred trigger leak | Guard `_fire_deferred_trigger` with FSM state check — drop params in SLEEP |
 | Joke timer ignores backoff | Add `elapsed_since_boredom >= _idle_backoff_seconds` gate in P3 joke route |
 | `_consecutive_silent`/`_consecutive_engaged` not initialized | Initialize in `__init__` before `_on_output_displayed` can be called during startup |
-| `Event` class not imported in `firebase_auth.py` | Import `Event` from `src.events` alongside `EventBus`, `EventType` |
+| `Event` class not imported in `firebase_auth.py` | Import `Event` from `src.events` alongside `EventBus`, `EventType` | ✅ Fixed |
 | `TOKEN_REFRESHED` missing from `EventType` enum | Add `TOKEN_REFRESHED = "token_refreshed"` to `EventType` enum |
 
 ---
@@ -1541,5 +1541,26 @@ Extracted the autonomous behavior system from PetWindow's ~2175-line god object 
 **Test results:** 246 pass across 13 targeted test files. 0 failures.
 
 ---
+
+### Phase 53 — Performance Optimizations (2026-06-16)
+
+**Commit:** `b8cf845`
+
+**What was built:**
+
+| Fix | File | Status | Notes |
+|-----|------|--------|-------|
+| Particle O(n) rebuild | `src/animator.py` | ✅ Fixed | In-place compaction using write index instead of list rebuild |
+| ThoughtPool O(n) removal | `src/response_pool.py` | ✅ Fixed | Single-pass O(n) draw with reverse-order stale item removal |
+| APMWorker unbounded deque | `src/apm_worker.py` | ✅ Fixed | Added `maxlen=600` safety cap |
+| EventBus emission | `src/pet_window.py` | ✅ Fixed | Added events for APM threshold, shutdown, sleep, hotkey, boot, health |
+| Duplicate TOKEN_REFRESHED | `src/events.py` | ✅ Fixed | Removed duplicate from Auth Events section |
+
+**Key decisions:**
+- Particle compaction uses slice deletion after write index
+- ThoughtPool draws best priority item, then removes all stale in reverse order
+- APM deque capped at 600 (10 events/sec * 60 seconds * 10 safety margin)
+
+**Test results:** 87/87 tests pass in affected modules (animator: 54, response_pool: 6, events: 27).
 
 **Done — End of Project Dev Memory**

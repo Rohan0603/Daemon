@@ -9,7 +9,7 @@ import requests
 
 from src.constants import FIREBASE_PROJECT_ID, AUTH_TOKEN_PATH
 from src.config import load_config
-from src.events import EventBus, EventType, Event
+from src.events import Event, EventBus, EventType
 
 logger = logging.getLogger(__name__)
 

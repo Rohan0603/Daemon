@@ -585,31 +585,30 @@ Config values override constants.py at startup via `setattr(constants, key, val)
 | **Refill worker race condition** | `pet_window.py:1961-1973` | HIGH | ✅ Fixed | Lock added at line 1976 |
 | **Missing `pool_refilled` signal** | `pet_window.py:222` + `response_pool.py:13` | MEDIUM | ✅ Fixed | Connected at line 224 |
 | **OpencodeWorker session leak** | `opencode_worker.py:41-56` | HIGH | ✅ Fixed | DELETE in `abort()` method |
-| **TTS temp file leak** | `tts_worker.py:243-298` | MEDIUM | ❌ Pending | Track temp files, cleanup in finally |
-| **Double window title call** | `pet_window.py:538, 567` | LOW | ❌ Pending | Cache in local variable |
-| **TypingBuffer signal spam** | `typing_buffer.py:54-70` | MEDIUM | ❌ Pending | Add 50ms debounce timer |
-| **`_dispatch_multiplexed` session reuse** | `pet_window.py:1587-1605` | MEDIUM | ❌ Pending | Reuse `_opencode_session_id` |
-| **Firestore write per brain field** | `pet_window.py:2058-2079` | HIGH | ❌ Pending | Batch updates or transactions |
+| **TTS temp file leak** | `tts_worker.py:243-298` | MEDIUM | ✅ Fixed | Track temp files, cleanup in finally (Phase 51) |
+| **Double window title call** | `pet_window.py:538, 567` | LOW | ✅ False alarm | Already cached via `get_active_window_title()` (Phase 51) |
+| **TypingBuffer signal spam** | `typing_buffer.py:54-70` | MEDIUM | ✅ Fixed | 50ms debounce timer (Phase 51) |
+| **`_dispatch_multiplexed` session reuse** | `pet_window.py:1587-1605` | MEDIUM | ✅ Fixed | Reuse `_opencode_session_id` (Phase 51) |
+| **Firestore write per brain field** | `pet_window.py:2058-2079` | HIGH | ✅ False alarm | `.set()` with `merge=True` is a single-doc write (Phase 51) |
 
 ## 🏗️ ARCHITECTURAL ISSUES (Priority Order)
 
 | Issue | Impact | Recommendation | Status |
 |-------|--------|----------------|--------|
-| **God Object: PetWindow (2,118 lines)** | Maintainability, testing, coupling | Split into: PetController, AutonomyEngine, LLMInterface, PersistenceLayer, SystemIntegration | ❌ Pending |
+| **God Object: PetWindow (2,118→1,997 lines)** | Maintainability, testing, coupling | Split into: PetController, AutonomyEngine, LLMInterface, PersistenceLayer, SystemIntegration | ✅ Ongoing | Initial BehaviorController extraction done in Phase 52 |
 | **Two-timer drift risk** | Idle tracking inaccuracy | Use `time.monotonic()` deltas instead of tick counting | ✅ Fixed |
-| **Memory sync race (local↔Firebase)** | Data loss on crash | Add `atexit` + signal handlers for graceful flush | ❌ Pending |
-| **OpencodeWorker fragile JSON parse** | Silent failures, hard to debug | Enforce schema at LLM level; single strict parse | ❌ Pending |
+| **Memory sync race (local↔Firebase)** | Data loss on crash | Add `atexit` + signal handlers for graceful flush | ✅ Fixed | atexit handler + signal handlers (Phase 51) |
+| **OpencodeWorker fragile JSON parse** | Silent failures, hard to debug | Enforce schema at LLM level; single strict parse | ✅ Fixed | Enhanced diagnostics (Phase 51) |
 | **Consent matrix tier inconsistency** | UX confusion | Remap tools: toast→notifications, screenshot→media_access | ❌ Pending |
 | **No structured logging/observability** | Production debugging impossible | Add `structlog`, Prometheus metrics, OpenTelemetry tracing | ❌ Pending |
-| **No MCP server health check** | Silent tool failures | Add port 4097 check to `_on_health_check` | ❌ Pending |
+| **No MCP server health check** | Silent tool failures | Add port 4097 check to `_on_health_check` | ✅ Fixed | `/health` endpoint + boot timing instrumentation (Phase 51) |
 
 ## 🔧 MEDIUM-PRIORITY FIXES
 
 - `screen_reader.py`: UIA COM init on MCP thread → thread-local or main-thread only
-- `particle.py`: O(n) list rebuild → ring buffer / pre-allocated arrays
-- `ThoughtPool.draw_by_type`: O(n) remove → deque or per-type indices  
-- `ContextManager`: Prompt rebuild every tick → cache template
-- `APMWorker`: Unbounded deque on high activity → maxlen or periodic cleanup
+- `particle.py`: O(n) list rebuild → in-place compaction (✅ Fixed — Phase 53)
+- `ThoughtPool.draw_by_type`: O(n) remove → single-pass O(n) (✅ Fixed — Phase 53)
+- `APMWorker`: Unbounded deque → maxlen=600 safety cap (✅ Fixed — Phase 53)
 - `EventStreamWorker`: No 401/403 handling → trigger token refresh
 - `DiaryStore`: Case-insensitive dedup → NFKC + casefold normalization
 - `physics`: Extract `GroundContactResolver` class
