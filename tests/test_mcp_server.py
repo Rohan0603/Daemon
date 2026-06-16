@@ -148,7 +148,7 @@ def test_tools_list():
     response = handler._handle_tools_list()
     assert response["jsonrpc"] == "2.0"
     assert "result" in response
-    assert len(response["result"]["tools"]) == 12
+    assert len(response["result"]["tools"]) == 13
     tool = response["result"]["tools"][0]
     assert tool["name"] == "change_visual_state"
     assert "inputSchema" in tool

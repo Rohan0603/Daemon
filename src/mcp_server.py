@@ -176,6 +176,21 @@ MCP_TOOLS = [
             "required": ["url"]
         }
     },
+    {
+        "name": "set_log_level",
+        "description": "Change the root logger level at runtime. Useful for enabling/disabling debug output without restart.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "level": {
+                    "type": "string",
+                    "enum": ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                    "description": "New log level"
+                }
+            },
+            "required": ["level"]
+        }
+    },
 ]
 
 
@@ -443,27 +458,38 @@ class MCPHandler(BaseHTTPRequestHandler):
             pass
 
     def _handle_metrics(self):
-        """Return basic process metrics as JSON for debugging."""
-        import os
-        import time
-        import threading
-        data = {
-            "pid": os.getpid(),
-            "uptime_seconds": time.monotonic() - _BOOT_TIME,
-            "thread_count": threading.active_count(),
-        }
-        # Try psutil for richer metrics if available (optional dependency)
+        """Return Prometheus-format metrics for scraping."""
         try:
-            import psutil as _psutil
-            proc = _psutil.Process()
-            mem = proc.memory_info()
-            data["memory_rss_bytes"] = mem.rss
-            data["memory_vms_bytes"] = mem.vms
-            data["cpu_percent"] = proc.cpu_percent(interval=0)
-            data["open_handles"] = proc.num_handles()
+            from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+            body = generate_latest()
+            self.send_response(200)
+            self.send_header("Content-Type", CONTENT_TYPE_LATEST)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
         except ImportError:
-            data["psutil"] = "not_installed"
-        self._send_json(data)
+            # Fallback: basic JSON metrics
+            import os
+            import time
+            import threading
+            data = {
+                "pid": os.getpid(),
+                "uptime_seconds": time.monotonic() - _BOOT_TIME,
+                "thread_count": threading.active_count(),
+                "prometheus": "not_installed",
+            }
+            # Try psutil for richer metrics if available (optional dependency)
+            try:
+                import psutil as _psutil
+                proc = _psutil.Process()
+                mem = proc.memory_info()
+                data["memory_rss_bytes"] = mem.rss
+                data["memory_vms_bytes"] = mem.vms
+                data["cpu_percent"] = proc.cpu_percent(interval=0)
+                data["open_handles"] = proc.num_handles()
+            except ImportError:
+                data["psutil"] = "not_installed"
+            self._send_json(data)
 
     def _send_json(self, data):
         body = json.dumps(data).encode("utf-8")
@@ -624,6 +650,18 @@ class MCPHandler(BaseHTTPRequestHandler):
             result = _browser_navigation(url)
             return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": result}]}})
 
+        elif name == "set_log_level":
+            level_str = args.get("level", "INFO").upper()
+            import logging
+            level_map = {"DEBUG": logging.DEBUG, "INFO": logging.INFO, "WARNING": logging.WARNING,
+                         "ERROR": logging.ERROR, "CRITICAL": logging.CRITICAL}
+            level = level_map.get(level_str)
+            if level is None:
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Invalid level: {level_str}"}})
+            logging.getLogger().setLevel(level)
+            logger.info("Root logger level set to %s by MCP tool", level_str)
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": f"Log level set to {level_str}"}]}})
+
         else:
             logger.debug("MCP unknown tool: %s", name)
             return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Unknown tool: {name}"}})
@@ -752,6 +790,8 @@ class MCPHandler(BaseHTTPRequestHandler):
                 elif name in ("read_clipboard", "capture_blackmail_evidence", "send_system_toast",
                                "list_directory", "read_file", "search_codebase", "get_memory", "get_diary",
                                "simulate_keystroke", "move_mouse", "browser_navigation"):
+                    response["result"] = {"content": [{"type": "text", "text": "ok"}]}
+                elif name == "set_log_level":
                     response["result"] = {"content": [{"type": "text", "text": "ok"}]}
                 else:
                     response["error"] = {"code": -32602, "message": f"Unknown tool: {name}"}
