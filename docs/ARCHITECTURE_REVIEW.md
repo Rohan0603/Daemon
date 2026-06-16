@@ -94,9 +94,15 @@ Three-attempt chain with regex fallback. No schema validation. Regex can match w
 `send_system_toast` maps to `allow_audio_disruptions` (Tier 1) — but toast is visual, not audio. `capture_blackmail_evidence` maps to `allow_window_management` (Tier 3) but it's just a screenshot.
 **Fix:** Remap tools to appropriate tiers.
 
-### 16. **No Structured Logging / Observability**
+### 16. **No Structured Logging / Observability** ✅ **FIXED (Phase 56)**
 Standard `logging` only. No correlation IDs, no structured JSON, no metrics.
-**Fix:** Add `structlog` + Prometheus + OpenTelemetry.
+**Fixed (Phase 56):**
+- `src/log_context.py` — `CorrelationIdDefault` formatter injects `contextvars`-backed correlation IDs into every log record; `set_correlation_id()` called at every user input and autonomous trigger
+- `src/logging_setup.py` — RotatingFileHandler (10MiB, 5 backups), structlog processor chain with `add_correlation_id` custom processor, `CorrelationIdDefault` for plain-text format
+- 29 f-string log calls → lazy `%s` formatting across 5 files
+- `src/observability.py` — DaemonMetrics registered via `init_metrics()` at boot; wired into 5 real code paths: FSM transitions, APM, MCP tool calls, memory sync, autonomous triggers
+- `src/mcp_server.py` — `/metrics` endpoint returns Prometheus `generate_latest()` text format; `set_log_level` MCP tool for runtime level toggling
+- `daemon_config.json` — `logging.json_output`, `logging.dir`, `logging.level`, `logging.max_bytes`, `logging.backup_count` config keys
 
 ---
 

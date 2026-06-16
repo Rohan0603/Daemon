@@ -6,11 +6,10 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-16 (Phase 52 — PetController Extraction)
+**Date updated:** 2026-06-16 (Phase 54 — API Call Reduction)
 **Current branch:** `master`
-**Latest commit:** `1c20ffc` fix: replace hardcoded PROJECT_ROOT with dynamic path resolution
-**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52
-**Test count:** ~643 across 49 test files
+**Test count:** ~630 across 49 test files
+**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54
 
 ---
 
@@ -1572,5 +1571,158 @@ Extracted the autonomous behavior system from PetWindow's ~2175-line god object 
 - APM deque capped at 600 (10 events/sec * 60 seconds * 10 safety margin)
 
 **Test results:** 87/87 tests pass in affected modules (animator: 54, response_pool: 6, events: 27).
+
+---
+
+### Phase 54 — API Call Reduction (2026-06-16)
+
+**Goal:** Reduce opencode/LLM API calls by ~75% without affecting functionality.
+
+**Files changed:**
+| File | Action | Description |
+|------|--------|-------------|
+| `src/constants.py` | Modify | `THOUGHT_POOL_SIZE` 20→40, `THOUGHT_POOL_THRESHOLD` 5→15 |
+| `src/response_manager.py` | Modify | Removed periodic refill timer (10-min auto-refill), kept demand-based refill |
+| `src/opencode_worker.py` | Modify | Deprecated `_send_two_stage` (no longer called) |
+| `src/pet_window.py` | Modify | Single-stage refill prompt; typing debounce tries pool first; conditional shutdown summary (skip if <10 items) |
+| `src/behavior_controller.py` | Modify | 15s debounce between ANY autonomous triggers; `_last_autonomous_fire_time` tracking |
+| `src/memory_manager.py` | Modify | Content-hash guard on `sync_from_local`; `push_pending_diaries` uses Firestore batch writes |
+| `tests/test_memory_manager.py` | Modify | Updated tests for batch and content-hash changes |
+
+**Key optimizations (predicted impact):**
+
+| Change | Impact |
+|--------|--------|
+| Remove periodic refill timer (demand-based only) | Eliminates ~12 LLM calls/hr |
+| Single-stage refill (was 2-stage) | Cuts refill LLM calls by 50% |
+| Pool 20→40 items, threshold 5→15 | ~60% fewer refill events |
+| Pool-first on typing debounce | Route through pool before API |
+| 15s debounce between autonomous triggers | Prevents rapid-fire P2+P3+P4 |
+| Conditional shutdown summary | Skips API call for short sessions |
+| Content-hash guard on Firestore sync | Skips writes when nothing changed |
+| Batch diary pushes | 1 Firestore API call instead of N |
+
+**Estimated reduction:** ~200-350 LLM calls/hr → ~40-80/hr (~75%)
+
+**Test results:** 630 passed, 1 skipped (full regression).
+
+---
+
+### Phase 55 — Remaining Plans Implementation (2026-06-16)
+
+**Goal:** Implement 3 remaining plans: Codebase Cleanup, Mouth Shapes, High-Priority Bug Fixes.
+
+**Plans status:**
+
+| Plan | Status | Notes |
+|------|--------|-------|
+| Codebase Cleanup | ✅ Done | Removed crash_dump.log (0B), cleaned all `__pycache__`/`.pyc` |
+| Mouth Shapes | ✅ Done | `mouth_shape` field on EmotionProfile, 9 Navarasa mappings, `get_mouth_modifier()`, `_draw_mouth()` with 10 shapes, 4 integration tests |
+| High-Priority Bug Fixes | ✅ Partial | See below |
+
+**Phase A — Critical Bug Fixes (all already fixed in prior phases):**
+
+| Bug | Status | Notes |
+|-----|--------|-------|
+| A1: Firestore per-field writes | ✅ False alarm | `FirebaseCRUD.set()` uses `merge=True` (1 doc write), `sync_from_local` calls once |
+| A2: TTS temp file leak | ✅ Already fixed | `_process_utterance` has `temp_files` tracking + `finally` cleanup (Phase 51) |
+| A3: TypingBuffer signal spam | ✅ Already fixed | 50ms `_debounce_timer` coalesces keystrokes (Phase 51) |
+| A4: Stale opencode session reuse | ✅ Already fixed | `_on_opencode_error()` clears `_opencode_session_id` (Phase 51) |
+| A5: Double window title call | ✅ Already fixed | `_evaluate_emotion` cached variable (extracted to behavior_controller.py Phase 52) |
+
+**Phase B — Architectural Debt:**
+
+| Task | Status | Notes |
+|------|--------|-------|
+| B1: Memory RLock + atexit | ✅ Already fixed | `atexit.register(_emergency_flush)` exists at daemon.py:243 |
+| B2: JSON parse diagnostics | ✅ Already fixed | `lineno` in parse error logging (Phase 51) |
+| B3: MCP health check | ✅ Already fixed | `/health` endpoint at mcp_server.py port 4097 (Phase 51) |
+| B4: Observability wiring | ✅ Fixed | Added `setup_observability()` call in `daemon.py` after config load |
+| B5: Consent matrix cleanup | ✅ Already fixed | Exists as docstring in constants.py |
+| B6: PetController extraction | ⏭️ Skipped | High-risk refactor (~2000 lines), behavior already extracted in Phase 52. Deferred. |
+
+**Phase C — Medium-Priority Fixes:**
+
+| Fix | Status | Notes |
+|-----|--------|-------|
+| C1: screen_reader UIA COM per-thread | ✅ Fixed | Replaced global `_UIA_AUTOMATION`/`_UIA_INITIALIZED` with `threading.local()` |
+| C2: Particle O(n) rebuild | ✅ Already fixed | Phase 53 |
+| C3: ThoughtPool per-type indices | ✅ Already fixed | Phase 53 |
+| C4: ContextManager prompt cache | ✅ Fixed | Added snapshot-based cache key to `build_user_trigger`/`build_autonomous_trigger`, ~2μs hit vs 5μs rebuild |
+| C5: APMWorker unbounded deque | ✅ Already fixed | Phase 53 |
+| C6: EventStreamWorker 401/403 | ⏭️ Declined | Planned module, not worth implementing yet |
+| C7: DiaryStore case-insensitive dup | ✅ Fixed | `calculate_content_hash` uses `NFKC + casefold + strip` |
+| C8: GroundContactResolver extraction | ✅ Fixed | Created `src/physics.py` with `GroundContactResolver` class, `ContactResult` namedtuple |
+| C9: constants.py domain split | ⏭️ Skipped | Large refactor, YAGNI for current scope |
+
+**Files changed (Phase 55):**
+
+| File | Action | Description |
+|------|--------|-------------|
+| `.gitignore` | Verify | Already had `.hermes/` + `crash_dump.log` |
+| (cleanup) | Delete | Removed `crash_dump.log` (0B), all `__pycache__`/`.pyc` |
+| `src/animator.py` | Modify | `mouth_shape` field on `EmotionProfile`, set on all 9 profiles, `get_mouth_modifier()` method |
+| `src/pet_renderer.py` | Modify | `_draw_mouth()` with 10 shapes (smile, frown, open, pursed, ooo, wry, neutral, smile_teeth, kiss, tremble) |
+| `tests/test_animator.py` | Add | `TestMouthShapes` class with 3 tests |
+| `tests/test_pet_renderer.py` | Rewrite | Added `test_mouth_shape_smoke` + 4 shape-specific tests |
+| `daemon.py` | Modify | Added `setup_observability()` after config load |
+| `src/screen_reader.py` | Rewrite | `threading.local()` for UIA COM instance, per-thread initialization |
+| `src/context_manager.py` | Modify | Prompt cache on `build_user_trigger`/`build_autonomous_trigger` |
+| `tests/test_context_manager.py` | Modify | Added `_cache_key`/`_cached_prompt` init for bypass tests |
+| `src/diary_store.py` | Modify | `calculate_content_hash` uses `NFKC + casefold + strip` |
+| `src/physics.py` | Create | `GroundContactResolver` class + `ContactResult` NamedTuple |
+
+**Test results:** 637 passed, 1 skipped (full regression).
+
+---
+
+### Phase 56 — Production Logging & Observability (2026-06-16)
+
+**Goal:** Replace ad-hoc logging with production-grade infrastructure — structlog, correlation IDs, lazy formatting, Prometheus metrics, MCP observability tools.
+
+**Files created:**
+| File | Description |
+|------|-------------|
+| `src/log_context.py` | CorrelationIdDefault formatter, get/set/reset_correlation_id() |
+
+**Files modified:**
+| File | Description |
+|------|-------------|
+| `requirements.txt` | Added `structlog>=24.1.0`, `prometheus-client>=0.19.0` |
+| `src/logging_setup.py` | RotatingFileHandler (10MiB, 5 backups), structlog JSON processor chain, configurable log dir/level, CorrelationIdDefault formatter |
+| `daemon.py` | Wired structlog JSON output into boot sequence with json_output config toggle |
+| `src/event_worker.py` | 3 f-string log calls → lazy `%s` formatting |
+| `src/mcp_server.py` | 2 f-string → lazy `%s`; MCP tool call metrics; `set_log_level` MCP tool; upgraded `/metrics` to Prometheus `generate_latest()` |
+| `src/opencode_serve_manager.py` | 6 f-string → lazy `%s` |
+| `src/memory_manager.py` | 14 f-string → lazy `%s`; wired `update_memory_facts` metric |
+| `src/pet_window.py` | 6 f-string → lazy `%s`; wired `record_fsm_transition`, `update_apm` metrics; set_correlation_id on user input |
+| `src/behavior_controller.py` | 4 f-string → lazy `%s`; wired `record_autonomous_trigger` metrics; set_correlation_id on triggers |
+| `src/logging_setup.py` | CorrelationIdDefault formatter, structlog JSON processor + `add_correlation_id` |
+| `src/observability.py` | (existing) Init already calls `init_metrics()` — helpers wired into 5 real code paths |
+| `tests/test_log_context.py` | Created — 5 tests: set_and_get, reset, unique_ids, formatter_default, formatter_injected |
+
+**Tasks completed (from plan `.hermes/plans/2026-06-16_121500-production-logging.md`):**
+
+| # | Task | Commit | Status |
+|---|------|--------|--------|
+| 1 | Add structlog + prometheus-client deps | `58819d7` | ✅ |
+| 2 | RotatingFileHandler + configurable rotation | `1c3f9a2` | ✅ |
+| 3 | Wire structlog JSON into boot sequence | `1679e8f` | ✅ |
+| 4 | Convert 29 f-string log calls to lazy `%s` | `3cc1eec` | ✅ |
+| 5 | Add correlation IDs via `log_context.py` | `e2811b4` | ✅ |
+| 6 | Wire Prometheus metrics into 5 code paths | `3dc79e7` | ✅ |
+| 7 | `set_log_level` MCP tool (DEBUG/INFO/WARNING/ERROR/CRITICAL) | `9878c9b` | ✅ |
+| 8 | Upgrade `/metrics` to Prometheus `generate_latest()` + JSON fallback | `9878c9b` | ✅ |
+| 9 | Sensitive data redaction filter | ❌ Skipped — YAGNI for current scope, low-value until real prod deployment |
+| 10 | Update dev memory + docs | (this entry) | ✅ |
+
+**Architecture wins:**
+- **Correlation IDs:** Every log line carries `[cid=<uuid>]` — set on user input or autonomous trigger for end-to-end tracing
+- **Lazy formatting:** All 29 `logger.info(f"...")` → `logger.info("...%s", val)` — prevents unnecessary string building when log level suppresses the line
+- **MCP tools:** `set_log_level` allows remote debug log toggling without restart; `tools/list` returns 13 tools
+- **Prometheus metrics:** FSM transitions, APM, MCP tool calls (latency + success), memory facts, autonomous triggers — exposed at `GET /metrics` in Prometheus text format
+- **Structlog JSON:** Opt-in via `json_output: true` in config; produces NDJSON for ELK/Loki ingestion
+
+**Test results:** 645 passed (full regression).
 
 **Done — End of Project Dev Memory**

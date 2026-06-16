@@ -343,9 +343,19 @@ HTTP Server (daemon thread) + JSON-RPC 2.0 + SSE
 | `get_diary` | limit? | Recent diary entry texts |
 | `simulate_keystroke` | keys (max 50 chars) | HID injection — type text on user keyboard (consent: keyboard_injection) |
 | `move_mouse` | x, y, click? | HID injection — move cursor + optional click (consent: mouse_interference) |
-| `browser_navigation` | url (http/https only) | Open URL in default browser (consent: browser_redirection) |
+|| `browser_navigation` | url (http/https only) | Open URL in default browser (consent: browser_redirection) | |
+|| `set_log_level` | level (DEBUG/INFO/WARNING/ERROR/CRITICAL) | Change root logger level at runtime |
 
-### 6.3 Security
+### 6.3 Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/sse` | GET | SSE stream for real-time MCP events |
+| `/health` | GET | Returns `{"status": "ok"}` (used by 10s health timer) |
+| `/metrics` | GET | Prometheus `generate_latest()` text format (JSON fallback) |
+| `/log` | POST | Accepts `{service, level, message, extra?}` — external logging ingestion |
+
+### 6.4 Security
 
 - `_validate_mcp_path()` blocks path traversal
 - `_validate_read_extension()` → only .py/.md/.json/.ps1/.txt/.log/.yaml
@@ -417,6 +427,9 @@ AUTONOMOUS TICK (master_tick)
 | **PID lock + crash recovery hook** | Single instance per pet_id; flush on crash; .bak fallback on corrupt reads |
 | **Firebase Auth REST (no Admin SDK)** | Works in PyInstaller --onefile; per-user isolation via Security Rules |
 | **EmotionProfile registry (Phase 46)** | Declarative dataclass replaces procedural if/elif; 9 profiles with Juice enhancements (heart pupils, comet trails, elastic pop) |
+| **CorrelationIdDefault formatter (Phase 56)** | Subclass of `logging.Formatter` injects correlation_id from `contextvars` into every log record — no filter needed, no KeyError on unset cids |
+| **Correlation IDs on triggers** | `set_correlation_id()` called at entry point of every user input and autonomous trigger — end-to-end traceability through logs |
+| **Structlog JSON (opt-in)** | `json_output: true` in config produces NDJSON with correlation_id, timestamp, module, level — ready for ELK/Loki |
 
 ---
 
@@ -487,7 +500,8 @@ src/
   active_window.py                     # Win32 foreground window title
   persistence.py                       # save_state/load_state
   config.py                            # data/.daemon_config.json loader
-  logging_setup.py                     # RotatingFileHandler + comtypes suppression
+  logging_setup.py                     # RotatingFileHandler + CorrelationIdDefault + structlog JSON (opt-in)
+  log_context.py                       # CorrelationIdDefault formatter, contextvars-based correlations
   opencode_serve_manager.py            # Auto-start opencode serve on boot
   utils/
     security.py                        # is_safe_write_path() sandbox

@@ -55,8 +55,9 @@ daemon.py main()
   │   └─ setattr(constants, key, val)  # Patches constants module at runtime
   ├─ argparse (--debug, --verbose, --no-opencode, --no-auth, --pet-id)
   ├─ _acquire_lock(pet_id)             # PID-based single-instance guard
-  ├─ setup_logging()                   # RotatingFileHandler → logs/daemon_*.log
-  ├─ generate_codebase_map()           # AST → data/codebase_map.json
+  ├─ setup_logging(log_dir, debug, json_output)  # RotatingFileHandler, CorrelationIdDefault, structlog
+  ├─ init_observability()            # Prometheus metrics registry + DaemonMetrics
+  ├─ generate_codebase_map()         # AST → data/codebase_map.json
   ├─ SetConsoleCtrlHandler()           # Win32 signal swallowing
   ├─ ensure_opencode_serve_running()   # Kill-respawn opencode serve on :4096
   ├─ load_state()                      # data/.daemon_state.json → {mood, interactions, ...}
@@ -211,6 +212,47 @@ Quit:
   push_pending_diaries() → Firestore
 ```
 
+### Correlation ID Pipeline
+```
+User Input / Autonomous Trigger
+  → set_correlation_id()           # ContextVar assignment
+    ├─ _on_input_submitted()       # User typing
+    └─ _trigger_chat() / _trigger_joke()  # Autonomous triggers
+       ↓
+  Logger calls (any thread)
+    → CorrelationIdDefault.format()  # Reads contextvar, sets record.correlation_id
+    → logging.Formatter._fmt % record.__dict__  # [cid=<uuid>] injected
+       ↓
+  Log line written:
+    [2026-06-16 12:50:29] [INFO   ] [pet_window] [cid=abc123] _on_apm_updated: 45
+
+  Structlog path (json_output=true):
+    → add_correlation_id processor reads contextvar
+    → JSONRenderer: {"cid": "abc123", "event": "hello", ...}
+```
+
+### Metrics Pipeline
+```
+Boot:
+  daemon.py → init_observability()
+    → init_metrics() → DaemonMetrics singleton (_metrics)
+
+Runtime:
+  Real code paths call helper functions:
+    → record_fsm_transition(from_state, to_state)  # pet_window.py
+    → update_apm(apm)                              # pet_window.py
+    → record_mcp_tool_call(name, success, duration) # mcp_server.py
+    → record_autonomous_trigger(mode, fired)        # behavior_controller.py
+    → update_memory_facts(count)                    # memory_manager.py
+       ↓
+  Decorators collect latency histograms, counters, gauges
+       ↓
+  GET /metrics (mcp_server.py)
+    → prometheus_client.generate_latest()
+    → Returns text/plain Prometheus exposition format
+    → JSON fallback: {jsonrpc, result, metrics: {...}}
+```
+
 ### MCP Tool Pipeline
 ```
 opencode serve → JSON-RPC 2.0 POST /message → MCPHandler
@@ -314,9 +356,10 @@ All 9 emotions are now declared as `EmotionProfile` dataclasses in `EMOTION_PROF
 
 ---
 
-## MCP Server (11 Tools on port 4097)
+## MCP Server (13 Tools on port 4097)
 
 In-process JSON-RPC 2.0 HTTP server. SSE init at GET /sse, messages at POST /message.
+Also serves HTTP endpoints: `/health`, `/metrics`, `/log`.
 
 | # | Tool | Consent Key | Params |
 |---|------|-------------|--------|
@@ -332,6 +375,15 @@ In-process JSON-RPC 2.0 HTTP server. SSE init at GET /sse, messages at POST /mes
 | 10 | `simulate_keystroke` | allow_keyboard_injection | keys (max 50 chars) |
 | 11 | `move_mouse` | allow_mouse_interference | x, y, click |
 | 12 | `browser_navigation` | allow_browser_redirection | url (http/https only) |
+| 13 | `set_log_level` | — (always allowed) | level (DEBUG/INFO/WARNING/ERROR/CRITICAL) |
+
+**HTTP Endpoints:**
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/sse` | GET | SSE event stream for real-time MCP updates |
+| `/health` | GET | Returns `{"status": "ok"}` |
+| `/metrics` | GET | Prometheus `generate_latest()` text format (JSON fallback) |
+| `/log` | POST | External log ingestion — `{service, level, message, extra?}` |
 
 **Consent Matrix (3 Tiers in Settings → Boundaries):**
 - Tier 1 (Low Risk): allow_intrusive_animations (default: True)
@@ -653,7 +705,6 @@ pytest tests/test_memory.py tests/test_memory_manager.py -xvs
 ```
 
 ---
-
 ## Threading Model
 
 ```
@@ -661,21 +712,25 @@ Main Thread (Qt Event Loop)
   ├── PetWindow (all UI, FSM, timers, painting)
   ├── ClickThroughManager (50ms QTimer poll)
   ├── WriteCoalescer (8s QTimer)
-  └── All signal slots
+  ├── All signal slots
+  └── CorrelationIdDefault — contextvars-based — thread-safe, no mutex
 
 Worker Threads:
-  ├── APMWorker (QThread) — pynput keyboard+mouse listeners
+  ├── APMWorker (QThread) — pynput keyboard+mouse listeners → triggers update_apm()
   ├── TypingBuffer (pynput thread via listener) — keystroke capture
   ├── TTSWorker (QThread) — TTS generation + playback
   ├── OpencodeWorker (QThread) — one-shot per query, HTTP to :4096
   └── Refill Workers (QThread) — stored in _refill_workers dict
 
 Daemon Threads:
-  ├── MCPServer HTTPServer (daemon thread on :4097)
+  ├── MCPServer HTTPServer (daemon thread on :4097) — also serves /metrics, /health, /log
   └── opencode serve (detached process on :4096)
 ```
 
-**Thread safety:** All cross-thread communication via Qt signals with QueuedConnection. FSMActionBridge relays MCP handler thread → main Qt thread. No mutexes needed.
+**Thread safety:** All cross-thread communication via Qt signals with QueuedConnection.
+FSMActionBridge relays MCP handler thread → main Qt thread. No mutexes needed.
+- `contextvars.ContextVar` (correlation IDs) are thread-safe by default — each thread has its own copy.
+- Prometheus metric functions (`record_fsm_transition`, `update_apm`, etc.) use thread-safe counters from `prometheus_client`.
 
 ---
 
