@@ -1,4 +1,5 @@
 import logging
+import logging.handlers
 import os
 import pytest
 from src.logging_setup import setup_logging
@@ -43,16 +44,26 @@ def test_setup_logging_skips_non_string_overrides(tmp_path):
 def test_setup_logging_file_handler_present(tmp_path):
     setup_logging(debug=True, log_dir=str(tmp_path))
     root = logging.getLogger()
-    file_handlers = [h for h in root.handlers if isinstance(h, logging.FileHandler)]
+    file_handlers = [h for h in root.handlers if isinstance(h, logging.handlers.RotatingFileHandler)]
     assert len(file_handlers) == 1
     assert file_handlers[0].level == logging.DEBUG
 
 
 def test_log_file_is_timestamped(tmp_path):
     setup_logging(debug=True, log_dir=str(tmp_path))
-    log_files = [f for f in os.listdir(str(tmp_path)) if f.startswith("daemon_") and f.endswith(".log")]
-    assert len(log_files) == 1
+    log_files = [f for f in os.listdir(str(tmp_path)) if f.startswith("daemon_") and (f.endswith(".log") or ".log." in f)]
+    assert len(log_files) >= 1
     assert log_files[0] != "daemon.log"
+
+
+def test_log_file_rotation(tmp_path):
+    setup_logging(debug=True, log_dir=str(tmp_path), max_bytes=100, backup_count=2)
+    root = logging.getLogger()
+    for i in range(50):
+        root.warning("x" * 20)
+    log_files = [f for f in os.listdir(str(tmp_path)) if f.startswith("daemon_")]
+    # Should have at least 2 files (current + at least one rotated)
+    assert len(log_files) >= 2
 
 
 def test_cleanup_removes_old_logs(tmp_path):
