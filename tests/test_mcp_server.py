@@ -127,7 +127,7 @@ def test_tools_list_count():
     handler = _handler()
     response = handler._handle_tools_list()
     tools = response["result"]["tools"]
-    assert len(tools) == 12
+    assert len(tools) == 13
     names = [t["name"] for t in tools]
     assert "change_visual_state" in names
     assert "read_clipboard" in names
