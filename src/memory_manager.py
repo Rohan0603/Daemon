@@ -104,6 +104,11 @@ class MemoryManager:
                 count += 1
         logger.debug("synced %d brain fields to local memory", count)
         logger.info("[MemoryManager] synced %d brain fields to local memory", count)
+        try:
+            from src.observability import update_memory_facts
+            update_memory_facts(count)
+        except Exception:
+            pass
 
     def sync_from_local(self, memory: "Memory") -> None:
         if not self.crud.available:

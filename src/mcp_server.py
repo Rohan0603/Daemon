@@ -510,48 +510,60 @@ class MCPHandler(BaseHTTPRequestHandler):
         if args is None:
             args = {}
         logger.debug("MCP tools/call: %s args=%s", name, json.dumps(args)[:200])
+        import time as _time
+        _t0 = _time.time()
+
+        def _mcp_result(response):
+            elapsed = _time.time() - _t0
+            allowed = "error" not in response
+            try:
+                from src.observability import record_mcp_tool_call
+                record_mcp_tool_call(name, elapsed, allowed)
+            except Exception:
+                pass
+            return response
 
         if name == "change_visual_state":
             allowed, err = self._is_tool_allowed(name)
             if not allowed:
-                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}})
             action = args.get("action")
             if action not in VALID_ACTIONS:
-                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Invalid action: {action}"}}
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Invalid action: {action}"}})
             if self.fsm_bridge:
                 self.fsm_bridge.emit_request(action, args.get("target_x"), args.get("target_y"))
-            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "ok"}]}}
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "ok"}]}})
 
         elif name == "read_clipboard":
             allowed, err = self._is_tool_allowed(name)
             if not allowed:
-                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}})
             text = _read_clipboard()
-            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": text}]}}
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": text}]}})
 
         elif name == "capture_blackmail_evidence":
             allowed, err = self._is_tool_allowed(name)
             if not allowed:
-                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}})
             path = _capture_blackmail_evidence()
-            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": path}]}}
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": path}]}})
 
         elif name == "send_system_toast":
             allowed, err = self._is_tool_allowed(name)
             if not allowed:
-                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}})
             title = args.get("title", "Alert")
             message = args.get("message", "")
             if self.fsm_bridge:
                 self.fsm_bridge.emit_toast(title, message)
-            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "toast sent"}]}}
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "toast sent"}]}})
 
         elif name == "list_directory":
-            return self._handle_list_directory(args)
+            return _mcp_result(self._handle_list_directory(args))
         elif name == "read_file":
-            return self._handle_read_file(args)
+            return _mcp_result(self._handle_read_file(args))
         elif name == "search_codebase":
-            return self._handle_search_codebase(args)
+            return _mcp_result(self._handle_search_codebase(args))
 
         elif name == "get_memory":
             if self.memory is None:
@@ -564,7 +576,7 @@ class MCPHandler(BaseHTTPRequestHandler):
                     lines = [f"{k}: {v}" for k, v in facts.items()]
                     text = "Memory facts:\n" + "\n".join(lines)
             logger.debug("MCP get_memory -> %d chars", len(text))
-            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": text}]}}
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": text}]}})
 
         elif name == "get_diary":
             if self.diary_store is None:
@@ -584,37 +596,37 @@ class MCPHandler(BaseHTTPRequestHandler):
                         lines.append(f"[{ts}] {content}")
                     text = "Recent diary entries:\n" + "\n".join(lines)
             logger.debug("MCP get_diary -> %d chars", len(text))
-            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": text}]}}
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": text}]}})
 
         elif name == "simulate_keystroke":
             allowed, err = self._is_tool_allowed(name)
             if not allowed:
-                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}})
             keys = args.get("keys", "")
             result = _simulate_keystroke(keys)
-            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": result}]}}
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": result}]}})
 
         elif name == "move_mouse":
             allowed, err = self._is_tool_allowed(name)
             if not allowed:
-                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}})
             x = args.get("x", 0)
             y = args.get("y", 0)
             click = args.get("click", False)
             result = _move_mouse(x, y, click)
-            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": result}]}}
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": result}]}})
 
         elif name == "browser_navigation":
             allowed, err = self._is_tool_allowed(name)
             if not allowed:
-                return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}}
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}})
             url = args.get("url", "")
             result = _browser_navigation(url)
-            return {"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": result}]}}
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": result}]}})
 
         else:
             logger.debug("MCP unknown tool: %s", name)
-            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Unknown tool: {name}"}}
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Unknown tool: {name}"}})
 
     def _handle_list_directory(self, args):
         relative_path = args.get("relative_path", "")

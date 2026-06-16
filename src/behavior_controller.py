@@ -348,6 +348,11 @@ class BehaviorController:
         self._event_bus.emit_autonomous_trigger(
             "active_chat", self._current_apm, self._idle_seconds
         )
+        try:
+            from src.observability import record_autonomous_trigger
+            record_autonomous_trigger("active_chat", True)
+        except Exception:
+            pass
 
     def _trigger_joke(self) -> None:
         """Handle joke trigger: publish event, draw from thought pool."""
@@ -362,6 +367,11 @@ class BehaviorController:
         self._event_bus.emit_autonomous_trigger(
             "joke", self._current_apm, self._idle_seconds
         )
+        try:
+            from src.observability import record_autonomous_trigger
+            record_autonomous_trigger("joke", True)
+        except Exception:
+            pass
 
     def _trigger_boredom_fsm(self) -> None:
         """Handle boredom: publish event."""
@@ -374,6 +384,11 @@ class BehaviorController:
         self._event_bus.emit_autonomous_trigger(
             "boredom", self._current_apm, self._idle_seconds
         )
+        try:
+            from src.observability import record_autonomous_trigger
+            record_autonomous_trigger("boredom", True)
+        except Exception:
+            pass
 
     # ── Emotion Evaluation ──────────────────────────────────────────
 

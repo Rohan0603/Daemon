@@ -416,6 +416,11 @@ class PetWindow(QWidget):
     def _on_apm_updated(self, apm: int) -> None:
         self._current_apm = apm
         self._behavior.set_apm(apm)
+        try:
+            from src.observability import update_apm
+            update_apm(apm)
+        except Exception:
+            pass
         if apm > 0:
             self._boredom_timer_ms = BOREDOM_TIMEOUT_SEC * 1000
             self._behavior.on_activity_detected()
@@ -818,6 +823,11 @@ class PetWindow(QWidget):
             new_state = self._fsm.update(FSM_TICK_MS, ctx)
             if new_state != old_state:
                 logger.debug("FSM state transition: %s -> %s", old_state.name, new_state.name)
+                try:
+                    from src.observability import record_fsm_transition
+                    record_fsm_transition(old_state.name, new_state.name)
+                except Exception:
+                    pass
                 self._events.emit_fsm_state_changed(old_state.name, new_state.name)
                 self._state_elapsed_ms = 0
                 # Handle SLEEP state entry
