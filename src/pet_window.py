@@ -1170,6 +1170,8 @@ class PetWindow(QWidget):
         self._input_field.setFocus()
 
     def _on_input_submitted(self) -> None:
+        from src.log_context import set_correlation_id
+        set_correlation_id()
         text = self._input_field.text().strip()
         self._input_field.hide()
         if not text:

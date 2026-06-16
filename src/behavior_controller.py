@@ -107,6 +107,7 @@ class BehaviorController:
 
         # Monotonic time for drift-free behavioral timers
         self._last_master_tick_time = time.monotonic()
+        self._last_autonomous_fire_time = 0.0
 
         self._boredom_tick_count = 0
 
@@ -336,31 +337,40 @@ class BehaviorController:
 
     def _trigger_chat(self) -> None:
         """Handle active chat: publish event, draw from thought pool."""
+        from src.log_context import set_correlation_id
+        set_correlation_id()
         self._chat_timer_sec = 0.0  # Reset timer
 
         if not self._should_fire_autonomous("active_chat"):
             return
 
+        self._last_autonomous_fire_time = time.time()
         self._event_bus.emit_autonomous_trigger(
             "active_chat", self._current_apm, self._idle_seconds
         )
 
     def _trigger_joke(self) -> None:
         """Handle joke trigger: publish event, draw from thought pool."""
+        from src.log_context import set_correlation_id
+        set_correlation_id()
         self._joke_timer_sec = 0.0  # Reset timer
 
         if not self._should_fire_autonomous("joke"):
             return
 
+        self._last_autonomous_fire_time = time.time()
         self._event_bus.emit_autonomous_trigger(
             "joke", self._current_apm, self._idle_seconds
         )
 
     def _trigger_boredom_fsm(self) -> None:
         """Handle boredom: publish event."""
+        from src.log_context import set_correlation_id
+        set_correlation_id()
         if not self._should_fire_autonomous("boredom"):
             return
 
+        self._last_autonomous_fire_time = time.time()
         self._event_bus.emit_autonomous_trigger(
             "boredom", self._current_apm, self._idle_seconds
         )
@@ -412,6 +422,11 @@ class BehaviorController:
 
     def _should_fire_autonomous(self, mode: str) -> bool:
         """Return True if autonomous tick is allowed to fire right now."""
+        # Global debounce: never fire more than once per 15s regardless of mode
+        elapsed = time.time() - self._last_autonomous_fire_time
+        if elapsed < 15.0:
+            logger.debug("[%s] Skipping: debounce (%.1fs < 15s)", mode, elapsed)
+            return False
         if mode == "boredom":
             if self._response_manager.remaining() == 0:
                 logger.debug("[%s] Skipping: thought pool empty", mode)

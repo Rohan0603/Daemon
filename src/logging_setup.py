@@ -5,7 +5,9 @@ import time
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
-_LOG_FORMAT = "[%(asctime)s] [%(levelname)-7s] [%(name)s] %(message)s"
+from src.log_context import CorrelationIdDefault
+
+_LOG_FORMAT = "[%(asctime)s] [%(levelname)-7s] [%(name)s] [cid=%(correlation_id)s] %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -19,6 +21,16 @@ def _cleanup_old_logs(log_dir: str, days: int = 7) -> None:
                     os.remove(fpath)
             except OSError:
                 pass
+
+
+def _add_structlog_cid(logger, method_name, event_dict):
+    """Structlog processor: inject correlation_id from contextvar."""
+    from src.log_context import get_correlation_id
+
+    cid = get_correlation_id()
+    if cid:
+        event_dict["cid"] = cid
+    return event_dict
 
 
 def setup_logging(
@@ -55,6 +67,7 @@ def setup_logging(
                     structlog.processors.TimeStamper(fmt="iso"),
                     structlog.processors.StackInfoRenderer(),
                     structlog.processors.format_exc_info,
+                    _add_structlog_cid,
                     structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
                 ],
                 wrapper_class=structlog.stdlib.BoundLogger,
@@ -86,7 +99,7 @@ def setup_logging(
             json_output = False
 
     # ── Plain-text logging (default) ──────────────────────────────────────
-    formatter = logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT)
+    formatter = CorrelationIdDefault(_LOG_FORMAT, datefmt=_DATE_FORMAT)
 
     console = logging.StreamHandler()
     console.setLevel(root.level)
