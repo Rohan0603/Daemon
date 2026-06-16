@@ -6,14 +6,11 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-15 (Phase 52 — PetController Extraction)
+**Date updated:** 2026-06-16 (Phase 52 — PetController Extraction)
 **Current branch:** `master`
-**Latest commit:** `a05c513` fix: move EventBus init before BehaviorController, delete stale test files
+**Latest commit:** `a449e5f` feat: EventBus integration for auth + lifecycle events
 **Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52
-**Git root:** `C:\Users\ponna\Project\Daemon`
-**Python command:** `py` (Windows py launcher — not `python` or `python3`)
-**Test command:** `py -m pytest tests/ -v --ignore=tests/test_output.txt --ignore=tests/test_firebase_crud.py`
-**Test count:** ~610 across 47 test files
+**Test count:** ~643 across 49 test files
 
 ---
 
@@ -898,6 +895,9 @@ Never commit to master directly. Never put AI assistant names in commit messages
 | SLEEP timers tick unconditionally | Add `if state == SLEEP: return` at top of `_master_tick` to freeze all timers |
 | SLEEP deferred trigger leak | Guard `_fire_deferred_trigger` with FSM state check — drop params in SLEEP |
 | Joke timer ignores backoff | Add `elapsed_since_boredom >= _idle_backoff_seconds` gate in P3 joke route |
+| `_consecutive_silent`/`_consecutive_engaged` not initialized | Initialize in `__init__` before `_on_output_displayed` can be called during startup |
+| `Event` class not imported in `firebase_auth.py` | Import `Event` from `src.events` alongside `EventBus`, `EventType` |
+| `TOKEN_REFRESHED` missing from `EventType` enum | Add `TOKEN_REFRESHED = "token_refreshed"` to `EventType` enum |
 
 ---
 

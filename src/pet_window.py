@@ -290,6 +290,12 @@ class PetWindow(QWidget):
         self._refill_workers: dict[str, OpencodeWorker] = {}
         self._refill_workers_lock = threading.Lock()
 
+        self._consecutive_silent = 0
+        self._consecutive_engaged = ENGAGED_THRESHOLD
+        self._current_interval = BASE_INTERVAL_SEC
+        self._idle_backoff_seconds = 0.0
+        self._last_context_snapshot = None
+
         self._deferred_trigger_params: dict | None = None
 
         self._brain_disconnected = False
