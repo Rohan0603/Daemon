@@ -8,7 +8,7 @@
 
 **Date updated:** 2026-06-16 (Phase 52 — PetController Extraction)
 **Current branch:** `master`
-**Latest commit:** `a449e5f` feat: EventBus integration for auth + lifecycle events
+**Latest commit:** `1c20ffc` fix: replace hardcoded PROJECT_ROOT with dynamic path resolution
 **Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52
 **Test count:** ~643 across 49 test files
 
@@ -384,6 +384,16 @@ Adaptive backoff: 5 consecutive silent outputs → exponential interval increase
 ### Storage Durability
 
 All local JSON: atomic tmp+replace writes, .bak fallback on read failure. Single-instance PID lock (data/.daemon.lock). Crash recovery via sys.excepthook that calls WriteCoalescer.flush().
+
+---
+
+## ✅ CRITICAL BUGS FIXED
+
+| Bug | Location | Severity | Status | Fix Applied |
+|-----|----------|----------|--------|-------------|
+| **Hardcoded PROJECT_ROOT (security.py)** | `src/utils/security.py:3` | CRITICAL | ✅ Fixed | Changed to `Path(__file__).parent.parent.parent.resolve()` |
+| **Hardcoded PROJECT_ROOT (mcp_server.py)** | `src/mcp_server.py:20` | CRITICAL | ✅ Fixed | `Path(__file__).parent.parent.resolve()` |
+
 ---
 
 ### Phase 35 — Firebase Auth Login + Firestore REST API + PyInstaller (2026-06-08)
