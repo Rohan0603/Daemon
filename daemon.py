@@ -127,6 +127,9 @@ def main() -> None:
                 val = os.path.normpath(os.path.join(project_root, val))
             setattr(constants, key, val)
 
+    from src.observability import init_observability
+    init_observability()
+
     parser = argparse.ArgumentParser(description="Daemon Desktop Pet")
     parser.add_argument("--debug", action="store_true", help="Run headless FSM simulation")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose debug logging")
@@ -144,7 +147,23 @@ def main() -> None:
 
     from src.logging_setup import setup_logging
     log_config = cfg.get("logging", {})
-    setup_logging(debug=args.verbose, log_dir=log_config.get("dir", "logs"), config_overrides=log_config)
+    setup_logging(
+        debug=args.verbose,
+        log_dir=log_config.get("dir", "logs"),
+        json_output=log_config.get("json", False),
+        max_bytes=log_config.get("max_bytes", 10 * 1024 * 1024),
+        backup_count=log_config.get("backup_count", 5),
+        config_overrides=log_config.get("levels"),
+    )
+
+    # ── Config validation ────────────────────────────────────────────────
+    firebase_key = cfg.get("firebase", {}).get("api_key", "")
+    if not firebase_key:
+        logger.warning("[CONFIG] firebase.api_key is empty — Firebase Auth will fail")
+    opencode_url = cfg.get("llm", {}).get("server_url", "")
+    opencode_api_key = cfg.get("llm", {}).get("api_key", "")
+    if not opencode_api_key and "opencode" not in opencode_url:
+        logger.warning("[CONFIG] llm.api_key is empty — opencode may not authenticate")
 
     logger.info("=== DAEMON STARTUP (PID %d) ===", os.getpid())
     logger.info("Crash instrumentation active: crash_dump.log = %s", _CRASH_LOG)

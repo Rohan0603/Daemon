@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import time
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
@@ -26,11 +27,65 @@ def setup_logging(
     log_dir: str = "logs",
     max_bytes: int = 10 * 1024 * 1024,
     backup_count: int = 5,
+    json_output: bool = False,
     config_overrides: dict[str, str] | None = None,
 ) -> None:
+    """Configure logging with optional structlog JSON output.
+
+    When json_output=True and structlog is available, configures structlog's
+    JSONRenderer for stdout and uses plain-text RotatingFileHandler.
+    Existing logger.info(...) calls with ``%s`` formatting work transparently.
+    Falls back to plain-text format if structlog is not installed.
+    """
     root = logging.getLogger()
     root.setLevel(logging.DEBUG if debug else logging.INFO)
+    root.handlers.clear()
 
+    # ── Optional structlog JSON output ────────────────────────────────────
+    if json_output:
+        try:
+            import structlog
+
+            structlog.configure(
+                processors=[
+                    structlog.stdlib.filter_by_level,
+                    structlog.contextvars.merge_contextvars,
+                    structlog.stdlib.add_logger_name,
+                    structlog.processors.add_log_level,
+                    structlog.processors.TimeStamper(fmt="iso"),
+                    structlog.processors.StackInfoRenderer(),
+                    structlog.processors.format_exc_info,
+                    structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
+                ],
+                wrapper_class=structlog.stdlib.BoundLogger,
+                context_class=dict,
+                logger_factory=structlog.stdlib.LoggerFactory(),
+                cache_logger_on_first_use=True,
+            )
+
+            # Console handler: JSON output
+            json_formatter = structlog.stdlib.ProcessorFormatter(
+                processor=structlog.processors.JSONRenderer()
+            )
+            console = logging.StreamHandler(sys.stdout)
+            console.setLevel(root.level)
+            console.setFormatter(json_formatter)
+            root.addHandler(console)
+
+            # File handler formatter: JSON as well (structured is the point)
+            file_formatter = structlog.stdlib.ProcessorFormatter(
+                processor=structlog.processors.JSONRenderer()
+            )
+
+            _add_file_handler(root, file_formatter, log_dir, max_bytes, backup_count)
+            _cleanup_old_logs(log_dir)
+            _apply_overrides(config_overrides)
+            logging.captureWarnings(True)
+            return
+        except ImportError:
+            json_output = False
+
+    # ── Plain-text logging (default) ──────────────────────────────────────
     formatter = logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT)
 
     console = logging.StreamHandler()
@@ -38,6 +93,19 @@ def setup_logging(
     console.setFormatter(formatter)
     root.addHandler(console)
 
+    _add_file_handler(root, formatter, log_dir, max_bytes, backup_count)
+    _cleanup_old_logs(log_dir)
+    _apply_overrides(config_overrides)
+    logging.captureWarnings(True)
+
+
+def _add_file_handler(
+    root: logging.Logger,
+    formatter: logging.Formatter,
+    log_dir: str,
+    max_bytes: int,
+    backup_count: int,
+) -> None:
     os.makedirs(log_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_path = os.path.join(log_dir, f"daemon_{timestamp}.log")
@@ -50,8 +118,9 @@ def setup_logging(
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     root.addHandler(file_handler)
-    _cleanup_old_logs(log_dir)
 
+
+def _apply_overrides(config_overrides: dict[str, str] | None) -> None:
     default_overrides = {
         "comtypes": "WARNING",
         "comtypes.client": "WARNING",
@@ -66,5 +135,3 @@ def setup_logging(
         if not isinstance(level, str):
             continue
         logging.getLogger(name).setLevel(getattr(logging, level.upper(), logging.INFO))
-
-    logging.captureWarnings(True)
