@@ -1,6 +1,7 @@
 import os
+from pathlib import Path
 
-PROJECT_ROOT = os.path.abspath("C:/Users/ponna/Project/Daemon")
+PROJECT_ROOT = str(Path(__file__).parent.parent.parent.resolve())
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 
 
