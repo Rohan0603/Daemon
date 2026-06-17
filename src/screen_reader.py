@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import sys
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -13,39 +14,37 @@ try:
 except ImportError:
     pass
 
-_UIA_AUTOMATION = None
-_UIA_INITIALIZED = False
+_uia_local = threading.local()
 _last_screen_hash: str | None = None
 
 
 def _get_uia_automation():
-    """Lazy initialization of IUIAutomation singleton."""
-    global _UIA_AUTOMATION, _UIA_INITIALIZED
+    """Lazy initialization of IUIAutomation, thread-local."""
+    global _UIA_INITIALIZED
     if not _UIA_AVAILABLE:
         return None
-    if _UIA_AUTOMATION is not None:
-        return _UIA_AUTOMATION
+    if hasattr(_uia_local, 'automation') and _uia_local.automation is not None:
+        return _uia_local.automation
 
     try:
         import ctypes
         from comtypes.client import CreateObject, GetModule
         import comtypes
 
-        # Initialize COM only once per thread
-        if not _UIA_INITIALIZED:
-            comtypes.CoInitialize()
-            _UIA_INITIALIZED = True
+        # Initialize COM per thread
+        comtypes.CoInitialize()
 
         # Load typelib once
         GetModule("UIAutomationCore.dll")
         from comtypes.gen.UIAutomationClient import IUIAutomation
 
         clsid = "{ff48dba4-60ef-4201-aa87-54103eef594e}"
-        _UIA_AUTOMATION = CreateObject(clsid, interface=IUIAutomation)
-        logger.info("UIA automation initialized successfully")
-        return _UIA_AUTOMATION
+        _uia_local.automation = CreateObject(clsid, interface=IUIAutomation)
+        logger.info("UIA automation initialized on thread %s", threading.current_thread().name)
+        return _uia_local.automation
     except Exception as e:
-        logger.warning("UIA initialization failed: %s", e)
+        logger.warning("UIA initialization failed on thread %s: %s",
+                       threading.current_thread().name, e)
         return None
 
 
@@ -101,9 +100,6 @@ def get_text_via_wm_gettext() -> str:
 
 def _cleanup_uia():
     """Clean up COM on shutdown."""
-    global _UIA_AUTOMATION, _UIA_INITIALIZED
-    _UIA_AUTOMATION = None
-    _UIA_INITIALIZED = False
     try:
         import comtypes
         comtypes.CoUninitialize()

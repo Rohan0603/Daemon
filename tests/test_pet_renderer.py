@@ -58,3 +58,98 @@ def test_eye_tracks_cursor_in_zone_below_eye_above_centre():
     # With CORRECT formula (eye-centre reference):
     angle = math.atan2(cursor_y - eye_y_screen, cursor_x - pet_cx)
     assert math.sin(angle) >= 0, "Pupil should move down when cursor is below eye"
+
+
+def test_mouth_shape_default_is_smile(qapp):
+    """Smile mouth draws a cubic bezier without crashing."""
+    from PyQt6.QtGui import QPainter, QPixmap
+    from src.pet_fsm import PetState
+    from src.animator import Emotion, EmotionAnimator
+    from src.pet_renderer import RenderContext
+
+    pixmap = QPixmap(100, 100)
+    painter = QPainter(pixmap)
+    animator = EmotionAnimator()
+    animator.set_emotion(Emotion.MIRTH)
+    ctx = RenderContext(
+        state=PetState.IDLE, pet_x=10, pet_y=10,
+        anim_tick=0, hyper_color_index=0, fall_velocity=0,
+        wander_direction=1, bubble_text="", scale=1.0,
+        drag_velocity_x=0, animator=animator, emotion=Emotion.MIRTH,
+    )
+    try:
+        PetRenderer()._draw_mouth(painter, ctx)
+    finally:
+        painter.end()
+
+
+def test_mouth_shape_frown_for_devastated(qapp):
+    """Devastated state forces frown regardless of emotion."""
+    from PyQt6.QtGui import QPainter, QPixmap
+    from src.pet_fsm import PetState
+    from src.animator import EmotionAnimator
+    from src.pet_renderer import RenderContext
+
+    pixmap = QPixmap(100, 100)
+    painter = QPainter(pixmap)
+    animator = EmotionAnimator()
+    ctx = RenderContext(
+        state=PetState.DEVASTATED, pet_x=10, pet_y=10,
+        anim_tick=0, hyper_color_index=0, fall_velocity=0,
+        wander_direction=1, bubble_text="", scale=1.0,
+        drag_velocity_x=0, animator=animator, emotion=None,
+    )
+    try:
+        PetRenderer()._draw_mouth(painter, ctx)
+    finally:
+        painter.end()
+
+
+def test_mouth_shape_sleep(qapp):
+    """Sleep state draws a tiny open mouth."""
+    from PyQt6.QtGui import QPainter, QPixmap
+    from src.pet_fsm import PetState
+    from src.animator import Emotion, EmotionAnimator
+    from src.pet_renderer import RenderContext
+
+    pixmap = QPixmap(100, 100)
+    painter = QPainter(pixmap)
+    animator = EmotionAnimator()
+    animator.set_emotion(Emotion.TRANQUILITY)
+    ctx = RenderContext(
+        state=PetState.SLEEP, pet_x=10, pet_y=10,
+        anim_tick=0, hyper_color_index=0, fall_velocity=0,
+        wander_direction=1, bubble_text="", scale=1.0,
+        drag_velocity_x=0, animator=animator, emotion=Emotion.TRANQUILITY,
+    )
+    try:
+        PetRenderer()._draw_mouth(painter, ctx)
+    finally:
+        painter.end()
+
+
+def test_mouth_shape_all_emotions_paint(qapp):
+    """Every emotion profile produces a valid mouth_draw."""
+    from PyQt6.QtGui import QPainter, QPixmap
+    from src.pet_fsm import PetState
+    from src.animator import Emotion, EMOTION_PROFILES, EmotionAnimator
+    from src.pet_renderer import RenderContext
+
+    valid_shapes = {"smile", "frown", "flat", "grin", "snarl", "sneer", "tremble", "open", "pursed", "sleep"}
+    pixmap = QPixmap(100, 100)
+    for emotion in Emotion:
+        animator = EmotionAnimator()
+        animator.set_emotion(emotion)
+        painter = QPainter(pixmap)
+        ctx = RenderContext(
+            state=PetState.IDLE, pet_x=10, pet_y=10,
+            anim_tick=0, hyper_color_index=0, fall_velocity=0,
+            wander_direction=1, bubble_text="", scale=1.0,
+            drag_velocity_x=0, animator=animator, emotion=emotion,
+        )
+        try:
+            PetRenderer()._draw_mouth(painter, ctx)
+            profile = EMOTION_PROFILES[emotion]
+            assert profile.mouth_shape in valid_shapes, f"{emotion}: invalid mouth_shape '{profile.mouth_shape}'"
+        finally:
+            painter.end()

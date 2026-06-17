@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 from src.constants import MEMORY_PATH
@@ -22,6 +23,7 @@ class Memory:
         self._path = path or MEMORY_PATH
         self._facts: dict[str, str] = {}
         self._coalescer = coalescer
+        self._lock = threading.RLock()
         self._load()
 
     def remember(
@@ -30,11 +32,12 @@ class Memory:
         value: str,
         coalescer: "WriteCoalescer | None" = None,
     ) -> None:
-        self._facts[key.strip()] = value.strip()
-        if len(self._facts) > _MAX_FACTS:
-            oldest = sorted(self._facts.keys())[: len(self._facts) - _MAX_FACTS]
-            for k in oldest:
-                del self._facts[k]
+        with self._lock:
+            self._facts[key.strip()] = value.strip()
+            if len(self._facts) > _MAX_FACTS:
+                oldest = sorted(self._facts.keys())[: len(self._facts) - _MAX_FACTS]
+                for k in oldest:
+                    del self._facts[k]
         effective = coalescer if coalescer is not None else self._coalescer
         if effective is not None:
             effective.mark_dirty("memory")
@@ -42,10 +45,12 @@ class Memory:
             self._save()
 
     def recall(self, key: str) -> str | None:
-        return self._facts.get(key)
+        with self._lock:
+            return self._facts.get(key)
 
     def forget(self, key: str, coalescer: "WriteCoalescer | None" = None) -> bool:
-        result = self._facts.pop(key, None) is not None
+        with self._lock:
+            result = self._facts.pop(key, None) is not None
         if result:
             effective = coalescer if coalescer is not None else self._coalescer
             if effective is not None:

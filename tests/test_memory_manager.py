@@ -22,6 +22,7 @@ def mgr_db(mock_crud):
     mgr._uid = "test-uid"
     mgr._pet_id = "kenny"
     mgr._pending_writes = deque()
+    mgr._last_sync_hash = 0
     return mgr
 
 
@@ -226,14 +227,17 @@ def test_fetch_all_handles_corrupt_doc(mgr_db, mock_crud):
 # ---------------------------------------------------------------------------
 
 def test_push_pending_pushes_unsynced_only(mgr_db, mock_crud):
-    """Only entries after synced count are pushed to Firebase."""
+    """Only entries after synced count are pushed to Firebase via batch."""
     diary_store = MagicMock()
-    mock_crud.add.return_value = "id"
+    mock_crud.client.batch.return_value.set = MagicMock()
+    mock_crud.client.batch.return_value.commit = MagicMock()
     mgr_db.push_pending_diaries(diary_store, ["a", "b", "c"], synced=2)
-    assert mock_crud.add.call_count == 1
-    args, _ = mock_crud.add.call_args
-    assert args[0] == "users/test-uid/pets/kenny/diary"
+    # Should use batch set, not add
+    batch = mock_crud.client.batch.return_value
+    assert batch.set.call_count == 1
+    args, _ = batch.set.call_args
     assert args[1]["text"] == "c"
+    batch.commit.assert_called_once()
     diary_store.write.assert_called_once_with(["a", "b", "c"], 3)
 
 
@@ -241,7 +245,7 @@ def test_push_pending_no_op_when_all_synced(mgr_db, mock_crud):
     """When synced == len(entries), no Firebase writes."""
     diary_store = MagicMock()
     mgr_db.push_pending_diaries(diary_store, ["a", "b"], synced=2)
-    mock_crud.add.assert_not_called()
+    mock_crud.client.batch.assert_not_called()
 
 
 def test_push_pending_no_op_when_db_none(mgr_no_db):
@@ -255,10 +259,14 @@ def test_push_pending_no_op_when_db_none(mgr_no_db):
 def test_push_pending_returns_updated_synced(mgr_db, mock_crud):
     """Returns len(entries) as new synced count; delegates write to DiaryStore."""
     diary_store = MagicMock()
-    mock_crud.add.return_value = "id"
+    mock_crud.client.batch.return_value.set = MagicMock()
+    mock_crud.client.batch.return_value.commit = MagicMock()
     result = mgr_db.push_pending_diaries(diary_store, ["a", "b", "c"], synced=0)
     assert result == 3
     diary_store.write.assert_called_once_with(["a", "b", "c"], 3)
+    batch = mock_crud.client.batch.return_value
+    assert batch.set.call_count == 3
+    batch.commit.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

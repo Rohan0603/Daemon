@@ -59,6 +59,8 @@ def test_build_user_trigger_has_response_framing():
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
+    cm._cache_key = None
+    cm._cached_prompt = None
     prompt = cm.build_user_trigger("user_input", "hello", 50, 0.0)
     assert "responding directly" in prompt
     assert "User said: hello" in prompt
@@ -69,6 +71,8 @@ def test_build_autonomous_trigger_has_internal_monologue():
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
+    cm._cache_key = None
+    cm._cached_prompt = None
     prompt = cm.build_autonomous_trigger("active_chat", 50, 30.0)
     assert "internal monologue" in prompt or "thinking to herself" in prompt
     assert "NOT responding" in prompt
@@ -79,6 +83,8 @@ def test_autonomous_trigger_has_apm_as_primary_signal():
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
+    cm._cache_key = None
+    cm._cached_prompt = None
     prompt = cm.build_autonomous_trigger("active_chat", 50, 30.0)
     assert "main signal" in prompt
     assert "APM: 50" in prompt
@@ -89,6 +95,8 @@ def test_user_trigger_has_apm_as_primary_signal():
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
+    cm._cache_key = None
+    cm._cached_prompt = None
     prompt = cm.build_user_trigger("user_input", "hello", 50, 0.0)
     assert "primary signal" in prompt
 
@@ -98,6 +106,8 @@ def test_autonomous_trigger_includes_screen_text():
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
+    cm._cache_key = None
+    cm._cached_prompt = None
     prompt = cm.build_autonomous_trigger("active_chat", 50, 30.0, screen_text="VS Code")
     assert "VS Code" in prompt
 
@@ -107,6 +117,8 @@ def test_user_trigger_includes_screen_text():
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
+    cm._cache_key = None
+    cm._cached_prompt = None
     prompt = cm.build_user_trigger("user_input", "hello", 50, 0.0, screen_text="Notepad")
     assert "Notepad" in prompt
 
@@ -116,6 +128,8 @@ def test_autonomous_trigger_has_5_dialogs_instruction():
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
+    cm._cache_key = None
+    cm._cached_prompt = None
     prompt = cm.build_autonomous_trigger("active_chat", 50, 30.0)
     assert "'thought' and 'dialogue'" in prompt
 
@@ -125,6 +139,8 @@ def test_user_trigger_has_single_json_object():
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
+    cm._cache_key = None
+    cm._cached_prompt = None
     prompt = cm.build_user_trigger("user_input", "hello", 50, 0.0)
     assert "JSON array containing EXACTLY ONE object" in prompt
     assert "'thought' and 'dialogue'" in prompt
@@ -136,6 +152,8 @@ def test_user_trigger_mentions_required_keys():
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
+    cm._cache_key = None
+    cm._cached_prompt = None
     prompt = cm.build_user_trigger("user_input", "test", 50, 0.0)
     assert "MUST contain" in prompt
     assert "thought" in prompt
@@ -149,6 +167,8 @@ def test_trigger_prompt_excludes_skill_content():
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
+    cm._cache_key = None
+    cm._cached_prompt = None
     user_prompt = cm.build_user_trigger("user_input", "hello", 50, 0.0)
     auto_prompt = cm.build_autonomous_trigger("active_chat", 50, 30.0)
 
@@ -167,6 +187,8 @@ def test_build_mixed_bag_prompt_includes_all_types():
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
+    cm._cache_key = None
+    cm._cached_prompt = None
     prompt = cm.build_mixed_bag_prompt(5)
     assert "typing_reaction" in prompt
     assert "observation" in prompt
@@ -183,6 +205,8 @@ def test_build_mixed_bag_prompt_respects_count():
     cm = ContextManager.__new__(ContextManager)
     cm._snapshot = {}
     cm._full_injected = False
+    cm._cache_key = None
+    cm._cached_prompt = None
     prompt = cm.build_mixed_bag_prompt(3)
     assert "3" in prompt or "EXACTLY 3" in prompt
     assert "typing_reaction" in prompt

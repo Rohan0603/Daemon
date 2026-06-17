@@ -74,6 +74,7 @@ class PetRenderer:
 
         self._draw_body(painter, body_color, ctx.state)
         self._draw_eyes(painter, ctx)
+        self._draw_mouth(painter, ctx)
 
         painter.restore()
 
@@ -328,6 +329,98 @@ class PetRenderer:
                 
                 painter.drawLine(-4, 0, 4, 0)
                 painter.restore()
+
+    def _draw_mouth(self, painter: QPainter, ctx: RenderContext) -> None:
+        """Draw the pet's mouth based on emotion and FSM state."""
+        # Determine mouth shape
+        state = ctx.state
+
+        if state == PetState.SLEEP:
+            shape = "sleep"
+        elif state == PetState.DEVASTATED:
+            shape = "frown"
+        elif state == PetState.THINKING or state == PetState.AUTONOMOUS_THINKING:
+            shape = "pursed"
+        elif state == PetState.HYPER:
+            shape = "grin"
+        elif ctx.animator:
+            mod = ctx.animator.get_mouth_modifier()
+            shape = mod.get("mouth_shape", "smile")
+        else:
+            shape = "smile"
+
+        # Mouth position (local coords, relative to pet center)
+        mouth_y = 4   # below the eyes (eyes at y=-11)
+        mouth_color = QColor("#2C3E6B")  # BODY_DARK for contrast
+        painter.setPen(QPen(mouth_color, 1.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+
+        if shape == "smile":
+            # Gentle curve up: cubic bezier
+            path = QPainterPath()
+            path.moveTo(-5, mouth_y)
+            path.cubicTo(-3, mouth_y - 3, 3, mouth_y - 3, 5, mouth_y)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(path)
+
+        elif shape == "frown":
+            path = QPainterPath()
+            path.moveTo(-5, mouth_y)
+            path.cubicTo(-3, mouth_y + 3, 3, mouth_y + 3, 5, mouth_y)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(path)
+
+        elif shape == "flat":
+            painter.drawLine(-5, mouth_y, 5, mouth_y)
+
+        elif shape == "grin":
+            # Wider smile, slightly darker/filled
+            path = QPainterPath()
+            path.moveTo(-6, mouth_y + 1)
+            path.cubicTo(-4, mouth_y - 3, 4, mouth_y - 3, 6, mouth_y + 1)
+            painter.setBrush(QBrush(mouth_color))
+            painter.drawPath(path)
+
+        elif shape == "snarl":
+            # Asymmetric: left side up (snarl), right side down
+            path = QPainterPath()
+            path.moveTo(-5, mouth_y - 1)
+            path.cubicTo(-2, mouth_y - 3, 0, mouth_y + 1, 3, mouth_y + 3)
+            path.lineTo(5, mouth_y + 3)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(path)
+
+        elif shape == "sneer":
+            # One-sided curl: left side up
+            path = QPainterPath()
+            path.moveTo(-5, mouth_y + 2)
+            path.cubicTo(-2, mouth_y - 1, 0, mouth_y, 5, mouth_y + 1)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPath(path)
+
+        elif shape == "tremble":
+            # Wavy line: 3 segments up-down
+            mid_x = 5.0 / 3.0
+            painter.drawLine(QPointF(-5.0, float(mouth_y)), QPointF(-5.0 + mid_x, float(mouth_y - 2)))
+            painter.drawLine(QPointF(-5.0 + mid_x, float(mouth_y - 2)), QPointF(-5.0 + 2 * mid_x, float(mouth_y + 2)))
+            painter.drawLine(QPointF(-5.0 + 2 * mid_x, float(mouth_y + 2)), QPointF(5.0, float(mouth_y)))
+
+        elif shape == "open":
+            # Small surprised oval
+            painter.setBrush(QBrush(mouth_color))
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.drawEllipse(QPointF(0, mouth_y + 1), 3, 4)
+
+        elif shape == "pursed":
+            # Tight pucker: small circle
+            painter.setPen(QPen(mouth_color, 1.5))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QPointF(0, mouth_y), 2, 1.5)
+
+        elif shape == "sleep":
+            # Tiny open mouth (snoring)
+            painter.setPen(QPen(mouth_color, 1))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QPointF(0, mouth_y), 1.5, 2)
 
     def _draw_state_overlay(self, painter: QPainter, ctx: RenderContext) -> None:
         state = ctx.state

@@ -169,6 +169,10 @@ class OpencodeWorker(QThread):
             logger.warning("send: API returned empty or None")
 
     def _send_two_stage(self) -> None:
+        """DEPRECATED — no longer called (refill uses single prompt now).
+
+        Kept for backward compatibility. Removed when no external callers remain.
+        """
         if self._abort:
             return
         logger.debug("[VERIFY] two-stage agentic refill: starting stage1 (investigation, no JSON constraint)")

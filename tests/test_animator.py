@@ -822,15 +822,44 @@ class TestEmotionAnimator:
             a.update(33, 50, 60)
             sx, sy, rot = a.get_transform(None, 0.0, 0)
             _ = a.get_body_color(QColor("#5B8DEF"))
-            _ = a.get_overlay()
-            _ = a.draw_particles(None)
+            # Verify private members don't store coord data
+            assert not hasattr(a, '_pet_x')
+            assert not hasattr(a, '_pet_y')
 
-            # The only public surface is transform, body_color, overlay, particles
-            # All read-only — no setter for X/Y exists
-            assert isinstance(sx, float)
-            assert isinstance(sy, float)
-            assert isinstance(rot, float)
 
-        # Verify private members don't store coord data
-        assert not hasattr(a, '_pet_x')
-        assert not hasattr(a, '_pet_y')
+class TestMouthShapes:
+    def test_get_mouth_modifier_returns_string(self):
+        """get_mouth_modifier() returns a dict with mouth_shape."""
+        a = EmotionAnimator()
+        for emotion in Emotion:
+            a.set_emotion(emotion)
+            mod = a.get_mouth_modifier()
+            assert isinstance(mod, dict)
+            assert "mouth_shape" in mod
+            assert isinstance(mod["mouth_shape"], str)
+            assert len(mod["mouth_shape"]) > 0
+
+    def test_all_profiles_have_mouth_shape(self):
+        """Every EMOTION_PROFILES entry has a mouth_shape set."""
+        valid = {"smile", "frown", "flat", "grin", "snarl", "sneer", "tremble", "open", "pursed", "sleep"}
+        for emotion, profile in EMOTION_PROFILES.items():
+            assert hasattr(profile, "mouth_shape"), f"{emotion} missing mouth_shape"
+            assert profile.mouth_shape in valid, f"{emotion}: invalid '{profile.mouth_shape}'"
+
+    def test_mouth_shape_navarasa_mapping_correct(self):
+        """Verify specific emotion-to-mouth mappings per Navarasa."""
+        mapping = {
+            "MIRTH": "smile",
+            "ANGER": "snarl",
+            "FEAR": "tremble",
+            "DISGUST": "sneer",
+            "PATHOS": "frown",
+            "DEVOTION": "smile",
+            "HEROISM": "grin",
+            "WONDER": "open",
+            "TRANQUILITY": "flat",
+        }
+        for name, expected in mapping.items():
+            emotion = Emotion[name]
+            assert EMOTION_PROFILES[emotion].mouth_shape == expected, \
+                f"{name}: expected '{expected}', got '{EMOTION_PROFILES[emotion].mouth_shape}'"

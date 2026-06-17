@@ -110,6 +110,9 @@ class EmotionProfile:
     pupil_color_override: Optional[str] = None
     pupil_offset_x: float = 0.0  # For eye rolling/shifting
     brow_angle: float = 0.0      # degrees: positive = angry furrow, negative = sad
+
+    # Mouth
+    mouth_shape: str = "smile"   # smile | frown | flat | grin | snarl | sneer | tremble | open | pursed | sleep
     
     # Overlay (Border, Aura, Flash)
     overlay_kind: Optional[str] = None      
@@ -133,13 +136,15 @@ class EmotionProfile:
 
 EMOTION_PROFILES: dict[Emotion, EmotionProfile] = {
     Emotion.MIRTH: EmotionProfile(
-        name="mirth"
+        name="mirth",
+        mouth_shape="smile",
     ),
     Emotion.ANGER: EmotionProfile(
         name="anger",
         color_override="#E74C3C",
         pupil_scale=0.5,
         brow_angle=20.0,
+        mouth_shape="snarl",
         overlay_kind="border",
         overlay_color="#E74C3C",
         overlay_alpha_func=lambda t: 180,
@@ -151,6 +156,7 @@ EMOTION_PROFILES: dict[Emotion, EmotionProfile] = {
         color_override="#6B5B95",
         pupil_scale=0.3,
         brow_angle=-10.0,
+        mouth_shape="tremble",
         particle_count=1,
         particle_color="#8888FF", # Light blue sweat
         particle_gravity=0.1
@@ -160,18 +166,21 @@ EMOTION_PROFILES: dict[Emotion, EmotionProfile] = {
         color_hue_shift=-30,
         pupil_offset_x=2.0,
         brow_angle=10.0,
+        mouth_shape="sneer",
         single_fire_decay_ms=3000
     ),
     Emotion.PATHOS: EmotionProfile(
         name="pathos",
         # Sine wave pulsing opacity between 0.6 and 0.9
         opacity_func=lambda t: 0.75 + 0.15 * math.sin(t * math.pi / 1000),
-        brow_angle=-15.0
+        brow_angle=-15.0,
+        mouth_shape="frown",
     ),
     Emotion.DEVOTION: EmotionProfile(
         name="devotion",
         color_override="#FF69B4",
         pupil_shape="heart",
+        mouth_shape="smile",
         particle_count=1,
         particle_color="#FF69B4"
     ),
@@ -181,6 +190,7 @@ EMOTION_PROFILES: dict[Emotion, EmotionProfile] = {
         pupil_color_override="#FFD700",
         pupil_scale=1.2,
         brow_angle=15.0,
+        mouth_shape="grin",
         overlay_kind="aura",
         overlay_color="#FFD700",
         overlay_alpha_func=lambda t: 80,
@@ -194,6 +204,7 @@ EMOTION_PROFILES: dict[Emotion, EmotionProfile] = {
         # 1-frame glitch: opacity drops to 0 halfway through the 800ms WONDER state
         opacity_func=lambda t: 0.0 if 380 < t < 420 else 1.0,
         pupil_scale=1.5,
+        mouth_shape="open",
         overlay_kind="flash",
         overlay_alpha_func=lambda t: 80,
         single_fire_decay_ms=800
@@ -201,7 +212,8 @@ EMOTION_PROFILES: dict[Emotion, EmotionProfile] = {
     Emotion.TRANQUILITY: EmotionProfile(
         name="tranquility",
         opacity_func=lambda t: 0.8,
-        pupil_scale=0.3
+        pupil_scale=0.3,
+        mouth_shape="flat",
     )
 }
 
@@ -321,6 +333,13 @@ class EmotionAnimator:
             "pupil_color_override": profile.pupil_color_override,
             "pupil_offset_x": profile.pupil_offset_x,
             "brow_angle": profile.brow_angle,
+        }
+
+    def get_mouth_modifier(self) -> dict:
+        """Return mouth modifier values for the current emotion."""
+        profile = EMOTION_PROFILES[self._current]
+        return {
+            "mouth_shape": profile.mouth_shape,
         }
 
     def draw_particles(self, painter: QPainter | None) -> None:

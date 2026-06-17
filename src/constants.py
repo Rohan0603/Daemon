@@ -82,12 +82,12 @@ RESPONSE_CACHE_PATH = str(STORAGE_DIR / ".daemon_response_cache.json")
 _PERSONA_HINT = "You are Daemon, the user's desktop pet. Continue in character. Keep responses brief."
 
 # Pool configuration
-THOUGHT_POOL_SIZE = 20
-THOUGHT_POOL_THRESHOLD = 5
+THOUGHT_POOL_SIZE = 40
+THOUGHT_POOL_THRESHOLD = 15
 THOUGHT_POOL_REFILL_COUNT = 5
 
 POOL_DECAY_INTERVAL_SEC = 120       # priority -1 every 2 min
-POOL_REFILL_PERIODIC_SEC = 600      # periodic refill every 10 min
+POOL_REFILL_PERIODIC_SEC = 600      # legacy — no longer used at runtime
 
 BUBBLE_QUEUE_MAX_SIZE = 10
 SHORT_BUBBLE_DURATION_MS = 4000

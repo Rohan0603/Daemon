@@ -8,7 +8,7 @@ from PyQt6.QtCore import QObject, QTimer
 
 from src.constants import (
     THOUGHT_POOL_SIZE, THOUGHT_POOL_THRESHOLD, THOUGHT_POOL_REFILL_COUNT,
-    POOL_DECAY_INTERVAL_SEC, POOL_REFILL_PERIODIC_SEC,
+    POOL_DECAY_INTERVAL_SEC,
 )
 from src.response_pool import ThoughtPool
 
@@ -30,9 +30,6 @@ class AutonomousResponseManager(QObject):
         self._decay_timer = QTimer(self)
         self._decay_timer.setInterval(POOL_DECAY_INTERVAL_SEC * 1000)
         self._decay_timer.timeout.connect(self.decay_all)
-        self._auto_refill_timer = QTimer(self)
-        self._auto_refill_timer.setInterval(POOL_REFILL_PERIODIC_SEC * 1000)
-        self._auto_refill_timer.timeout.connect(self._on_auto_refill_tick)
         self._load()
         self._load_local_seeds()
 
@@ -91,14 +88,12 @@ class AutonomousResponseManager(QObject):
 
     def start(self):
         self._decay_timer.start()
-        self._auto_refill_timer.start()
         if self.thought_pool.remaining() < 3:
             logger.debug("ThoughtPool stale (%d), priming", self.thought_pool.remaining())
             QTimer.singleShot(2000, self.thought_pool._request_refill)
 
     def stop(self):
         self._decay_timer.stop()
-        self._auto_refill_timer.stop()
         self._save()
 
     def _load(self):
@@ -150,7 +145,3 @@ class AutonomousResponseManager(QObject):
 
     def _mark_dirty(self):
         self._write_coalescer.mark_dirty("response_cache")
-
-    def _on_auto_refill_tick(self):
-        if not self.thought_pool._refilling:
-            self.thought_pool._request_refill()

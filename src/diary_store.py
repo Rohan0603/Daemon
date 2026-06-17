@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import time
+import unicodedata
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -17,8 +18,9 @@ MAX_DIARY_ENTRIES = 200
 
 
 def calculate_content_hash(text: str) -> str:
-    """SHA-256 hash of stripped+lowercased text for dedup."""
-    return hashlib.sha256(text.strip().lower().encode("utf-8")).hexdigest()
+    """SHA-256 hash of NFKC-normalized+casefold+strip text for dedup."""
+    normalized = unicodedata.normalize('NFKC', text.strip()).casefold()
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
 
 def _migrate_entry(entry: str | dict) -> dict:

@@ -50,6 +50,8 @@ Daemon is a stateful Qt6 desktop companion driven by three interconnected system
                            │  │  FirebaseCRUD              │ │
                            │  └─────────────────────────┘ │
                            └──────────────────────────────┘
+| structlog>=24.1.0   # Structured logging with correlation IDs |
+| prometheus-client>=0.19.0 # Prometheus metrics endpoint |
 ```
 
 ---
@@ -92,6 +94,8 @@ Daemon ──POST /session──────────────────
        ──POST /session/{id}/message────────►
           { noReply: true, text: <~2500 tokens> }
        ◄──200 OK (no response text)──────── (context stored server-side)
+| structlog>=24.1.0   # Structured logging with correlation IDs |
+| prometheus-client>=0.19.0 # Prometheus metrics endpoint |
 ```
 
 The injection payload contains:
@@ -107,6 +111,8 @@ The injection payload contains:
 Daemon ──POST /session/{id}/message────────►
           { text: "Mode: active_chat\nAPM: 45\nIdle seconds: 12\n..." }
        ◄──JSON response─────────────────── (50-100 token trigger + LLM response)
+| structlog>=24.1.0   # Structured logging with correlation IDs |
+| prometheus-client>=0.19.0 # Prometheus metrics endpoint |
 ```
 
 Autonomous triggers are minimal prompts (`Mode`, `APM`, `Idle seconds`, optional `typing content`). The LLM responds with contextualized JSON because it already has the full personality and context from phase 1.
@@ -148,6 +154,8 @@ Autonomous triggers are minimal prompts (`Mode`, `APM`, `Idle seconds`, optional
 │  Response   → ~/.daemon_response_cache.json  │
 │  State      → ~/.daemon_state.json           │
 └─────────────────────────────────────────────┘
+| structlog>=24.1.0   # Structured logging with correlation IDs |
+| prometheus-client>=0.19.0 # Prometheus metrics endpoint |
 ```
 
 ### Boot Sequence
@@ -177,9 +185,9 @@ Autonomous triggers are minimal prompts (`Mode`, `APM`, `Idle seconds`, optional
 
 ### Brain Schema
 
-Defined in `src/brain_schema.py`. 26 fields with `locked` flags:
-- **Locked fields** (7): `primary_directive_override`, `daemon_profession`, `daemon_name`, `daemon_personality`, `daemon_origin`, `daemon_runtime_info`, `daemon_current_form`, `user_name`, `user_profession` — only settable via `seed_brain.py`
-- **Unlockable fields** (17): `long_term_goals`, `user_habits`, `blackmail_material`, `daemon_quirks`, `daemon_habits`, `daemon_fears`, `daemon_likes`, `daemon_catchphrases`, `recent_blackmail_log`, `user_preferences`, `insider_knowledge` — LLM can append to these
+Defined in `src/brain_schema.py`. 22 fields with `locked` flags:
+- **Locked fields** (6): `primary_directive_override`, `daemon_profession`, `daemon_name`, `daemon_personality`, `daemon_origin`, `daemon_runtime_info`, `daemon_current_form`, `user_name`, `user_profession` — only settable via `seed_brain.py`
+- **Unlockable fields** (16): `long_term_goals`, `user_habits`, `blackmail_material`, `daemon_quirks`, `daemon_habits`, `daemon_fears`, `daemon_likes`, `daemon_catchphrases`, `recent_blackmail_log`, `user_preferences`, `insider_knowledge` — LLM can append to these
 
 `seed_brain.py` is a standalone CLI utility to view/merge/seed the Firestore `core_brain` document.
 
@@ -245,7 +253,7 @@ A `sys.excepthook` patch in `PetWindow` calls `WriteCoalescer.flush()` on any un
 - **Fallback**: `pyttsx3` (local SAPI voices)
 - **DSP**: Pitch shift via framerate manipulation (`TTS_PITCH_FACTOR=1.15`), high-pass filter (120Hz)
 - **Playback**: `winsound.SND_SYNC` (primary) with `simpleaudio` fallback
-- TTS is currently **paused** — `enqueue()` calls are commented out in bubble display
+- TTS is **enabled** — uses edge_tts with pyttsx3 fallback, pydub pitch shift, and winsound playback
 
 ---
 
@@ -272,7 +280,7 @@ When wander timer fires from IDLE, the pet enters PERIMETER state (not random wa
 | `src/typing_buffer.py` | `TypingBuffer` — pynput keystroke capture, deque ring buffer |
 | `src/opencode_worker.py` | `OpencodeWorker(QThread)` — HTTP API, `inject_context` (noReply), `send_trigger`, JSON parsing |
 | `src/context_manager.py` | `ContextManager` — `inject_full()` / `inject_delta()` / `build_trigger()` / heartbeat |
-| `src/response_manager.py` | `AutonomousResponseManager` + `ResponsePool` — dual-pool with weighted draw + priority decay |
+| `src/response_manager.py` | `AutonomousResponseManager` — single ThoughtPool with type filtering, spatial TTL, priority decay |
 | `src/context_menu.py` | `PetContextMenu(QMenu)` — 6 actions: build events, memory recall, history, pin, quit |
 | `src/memory.py` | `Memory` — local JSON key-value fact store (`.bak` recovery) |
 | `src/history.py` | `History` — local JSON conversation log (100 entries, `.bak` recovery) |
@@ -359,6 +367,8 @@ Settings panel (right-click tray → Settings) provides live-preview sliders for
 
 ## Dependencies
 
+| structlog>=24.1.0   # Structured logging with correlation IDs |
+| prometheus-client>=0.19.0 # Prometheus metrics endpoint |
 ```
 PyQt6>=6.7.0        # GUI framework
 pynput>=1.7.7       # Global keyboard/mouse monitoring
@@ -374,6 +384,8 @@ pytest               # Test runner
 
 ## Tests
 
+| structlog>=24.1.0   # Structured logging with correlation IDs |
+| prometheus-client>=0.19.0 # Prometheus metrics endpoint |
 ```bash
 py -m pytest tests/ -v
 ```

@@ -24,6 +24,19 @@ class ContextManager:
         self._memory = memory
         self._history = history
         self._snapshot: dict = {}
+        self._cached_prompt: str | None = None
+        self._cache_key: tuple | None = None
+
+    def _invalidate_cache(self) -> None:
+        self._cached_prompt = None
+        self._cache_key = None
+
+    def _build_cache_key(self, prefix: str, mode: str, user_input: str = "",
+                         apm: int = 0, idle_seconds: float = 0.0,
+                         typing_content: str = "", screen_text: str = "") -> tuple:
+        return (prefix, mode, user_input, _apm_bucket(apm), int(idle_seconds),
+                hash(typing_content) if typing_content else "",
+                hash(screen_text) if screen_text else "")
 
     def _get_memory_block(self) -> str:
         facts = self._memory.get_all() if self._memory else {}
@@ -35,10 +48,14 @@ class ContextManager:
     def build_user_trigger(self, mode: str, user_input: str, apm: int,
                            idle_seconds: float, typing_content: str = "",
                            screen_text: str = "") -> str:
+        key = self._build_cache_key("user", mode, user_input, apm, idle_seconds,
+                                     typing_content, screen_text)
+        if key == self._cache_key and self._cached_prompt:
+            return self._cached_prompt
         lines = [
             "You are responding directly to the user.",
             f"Mode: {mode}",
-            f"APM (actions per minute \u2014 primary signal): {apm}",
+            f"APM (actions per minute — primary signal): {apm}",
             f"Idle seconds: {int(idle_seconds)}",
         ]
         if user_input:
@@ -50,12 +67,18 @@ class ContextManager:
             lines.append("")
             lines.append(f"Screen: {screen_text}")
         lines.append("Respond with a JSON array containing EXACTLY ONE object. Every item MUST contain 'thought' and 'dialogue'.")
-        logger.debug("build_user_trigger: prompt=%d chars (SKILL.md is NOT injected here — loaded natively by opencode serve)", sum(len(l) for l in lines))
-        return "\n".join(lines)
+        self._cached_prompt = "\n".join(lines)
+        self._cache_key = key
+        logger.debug("build_user_trigger: prompt=%d chars", len(self._cached_prompt))
+        return self._cached_prompt
 
     def build_autonomous_trigger(self, mode: str, apm: int,
                                  idle_seconds: float, typing_content: str = "",
                                  screen_text: str = "") -> str:
+        key = self._build_cache_key("auto", mode, "", apm, idle_seconds,
+                                     typing_content, screen_text)
+        if key == self._cache_key and self._cached_prompt:
+            return self._cached_prompt
         lines = [
             "Daemon is watching the user. He is a hyperactive, panicked, and foul-mouthed Python script.",
             "APM (actions per minute) is his main signal.",
@@ -70,11 +93,13 @@ class ContextManager:
             lines.append("")
             lines.append(f"Screen: {screen_text}")
         lines.append("")
-        lines.append("He is thinking to himself. This is an internal monologue \u2014 he is NOT responding to the user.")
+        lines.append("He is thinking to himself. This is an internal monologue — he is NOT responding to the user.")
         lines.append("He should NOT say 'you asked' or 'you said' because the user did not say anything.")
         lines.append("Generate exactly 5 items as a JSON array. Every item MUST contain 'thought' and 'dialogue', and may optionally include 'brain_update'.")
-        logger.debug("build_autonomous_trigger: prompt=%d chars (SKILL.md is NOT injected here — loaded natively by opencode serve)", sum(len(l) for l in lines))
-        return "\n".join(lines)
+        self._cached_prompt = "\n".join(lines)
+        self._cache_key = key
+        logger.debug("build_autonomous_trigger: prompt=%d chars", len(self._cached_prompt))
+        return self._cached_prompt
 
     def build_context(self, mode: str, user_input: str = "", apm: int = 0,
                       idle_seconds: float = 0.0, typing_content: str = "",
