@@ -33,6 +33,12 @@
     "monitor": false
   },
   "firebase": {
-    "api_key": "***"
+    "api_key": "AIzaSyAX0n85NY4F7WycIYfVwEjfM25hSkDt33U",
+    "project_id": "daemon-87f81",
+    "auth_domain": "daemon-87f81.firebaseapp.com",
+    "storage_bucket": "daemon-87f81.firebasestorage.app",
+    "messaging_sender_id": "910416346922",
+    "app_id": "1:910416346922:web:43b0b53e794e98dd58a853",
+    "measurement_id": "G-CSTR1NY3R5"
   }
 }

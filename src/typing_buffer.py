@@ -15,6 +15,7 @@ except Exception:
 
 class TypingBuffer(QObject):
     text_updated = pyqtSignal()
+    debounce_restart = pyqtSignal()  # emitted from pynput thread; main thread restarts timer
 
     def __init__(self, max_chars: int = 500, parent=None):
         super().__init__(parent)
@@ -24,6 +25,7 @@ class TypingBuffer(QObject):
         self._debounce_timer.setSingleShot(True)
         self._debounce_timer.setInterval(50)  # 50ms debounce
         self._debounce_timer.timeout.connect(self.text_updated.emit)
+        self.debounce_restart.connect(self._debounce_timer.start)
 
     def start(self):
         if keyboard is None:
@@ -74,4 +76,4 @@ class TypingBuffer(QObject):
             return  # Non-character key, don't restart timer
         # Debounce timer emits text_updated after 50ms of inactivity.
         # Restart on every keystroke to coalesce bursts.
-        self._debounce_timer.start()
+        self.debounce_restart.emit()
