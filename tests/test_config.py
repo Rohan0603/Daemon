@@ -6,8 +6,8 @@ from pathlib import Path
 from src.config import load_config, flatten_config, unflatten_config, DEFAULT_CONFIG, validate_config, MissingConfigurationError
 
 
-def test_load_config_default_fallback():
-    with patch("src.config._CONFIG_PATH", Path("this_file_surely_does_not_exist_98765.json")):
+def test_load_config_default_fallback(tmp_path):
+    with patch("src.config._CONFIG_PATH", tmp_path / "this_file_surely_does_not_exist_98765.json"), patch.dict(os.environ, {}, clear=True):
         cfg = load_config()
         assert cfg["llm"]["model_id"] == DEFAULT_CONFIG["llm"]["model_id"]
         assert cfg["window"]["monitor"] is False
