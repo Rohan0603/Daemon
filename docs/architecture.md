@@ -1,6 +1,6 @@
 # Daemon Desktop Pet — Complete Architecture
 
-> Generated 2026-06-16. Covers all phases through Phase 56.
+> Generated 2026-06-20. Covers all phases through Phase 58.
 
 ---
 
@@ -49,8 +49,11 @@ BOOT (daemon.py → PetWindow.__init__):
   4. MemoryManager.sync_to_local(Memory) → populates local Memory
   5. MemoryManager.fetch_all_diary_entries(200) → DiaryStore.add_diary_entry()
   6. DiaryStore.read() → local diary (fallback, .bak recovery)
-  7. WriteCoalescer.start() → 8s flush timer
-  8. ResponseManager._load() → cache with 7-day TTL pruning
+  7. PluginRegistry + PluginManager discover & load plugins (plugins/*.py)
+  8. apply_plugin_profiles() → merge plugin profiles into EMOTION_PROFILES
+  9. WriteCoalescer.start() → 8s flush timer
+ 10. ResponseManager._load() → cache with 7-day TTL pruning
+ 11. load_session() → resume LLMSessionState (session_id + history) if available
 
 RUNTIME (PetWindow):
   • Memory.remember() → WriteCoalescer.mark_dirty("memory")
@@ -61,10 +64,11 @@ RUNTIME (PetWindow):
   • WriteCoalescer.flush() every 8s → atomic writes + retry queue
 
 QUIT (daemon.py finally block):
-  1. MemoryManager.sync_from_local(Memory) → Firestore merge
-  2. MemoryManager.push_pending_diaries() → flush unsynced
-  3. WriteCoalescer.stop() + flush() → ensure all local state saved
-  4. save_state() → data/.daemon_state.json
+  1. save_session() → persist LLM session state (id + last 30 turns)
+  2. MemoryManager.sync_from_local(Memory) → Firestore merge
+  3. MemoryManager.push_pending_diaries() → flush unsynced
+  4. WriteCoalescer.stop() + flush() → ensure all local state saved
+  5. save_state() → data/.daemon_state.json
 ```
 
 ### 1.2 Local Storage Files (data/)
@@ -81,6 +85,7 @@ QUIT (daemon.py finally block):
 | `.daemon_{pet_id}.lock` | PID lock | Per-pet single-instance guard | Plain text PID |
 | `codebase_map.json` | `generate_ast_map.py` | AST index of all classes/functions for self-awareness | JSON |
 | `.daemon_thoughts.log` | `PetWindow._log_thought()` | Rotating 1000 lines, keeps 500 | Text (always written) |
+| `llm_session.json` | `LLMSessionState` | Session ID + history (30 turns max) for opencode resume | Atomic tmp+rename |
 
 ---
 
@@ -425,11 +430,13 @@ AUTONOMOUS TICK (master_tick)
 | **Consent matrix (7 tiers)** | Chaos tools (keyboard/mouse/browser/clipboard) gated; -32001 on violation |
 | **Engagement tracker + backoff** | Adaptive silence prevents annoyance; 5 silent → exponential (max 120s) |
 | **PID lock + crash recovery hook** | Single instance per pet_id; flush on crash; .bak fallback on corrupt reads |
-| **Firebase Auth REST (no Admin SDK)** | Works in PyInstaller --onefile; per-user isolation via Security Rules |
-| **EmotionProfile registry (Phase 46)** | Declarative dataclass replaces procedural if/elif; 9 profiles with Juice enhancements (heart pupils, comet trails, elastic pop) |
-| **CorrelationIdDefault formatter (Phase 56)** | Subclass of `logging.Formatter` injects correlation_id from `contextvars` into every log record — no filter needed, no KeyError on unset cids |
-| **Correlation IDs on triggers** | `set_correlation_id()` called at entry point of every user input and autonomous trigger — end-to-end traceability through logs |
-| **Structlog JSON (opt-in)** | `json_output: true` in config produces NDJSON with correlation_id, timestamp, module, level — ready for ELK/Loki |
+|| **Firebase Auth REST (no Admin SDK)** | Works in PyInstaller --onefile; per-user isolation via Security Rules |
+|| **EmotionProfile registry (Phase 46)** | Declarative dataclass replaces procedural if/elif; 9 profiles with Juice enhancements (heart pupils, comet trails, elastic pop) |
+|| **CorrelationIdDefault formatter (Phase 56)** | Subclass of `logging.Formatter` injects correlation_id from `contextvars` into every log record — no filter needed, no KeyError on unset cids |
+|| **Correlation IDs on triggers** | `set_correlation_id()` called at entry point of every user input and autonomous trigger — end-to-end traceability through logs |
+|| **Structlog JSON (opt-in)** | `json_output: true` in config produces NDJSON with correlation_id, timestamp, module, level — ready for ELK/Loki |
+|| **Plugin architecture (Phase 57)** | Filesystem-based plugins (plugins/*.py) with registry and priority system; no hot-reload yet, no plugin CLI |
+|| **Persistent LLM sessions (Phase 58)** | `LLMSessionState` saves session_id + history (30 turns, atomic tmp+rename); `history_context` injected into first message when server session is gone |
 
 ---
 
@@ -477,6 +484,9 @@ src/
   apm_worker.py                        # pynput APM tracking QThread
   typing_buffer.py                     # pynput keystroke capture, deque ring buffer
   opencode_worker.py                   # opencode serve HTTP client QThread
+  llm_session_persistence.py           # ChatTurn + LLMSessionState save/load/clear
+  plugin_registry.py                   # PluginRegistry — emotion profiles, emotion rules, behavior triggers
+  plugin_manager.py                    # PluginManager — filesystem discovery (plugins/*.py), import/validation
   context_manager.py                   # Minimal trigger prompt builder
   response_manager.py                  # Multi-pool response cache
   memory.py                            # Local JSON key-value fact store
