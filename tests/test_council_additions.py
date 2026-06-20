@@ -24,9 +24,9 @@ def test_onboarding_bubbles(app):
         window = PetWindow(opencode_enabled=True, skill_ready=True, initial_state={"first_run_done": False})
         
         assert len(window._bubble_queue) == 3
-        assert window._bubble_queue[0] == "I'm Daemon."
-        assert window._bubble_queue[1] == "Double-click me to ask opencode anything."
-        assert window._bubble_queue[2] == "Right-click for options."
+        assert window._bubble_queue[0] == "Hey! I'm Kenny! Nice to meet ya."
+        assert window._bubble_queue[1] == "Double-click me if you wanna ask opencode anything, alright?"
+        assert window._bubble_queue[2] == "Right-click me for options. D-d-don't click too hard though!"
 
 @pytest.mark.fast
 def test_bubble_queue_shows_immediately_when_idle(app):
@@ -226,8 +226,15 @@ def test_recall_memory(app, tmp_path):
         
         window._memory.remember("name", "TestUser")
         window._memory.remember("lang", "Python")
-        window._on_recall_memory()
-        assert "TestUser" in window._bubble_text
-        assert "Python" in window._bubble_text
-
-
+        
+        with patch("src.data_viewer_dialog.DataViewerDialog") as mock_dialog:
+            mock_dialog_instance = MagicMock()
+            mock_dialog.return_value = mock_dialog_instance
+            window._on_recall_memory()
+            
+            mock_dialog.assert_called_once()
+            content_callable = mock_dialog.call_args[0][1]
+            content = content_callable()
+            assert "TestUser" in content
+            assert "Python" in content
+            mock_dialog_instance.exec.assert_called_once()

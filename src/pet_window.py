@@ -469,12 +469,19 @@ class PetWindow(QWidget):
             return
 
         # React to significant APM changes only
-        if apm <= APM_PANIC_THRESHOLD_LOW and hasattr(self, "_last_apm"):
+        if not hasattr(self, "_last_apm_panic_time"):
+            self._last_apm_panic_time = 0.0
+            
+        if (current_time - self._last_apm_panic_time) < APM_PANIC_COOLDOWN_SEC:
+            pass # Skip if we just panicked
+        elif apm <= APM_PANIC_THRESHOLD_LOW and hasattr(self, "_last_apm"):
             if apm < self._last_apm * 0.5:  # 50% drop threshold
                 self._trigger_apm_panic("low")
+                self._last_apm_panic_time = current_time
         elif apm >= APM_PANIC_THRESHOLD_HIGH and hasattr(self, "_last_apm"):
             if apm > self._last_apm * 1.5:  # 50% increase threshold
                 self._trigger_apm_panic("high")
+                self._last_apm_panic_time = current_time
 
         self._last_apm = apm
 
@@ -483,9 +490,12 @@ class PetWindow(QWidget):
         from src.pet_fsm import PetState
         if panic_type == "low":
             self._show_bubble("Why is my APM so low? I can't even think!")
-            self._fsm.transition_to(PetState.THINKING)
+            # Don't use THINKING here as it expects an opencode worker to release it
+            self._fsm.current_state = PetState.IDLE 
+            self._fsm.transition_to(PetState.DEVASTATED)
         elif panic_type == "high":
             self._show_bubble("My APM just spiked! I'm hyperventilating!")
+            self._fsm.current_state = PetState.IDLE
             self._fsm.transition_to(PetState.HYPER)
 
     def _master_tick(self) -> None:

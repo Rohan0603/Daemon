@@ -260,14 +260,17 @@ class BehaviorController:
                 self._window_switch_count = 0
                 if self._current_emotion == Emotion.FEAR:
                     # Publish FSM action for FEAR → FALLING
+                    from src.events import Event
                     self._event_bus.publish(
-                        type=EventType.FSM_STATE_CHANGED,
-                        source="behavior_controller",
-                        data={
-                            "old_state": self._fsm.current_state.name,
-                            "new_state": PetState.FALLING.name,
-                            "trigger": "fear",
-                        }
+                        Event(
+                            type=EventType.FSM_STATE_CHANGED,
+                            source="behavior_controller",
+                            data={
+                                "old_state": self._fsm.current_state.name,
+                                "new_state": PetState.FALLING.name,
+                                "trigger": "fear",
+                            }
+                        )
                     )
 
             # Accumulate chat and joke timers

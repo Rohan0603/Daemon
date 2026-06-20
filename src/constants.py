@@ -167,8 +167,11 @@ STRUCTURED_SCHEMA = {
     "items": {
         "type": "object",
         "properties": {
+            "type":         {"type": "string", "enum": ["typing_reaction", "observation", "intel_roast", "idle_thought"]},
             "thought":      {"type": "string", "maxLength": 200},
             "dialogue":     {"type": "string", "maxLength": 150},
+            "priority":     {"type": "integer", "minimum": 1, "maximum": 5},
+            "context_hash": {"type": "string"},
             "brain_update": {
                 "type": "object",
                 "description": "Optional dict to update user memory facts.",
@@ -178,7 +181,7 @@ STRUCTURED_SCHEMA = {
                 }
             }
         },
-        "required": ["thought", "dialogue"],
+        "required": ["thought", "dialogue", "type"],
         "additionalProperties": False,
     },
     "minItems": 1,
