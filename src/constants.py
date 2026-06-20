@@ -79,7 +79,7 @@ STATE_PATH = str(STORAGE_DIR / ".daemon_state.json")
 CONFIG_PATH = STORAGE_DIR / "daemon_config.json"
 RESPONSE_CACHE_PATH = str(STORAGE_DIR / ".daemon_response_cache.json")
 
-_PERSONA_HINT = "You are Daemon, the user's desktop pet. Continue in character. Keep responses brief."
+_PERSONA_HINT = "You are Kenny, the user's desktop pet (from High on Life). You are a hyperactive, anxious, stuttering ('wha-what'), foul-mouthed alien pistol. Keep responses briefly rambling."
 
 # Pool configuration
 THOUGHT_POOL_SIZE = 40
