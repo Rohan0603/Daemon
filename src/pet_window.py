@@ -153,6 +153,7 @@ class PetWindow(QWidget):
         self._animator = EmotionAnimator()
 
         self._pinned = False
+        self._forced_sleep = False
 
         self._context_menu = PetContextMenu(self)
         self._context_menu.signals.quit_requested.connect(self._force_quit_app)
@@ -162,6 +163,9 @@ class PetWindow(QWidget):
         self._context_menu.signals.restart_brain.connect(self._on_restart_brain)
         self._context_menu.signals.thought_log.connect(self._open_thought_log)
         self._context_menu.signals.settings_requested.connect(self._open_settings)
+        self._context_menu.signals.sleep_toggle.connect(self._on_sleep_toggle)
+        self._context_menu.signals.mute_toggle.connect(self._on_mute_toggle)
+        self._context_menu.signals.wipe_memory.connect(self._on_wipe_memory)
 
         self._apm_worker = APMWorker()
         self._apm_worker.apm_updated.connect(self._on_apm_updated)
@@ -1404,18 +1408,68 @@ class PetWindow(QWidget):
         return out
 
     def _on_recall_history(self) -> None:
-        self._show_bubble(self._format_history_bubble())
+        from src.data_viewer_dialog import DataViewerDialog
+        import json
+        
+        def get_history():
+            return json.dumps(self._history.get_all(), indent=2)
+            
+        dialog = DataViewerDialog("Daemon: Conversation History", get_history, self)
+        dialog.exec()
 
     def _on_recall_memory(self) -> None:
-        facts = self._memory.get_all()
-        if not facts:
-            self._show_bubble("Oh geez, my head is empty! Tell me stuff with !remember key: value!")
+        from src.data_viewer_dialog import DataViewerDialog
+        import json
+        
+        def get_memory():
+            return json.dumps(self._memory.get_all(), indent=2)
+            
+        dialog = DataViewerDialog("Daemon: Core Memories", get_memory, self)
+        dialog.exec()
+
+    def _on_sleep_toggle(self, sleeping: bool) -> None:
+        self._forced_sleep = sleeping
+        if sleeping:
+            self._fsm.transition_to(PetState.SLEEP)
+            self._show_bubble("Zzz... forced sleep mode.")
+
+    def _on_mute_toggle(self, muted: bool) -> None:
+        if self._tts_worker:
+            self._tts_worker.set_enabled(not muted)
+
+    def _on_wipe_memory(self) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+        
+        resp = QMessageBox.warning(
+            self, "⚠️ LOBOTOMY WARNING", 
+            "Are you sure? This will wipe my entire brain!",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if resp != QMessageBox.StandardButton.Yes:
             return
-        lines = [f"{k}: {v}" for k, v in facts.items()]
-        text = " | ".join(lines)
-        if len(text) > 260:
-            text = text[:257] + "..."
-        self._show_bubble(text)
+            
+        resp2 = QMessageBox.warning(
+            self, "⚠️ SERIOUSLY?", 
+            "I'm not kidding man! I'll forget everything! The G3, Earth, you... all of it! Are you absolutely sure?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if resp2 != QMessageBox.StandardButton.Yes:
+            return
+            
+        resp3 = QMessageBox.warning(
+            self, "⚠️ LAST CHANCE", 
+            "Look, if you click Yes, I'm gone. It's just empty static up there. Do it if you have to.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if resp3 != QMessageBox.StandardButton.Yes:
+            return
+            
+        self._memory.clear()
+        self._history.clear()
+        self._diary.clear()
+        self._response_manager.clear()
+        self._fsm.transition_to(PetState.IDLE)
+        self._show_bubble("whoa... what... where am I? who are you?")
 
     def _on_pin_toggle(self) -> None:
         self._pinned = not self._pinned
@@ -1562,6 +1616,8 @@ class PetWindow(QWidget):
 
     def _should_fire_autonomous(self, mode: str) -> bool:
         """Return True if autonomous tick is allowed to fire right now."""
+        if self._forced_sleep:
+            return False
         if mode == "boredom":
             if self._response_manager.remaining() == 0:
                 logger.debug("[%s] Skipping: thought pool empty", mode)
