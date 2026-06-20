@@ -481,7 +481,7 @@ Single unified `ThoughtPool` with 4 item types:
 | `write_coalescer.py` | `WriteCoalescer(QObject)` | 8s QTimer batched flush for 5 dirty flags |
 | `persistence.py` | `save_state`, `load_state` | Atomic JSON state to data/.daemon_state.json |
 | `tts_worker.py` | `TTSWorker(QThread)` | edge_tts/pyttsx3 → pydub pitch shift → winsound playback |
-| `settings_dialog.py` | `SettingsDialog(QDialog)` | 3 tabs: Appearance, Voice, Boundaries (consent) |
+| `settings_dialog.py` | `SettingsDialog(QDialog)` | 4 tabs: Appearance, Voice, Boundaries (consent), Connections |
 | `thought_log_dialog.py` | `ThoughtLogDialog(QDialog)` | Matrix-style green-on-black log viewer, 1s refresh |
 | `login_dialog.py` | `LoginDialog(QDialog)` | Kenny-persona email/password auth modal |
 | `fsm_bridge.py` | `FSMActionBridge(QObject)` | pyqtSignal relay: MCP thread → Qt main thread |

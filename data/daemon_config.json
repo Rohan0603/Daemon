@@ -1,10 +1,10 @@
 {
   "llm": {
-    "model_id": "north-mini-code-free",
+    "model_id": "deepseek-v4-flash-free",
     "provider": "opencode-zen",
-    "server_url": "",
+    "server_url": "http://127.0.0.1:4096",
     "timeout_sec": 180,
-    "api_key": ""
+    "api_key": "sk-Kl6KqXvG4vlSylT1TmvcWh5ge5GIBgXFGV1n1glADmjpqUraLZJxxm3BOO0TudY6"
   },
   "pet": {
     "id": "kenny",
@@ -79,7 +79,18 @@
     "apm_panic_threshold_low": 10,
     "apm_panic_threshold_high": 200,
     "apm_panic_cooldown_sec": 30,
-    "apm_state_change_cooldown": 5
+    "apm_state_change_cooldown": 5,
+    "bubble_queue_max_size": 10,
+    "short_bubble_duration_ms": 4000,
+    "short_bubble_char_limit": 40,
+    "squash_stretch_duration_ms": 400,
+    "min_chase_duration_ms": 500,
+    "perimeter_fall_chance": 0.2,
+    "particle_max_count": 200,
+    "shake_duration_ms": 2000,
+    "bounce_duration_ms": 3000,
+    "spin_duration_ms": 1500,
+    "look_away_duration_ms": 4000
   },
   "logging": {
     "level": "INFO",
@@ -94,5 +105,121 @@
     "auth_token_path": "data/.daemon_auth.json",
     "response_cache_path": "data/.daemon_response_cache.json",
     "thoughts_log_path": "data/.daemon_thoughts.log"
+  },
+  "visuals": {
+    "pet_width": 40,
+    "pet_height": 50,
+    "pet_corner_radius": 10,
+    "body_blue": "#5B8DEF",
+    "body_dark": "#2C3E6B",
+    "eye_white": "#FFFFFF",
+    "eye_pupil": "#1A1A2E",
+    "accent_yellow": "#F5C542",
+    "accent_red": "#E74C3C",
+    "bubble_bg": "#FFFDE7",
+    "bubble_border": "#BDBDBD",
+    "hyper_flash": [
+      "#FF6B6B",
+      "#FFE66D",
+      "#6BCB77",
+      "#4D96FF"
+    ],
+    "bubble_text_color": "#1A1A2E",
+    "bubble_max_width": 220,
+    "bubble_padding": 8,
+    "bubble_corner_radius": 8,
+    "bubble_font_size": 11,
+    "input_width": 260,
+    "input_height": 28,
+    "input_y_offset": 10
+  },
+  "triggers": {
+    "persona_hint": "You are Kenny, the user's desktop pet (from High on Life). You are a hyperactive, anxious, stuttering ('wha-what'), foul-mouthed alien pistol. Keep responses briefly rambling.",
+    "risky_keywords": {
+      "--force": [
+        {
+          "dialogue": "Holy crap, --force?! You're gonna break everything!",
+          "action": "shake"
+        },
+        {
+          "dialogue": "Aw geez, force-pushing? That's how repos die, man!",
+          "action": "shake"
+        }
+      ],
+      "rm -rf": [
+        {
+          "dialogue": "RM \u2014 RF?! ARE YOU INSANE?!",
+          "action": "shake"
+        },
+        {
+          "dialogue": "Oh man, oh man, recursive delete? I-I can't watch!",
+          "action": "look_away"
+        }
+      ],
+      "drop table": [
+        {
+          "dialogue": "DROP TABLE?! You're gonna delete data, man! Holy crap!",
+          "action": "hyper"
+        },
+        {
+          "dialogue": "Aw geez, not the\u2014 the database, man! That's where things live!",
+          "action": "shake"
+        }
+      ],
+      "TODO": [
+        {
+          "dialogue": "A TODO? That's not a plan, that's a graveyard for dreams.",
+          "action": "idle"
+        },
+        {
+          "dialogue": "Oh look, another TODO. You know that's never getting done, right?",
+          "action": "look_away"
+        }
+      ],
+      "FIXME": [
+        {
+          "dialogue": "FIXME? You wrote the bug AND left a note. That's rich.",
+          "action": "shake"
+        },
+        {
+          "dialogue": "Aw geez, you're leaving FIXMEs for Future You? Poor guy...",
+          "action": "devastated"
+        }
+      ],
+      "git push": [
+        {
+          "dialogue": "Pushing without testing? You're a gambler, huh?",
+          "action": "idle"
+        },
+        {
+          "dialogue": "Straight to prod? No PR? No review? You maniac!",
+          "action": "shake"
+        }
+      ]
+    },
+    "task_manager_keywords": [
+      "Task Manager",
+      "Activity Monitor",
+      "Process Explorer",
+      "Process Hacker",
+      "Resource Monitor",
+      "System Monitor",
+      "htop",
+      "top",
+      "ps",
+      "perfmon",
+      "resmon"
+    ],
+    "procrastination_domains": [
+      "youtube",
+      "twitter",
+      "reddit",
+      "tiktok",
+      "instagram",
+      "facebook",
+      "netflix",
+      "twitch",
+      "discord"
+    ]
   }
 }

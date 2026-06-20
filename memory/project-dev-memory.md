@@ -1880,3 +1880,42 @@ Shutdown: _finalize_quit() → save_session() → disk
 **Test results:** Config validation tests pass. Added new unit tests for strict validation logic. Removed reliance on hardcoded DEFAULT_CONFIG across the test suite. All tests passing.
 
 **Done — End of Project Dev Memory**
+
+---
+
+### Phase 60 — Setup Recovery UI & Connections Syncing (2026-06-20)
+**Branch:** `master`
+
+**What was built:**
+- Added a 4th "Connections" tab to the `SettingsDialog` (`src/settings_dialog.py`) containing inputs for LLM configuration (`model_id`, `api_key`, `server_url`) and Firebase configuration (`api_key`, `project_id`). Password masks are enabled for the API key fields.
+- Mapped connection parameters within the flat UI dictionary mapping in `src/config.py` (`FLAT_TO_NESTED` and `NESTED_TO_FLAT`). Added `FIREBASE_PROJECT_ID` support.
+- Intercepted startup validation failures in `daemon.py` to pop the `SettingsDialog` using the current configuration values, mapping default placeholders in case of missing or empty string fields.
+- Fixed a saving bug in `src/pet_window.py` `_save_settings()` where the raw flat UI settings dictionary was passed to `save_config()`, corrupting `data/daemon_config.json` by adding flat keys alongside the nested structure. It now properly calls `unflatten_config()` before persisting.
+- Patched config recovery fallback using `or` instead of `get(..., default)` (for empty string `""` values) so that default values (`http://127.0.0.1:4096` and `gemini-2.5-flash`) pre-fill correctly.
+
+**Files changed:**
+- `daemon.py`
+- `src/settings_dialog.py`
+- `src/pet_window.py`
+- `src/config.py`
+- `AGENTS.md`
+- `data/daemon_config.json`
+
+**Test results:** Config tests all passing. Checked settings dialog initialization and key mappings.
+
+**Done — End of Project Dev Memory**
+
+---
+
+### Phase 61 — Log Analysis Bug Fixes (2026-06-20)
+**Branch:** `task-61-log-analysis-fixes`
+
+**What was built:**
+- Fixed exponential prompt growth in `OpencodeWorker.send()` by preserving `original_prompt` and passing it to `_emit_turn_completed()`, keeping session history from accumulating exponentially.
+- Resolved FSM state conflict in `_trigger_apm_panic()` inside `src/pet_window.py` by transitioning low APM panic to `PetState.LOOK_AWAY` instead of `PetState.DEVASTATED`.
+
+**Files changed:**
+- `src/opencode_worker.py`
+- `src/pet_window.py`
+
+**Done — End of Project Dev Memory**

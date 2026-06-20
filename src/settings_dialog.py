@@ -3,7 +3,7 @@ from __future__ import annotations
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
     QCheckBox, QComboBox, QDialogButtonBox,
-    QGroupBox, QTabWidget, QWidget,
+    QGroupBox, QTabWidget, QWidget, QLineEdit,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from src.constants import (
@@ -28,10 +28,15 @@ class SettingsDialog(QDialog):
                  allow_mouse_interference: bool = False,
                  allow_keyboard_injection: bool = False,
                  allow_window_management: bool = False,
+                 llm_model_id: str = "",
+                 llm_api_key: str = "",
+                 llm_server_url: str = "http://127.0.0.1:4096",
+                 firebase_api_key: str = "",
+                 firebase_project_id: str = "",
                  parent=None):
         super().__init__(parent)
         self.setWindowTitle("Daemon Settings")
-        self.setFixedSize(420, 400)
+        self.setFixedSize(450, 480)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
@@ -147,6 +152,40 @@ class SettingsDialog(QDialog):
         tab3_layout.addStretch()
         self._tabs.addTab(tab3, "Boundaries")
 
+        # --- Tab 4: Connections ---
+        tab4 = QWidget()
+        tab4_layout = QVBoxLayout(tab4)
+        
+        llm_group = QGroupBox("LLM Configuration")
+        llm_layout = QVBoxLayout(llm_group)
+        self._llm_model_id = QLineEdit(llm_model_id)
+        self._llm_api_key = QLineEdit(llm_api_key)
+        self._llm_api_key.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
+        self._llm_server_url = QLineEdit(llm_server_url)
+        
+        llm_layout.addWidget(QLabel("Model ID:"))
+        llm_layout.addWidget(self._llm_model_id)
+        llm_layout.addWidget(QLabel("API Key:"))
+        llm_layout.addWidget(self._llm_api_key)
+        llm_layout.addWidget(QLabel("Server URL:"))
+        llm_layout.addWidget(self._llm_server_url)
+        tab4_layout.addWidget(llm_group)
+
+        fb_group = QGroupBox("Firebase Configuration")
+        fb_layout = QVBoxLayout(fb_group)
+        self._fb_api_key = QLineEdit(firebase_api_key)
+        self._fb_api_key.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
+        self._fb_project_id = QLineEdit(firebase_project_id)
+        
+        fb_layout.addWidget(QLabel("API Key:"))
+        fb_layout.addWidget(self._fb_api_key)
+        fb_layout.addWidget(QLabel("Project ID:"))
+        fb_layout.addWidget(self._fb_project_id)
+        tab4_layout.addWidget(fb_group)
+        
+        tab4_layout.addStretch()
+        self._tabs.addTab(tab4, "Connections")
+
         # --- Buttons ---
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -255,4 +294,9 @@ class SettingsDialog(QDialog):
             "allow_mouse_interference": self._cb_mouse_interference.isChecked(),
             "allow_keyboard_injection": self._cb_keyboard_injection.isChecked(),
             "allow_window_management": self._cb_window_management.isChecked(),
+            "OPENCODE_API_MODEL_ID": self._llm_model_id.text(),
+            "OPENCODE_API_KEY": self._llm_api_key.text(),
+            "OPENCODE_SERVER_URL": self._llm_server_url.text(),
+            "FIREBASE_API_KEY": self._fb_api_key.text(),
+            "FIREBASE_PROJECT_ID": self._fb_project_id.text(),
         }

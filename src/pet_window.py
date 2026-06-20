@@ -492,7 +492,7 @@ class PetWindow(QWidget):
             self._show_bubble("Why is my APM so low? I can't even think!")
             # Don't use THINKING here as it expects an opencode worker to release it
             self._fsm.current_state = PetState.IDLE 
-            self._fsm.transition_to(PetState.DEVASTATED)
+            self._fsm.transition_to(PetState.LOOK_AWAY)
         elif panic_type == "high":
             self._show_bubble("My APM just spiked! I'm hyperventilating!")
             self._fsm.current_state = PetState.IDLE
@@ -745,6 +745,11 @@ class PetWindow(QWidget):
             tts_volume=self._saved_tts_volume,
             tts_voice_id=self._saved_tts_voice_id,
             chattiness=self._chattiness,
+            llm_model_id=self._config.get("llm", {}).get("model_id") or "gemini-2.5-flash",
+            llm_api_key=self._config.get("llm", {}).get("api_key", ""),
+            llm_server_url=self._config.get("llm", {}).get("server_url") or "http://127.0.0.1:4096",
+            firebase_api_key=self._config.get("firebase", {}).get("api_key", ""),
+            firebase_project_id=self._config.get("firebase", {}).get("project_id", ""),
             **self._saved_consent,
             parent=self,
         )
@@ -754,10 +759,10 @@ class PetWindow(QWidget):
         dialog.show()
 
     def _apply_settings(self, values: dict) -> None:
-        self._pet_scale = values["pet_scale"]
+        self._pet_scale = values.get("pet_scale", self._pet_scale)
         self._ground_y = self._compute_ground_y()
-        self._pet_opacity = values["pet_opacity"]
-        self._pet_speed_multiplier = values["pet_speed_multiplier"]
+        self._pet_opacity = values.get("pet_opacity", self._pet_opacity)
+        self._pet_speed_multiplier = values.get("pet_speed_multiplier", self._pet_speed_multiplier)
         self.setWindowOpacity(1.0)
         if self._tts:
             self._tts.set_enabled(values.get("tts_enabled", True))
@@ -778,8 +783,11 @@ class PetWindow(QWidget):
                         "allow_keyboard_injection")
         consent_state = {k: values.get(k, False) for k in consent_keys}
         logger.info("Consent Matrix updated by user: %s", consent_state)
-        save_config(values)
-        self._config = unflatten_config(values)
+        
+        # Convert the flat UI dictionary back into the nested config structure
+        nested_cfg = unflatten_config(values)
+        save_config(nested_cfg)
+        self._config = nested_cfg
         if self._mcp_server:
             self._mcp_server._config = self._config.get("consent", {})
 

@@ -123,9 +123,28 @@ def main() -> None:
         # Need to spawn Settings UI here
         app = QApplication.instance() or QApplication(sys.argv)
         from src.settings_dialog import SettingsDialog
-        dialog = SettingsDialog()
+        dialog = SettingsDialog(
+            llm_model_id=cfg.get("llm", {}).get("model_id") or "gemini-2.5-flash",
+            llm_api_key=cfg.get("llm", {}).get("api_key", ""),
+            llm_server_url=cfg.get("llm", {}).get("server_url") or "http://127.0.0.1:4096",
+            firebase_api_key=cfg.get("firebase", {}).get("api_key", ""),
+            firebase_project_id=cfg.get("firebase", {}).get("project_id", "")
+        )
         result = dialog.exec()
         if result == dialog.DialogCode.Accepted:
+            from src.config import save_config
+            vals = dialog.get_values()
+            save_config({
+                "llm": {
+                    "model_id": vals["OPENCODE_API_MODEL_ID"],
+                    "api_key": vals["OPENCODE_API_KEY"],
+                    "server_url": vals["OPENCODE_SERVER_URL"],
+                },
+                "firebase": {
+                    "api_key": vals["FIREBASE_API_KEY"],
+                    "project_id": vals["FIREBASE_PROJECT_ID"],
+                }
+            })
             # User saved, reload config and re-validate
             cfg = load_config()
             try:

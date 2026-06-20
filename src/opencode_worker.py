@@ -146,6 +146,9 @@ class OpencodeWorker(QThread):
         provider = llm_cfg.get("provider", "")
         model_id = llm_cfg.get("model_id", "")
 
+        # Preserve the original prompt to prevent exponential history growth
+        original_prompt = prompt
+
         # Prepend previous conversation history as context if resuming
         history_ctx = ""
         if self._session_state and hasattr(self._session_state, "history_context"):
@@ -172,12 +175,12 @@ class OpencodeWorker(QThread):
             items = self._parse_json_response(raw)
             if items is not None:
                 logger.debug("RECV parsed: %d items, first: %s", len(items), json.dumps(items[0] if items else {}))
-                # Emit turn data for persistence
-                self._emit_turn_completed(prompt, raw)
+                # Emit turn data for persistence using original_prompt
+                self._emit_turn_completed(original_prompt, raw)
                 self.response_ready.emit(items)
                 return
             items = self._handle_schema_error(raw)
-            self._emit_turn_completed(prompt, raw)
+            self._emit_turn_completed(original_prompt, raw)
             self.response_ready.emit(items)
         else:
             logger.warning("send: API returned empty or None")
