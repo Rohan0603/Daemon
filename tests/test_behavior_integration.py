@@ -36,6 +36,7 @@ class TestBehaviorIntegration:
             self.pw._typing_buffer = MagicMock()
             self.pw._opencode_enabled = True
             self.pw._autonomous_query_pending = False
+            self.pw._forced_sleep = False
             self.pw._current_apm = 0
             self.pw._idle_seconds = 0
             self.pw._last_master_tick_time = time.monotonic() - 1.0

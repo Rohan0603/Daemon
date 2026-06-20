@@ -3,13 +3,13 @@ import os
 import pytest
 from unittest.mock import patch
 from pathlib import Path
-from src.config import load_config, flatten_config, unflatten_config, DEFAULT_CONFIG, validate_config, MissingConfigurationError
+from src.config import load_config, flatten_config, unflatten_config, validate_config, MissingConfigurationError
 
 
 def test_load_config_default_fallback(tmp_path):
     with patch("src.config._CONFIG_PATH", tmp_path / "this_file_surely_does_not_exist_98765.json"), patch.dict(os.environ, {}, clear=True):
         cfg = load_config()
-        assert cfg["llm"]["model_id"] == DEFAULT_CONFIG["llm"]["model_id"]
+        assert cfg["llm"]["model_id"] == "gemini-2.5-flash"
         assert cfg["window"]["monitor"] is False
         assert cfg["pet"]["id"] == "kenny"
 
@@ -37,8 +37,8 @@ def test_load_config_with_override(tmp_path):
         assert cfg["llm"]["server_url"] == "http://custom-url:4096"
         assert cfg["pet"]["scale"] == 1.5
         assert cfg["window"]["monitor"] is True
-        # Fallback fields should remain as default
-        assert cfg["pet"]["id"] == "kenny"
+        # No fallback fields anymore, it just loads what's there
+        assert "id" not in cfg["pet"]
 
 
 def test_flatten_and_unflatten_config():

@@ -4,6 +4,7 @@ import json
 import logging
 import copy
 import os
+import shutil
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -18,105 +19,6 @@ class MissingConfigurationError(Exception):
 
 STORAGE_DIR = Path(__file__).parent.parent / "data"
 CONFIG_PATH = STORAGE_DIR / "daemon_config.json"
-
-DEFAULT_CONFIG = {
-    "llm": {
-      "model_id": "gemini-2.5-flash",
-      "provider": "opencode-zen",
-      "server_url": "http://127.0.0.1:4096",
-      "timeout_sec": 180,
-      "api_key": ""  # loaded from .env or env var
-    },
-    "pet": {
-        "id": "kenny",
-        "scale": 1.0,
-        "opacity": 0.85,
-        "speed_multiplier": 1.0,
-        "chattiness": 1.0
-    },
-    "tts": {
-        "enabled": True,
-        "rate": 220,
-        "volume": 1.0,
-        "voice_id": "en-US-GuyNeural",
-        "pitch": 1.15
-    },
-    "consent": {
-        "allow_intrusive_animations": True,
-        "allow_audio_disruptions": False,
-        "allow_browser_redirection": False,
-        "allow_clipboard_hijacking": False,
-        "allow_mouse_interference": False,
-        "allow_window_management": False,
-        "allow_keyboard_injection": False
-    },
-    "window": {
-        "monitor": False
-    },
-    "firebase": {
-        "api_key": "",        # loaded from .env or env var
-        "project_id": "daemon-87f81",
-        "credentials_path": "data/firebase-credentials.json",
-    },
-    "mcp": {
-        "host": "127.0.0.1",
-        "port": 4097,
-    },
-    "behavior": {
-        "apm_hyper_threshold": 150,
-        "apm_window_seconds": 60,
-        "speech_bubble_duration_ms": 8000,
-        "opencode_timeout_seconds": 90,
-        "wander_speed_px": 2,
-        "hyper_speed_multiplier": 3.0,
-        "gravity_acceleration": 0.5,
-        "throw_velocity_threshold": 5.0,
-        "throw_friction": 0.95,
-        "ground_padding_px": 0,
-        "chase_enter_radius_px": 120,
-        "chase_exit_radius_px": 250,
-        "sleep_idle_seconds": 300,
-        "boredom_timeout_sec": 30,
-        "autonomous_query_interval_sec": 20,
-        "active_chat_interval_sec": 25,
-        "joke_interval_sec": 60,
-        "autonomous_cooldown_sec": 45,
-        "behavior_tick_ms": 1000,
-        "write_coalesce_flush_sec": 8,
-        "silence_threshold": 5,
-        "engaged_threshold": 2,
-        "base_interval_sec": 15,
-        "max_backoff_sec": 120,
-        "backoff_multiplier": 1.5,
-        "emotion_tick_sec": 5,
-        "rapid_window_switch_threshold": 3,
-        "fsm_tick_ms": 33,
-        "click_through_poll_ms": 50,
-        "thought_pool_size": 20,
-        "thought_pool_threshold": 5,
-        "thought_pool_refill_count": 5,
-        "pool_decay_interval_sec": 120,
-        "pool_refill_periodic_sec": 600,
-        "apm_panic_threshold_low": 10,
-        "apm_panic_threshold_high": 200,
-        "apm_panic_cooldown_sec": 30,
-        "apm_state_change_cooldown": 5,
-    },
-    "logging": {
-        "level": "INFO",
-        "dir": "logs",
-        "retention_days": 7,
-    },
-    "storage": {
-        "memory_path": "data/.daemon_memory.json",
-        "history_path": "data/.daemon_history.json",
-        "diary_path": "data/.daemon_diary.json",
-        "state_path": "data/.daemon_state.json",
-        "auth_token_path": "data/.daemon_auth.json",
-        "response_cache_path": "data/.daemon_response_cache.json",
-        "thoughts_log_path": "data/.daemon_thoughts.log",
-    },
-}
 
 FLAT_TO_NESTED = {
     "OPENCODE_API_MODEL_ID": ("llm", "model_id"),
@@ -281,7 +183,7 @@ NESTED_TO_FLAT = {
 _CONFIG_PATH = CONFIG_PATH
 
 # Convenience reference for the default opencode serve URL
-DEFAULT_SERVER_URL: str = DEFAULT_CONFIG["llm"]["server_url"]
+DEFAULT_SERVER_URL: str = "http://127.0.0.1:4096"
 
 
 def _deep_merge(target: dict, source: dict) -> None:
@@ -346,46 +248,44 @@ def validate_config(cfg: dict) -> None:
 
 
 def load_config() -> dict:
-    """Load config from CONFIG_PATH, deep-merge with defaults, apply env overrides."""
-    cfg = copy.deepcopy(DEFAULT_CONFIG)
-    try:
-        # Resolve path dynamically in case it's patched in tests
-        p = Path(_CONFIG_PATH)
-        if p.exists():
-            data = json.loads(p.read_text(encoding="utf-8"))
-            # If the loaded data is flat, unflatten it first
-            is_flat = not any(isinstance(v, dict) for v in data.values())
-            if is_flat:
-                data = unflatten_config(data)
-            _deep_merge(cfg, data)
+    """Load config from CONFIG_PATH, copying from template if missing."""
+    p = Path(_CONFIG_PATH)
+    if not p.exists():
+        logger.info("Config not found at %s — copying from template", p)
+        template_path = Path(__file__).parent.parent / "assets" / "daemon_config_template.json"
+        if template_path.exists():
+            p.parent.mkdir(exist_ok=True)
+            shutil.copy2(template_path, p)
         else:
-            logger.info("Config not found at %s — creating with defaults", p)
-            save_config(cfg)
+            raise MissingConfigurationError("Template daemon_config_template.json missing from assets!")
+            
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        is_flat = not any(isinstance(v, dict) for v in data.values())
+        if is_flat:
+            data = unflatten_config(data)
     except Exception as e:
         logger.warning("Failed to load config from %s: %s", _CONFIG_PATH, e)
-    return _apply_env_overrides(cfg)
+        data = {}
+        
+    return _apply_env_overrides(data)
 
 
 def save_config(config: dict) -> bool:
-    """Persist nested config to CONFIG_PATH. Accepts flat or nested dict."""
-    is_nested = any(k in config and isinstance(config[k], dict) for k in DEFAULT_CONFIG.keys())
-    
+    """Persist config to CONFIG_PATH."""
     p = Path(_CONFIG_PATH)
-    current_cfg = copy.deepcopy(DEFAULT_CONFIG)
+    current_cfg = {}
     if p.exists():
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
             if not any(isinstance(v, dict) for v in data.values()):
                 data = unflatten_config(data)
-            _deep_merge(current_cfg, data)
+            current_cfg = data
         except Exception:
             pass
 
-    if is_nested:
-        _deep_merge(current_cfg, config)
-    else:
-        nested_update = unflatten_config(config)
-        _deep_merge(current_cfg, nested_update)
+    # Basic dictionary merging instead of deep merge since we assume structured replacement
+    _deep_merge(current_cfg, config)
 
     try:
         p.parent.mkdir(exist_ok=True)

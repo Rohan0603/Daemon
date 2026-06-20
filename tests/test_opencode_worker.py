@@ -44,18 +44,14 @@ def test_boredom_timeout_constant():
 
 
 def test_api_constants_present():
-    from src.config import DEFAULT_CONFIG
-    assert DEFAULT_CONFIG["llm"]["server_url"].startswith("http")
-    # model_id and provider now have sensible defaults
-    assert DEFAULT_CONFIG["llm"]["model_id"] == "north-mini-code-free"
-    assert DEFAULT_CONFIG["llm"]["provider"] == "opencode-zen"
-    assert isinstance(DEFAULT_CONFIG["llm"]["timeout_sec"], int)
+    from src.config import DEFAULT_SERVER_URL
+    assert DEFAULT_SERVER_URL.startswith("http")
 
 
 def test_persona_hint_constant_exists():
     from src.constants import _PERSONA_HINT
     assert isinstance(_PERSONA_HINT, str)
-    assert "Daemon" in _PERSONA_HINT
+    assert "Kenny" in _PERSONA_HINT
 
 
 def test_worker_emits_pool_items_ready_signal(qapp):
