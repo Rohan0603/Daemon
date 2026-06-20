@@ -1,13 +1,8 @@
 import pytest
-import sys
 import math
-from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QFont, QFontMetrics
 from src.pet_renderer import PetRenderer
 
-@pytest.fixture(scope="session")
-def qapp():
-    return QApplication.instance() or QApplication(sys.argv)
 
 def test_wrap_text_basic(qapp):
     font = QFont("Segoe UI")

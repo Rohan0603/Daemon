@@ -8,17 +8,9 @@ not immediately on each keystroke. Tests that check emission counts must
 wait for the timer or use processEvents + timer interval.
 """
 import time
-import sys
 import pytest
 from collections import deque
 from pynput.keyboard import Key, KeyCode
-from PyQt6.QtWidgets import QApplication
-
-
-@pytest.fixture(scope="session")
-def qapp():
-    app = QApplication.instance() or QApplication(sys.argv)
-    return app
 
 
 def _make_buffer():

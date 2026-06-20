@@ -1,5 +1,4 @@
 import pytest
-from PyQt6.QtWidgets import QApplication
 from src.data_viewer_dialog import DataViewerDialog
 
 def test_data_viewer_dialog_initialization(qapp):

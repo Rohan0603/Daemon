@@ -1,14 +1,7 @@
 import pytest
 from unittest.mock import MagicMock
-from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 from src.login_dialog import LoginDialog
-
-
-@pytest.fixture(scope="session")
-def qapp():
-    app = QApplication([])
-    yield app
 
 
 @pytest.fixture

@@ -6,9 +6,9 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-20 (Phase 59 — Boot Config Validation)
+**Date updated:** 2026-06-20 (Phase 60 — Test Suite Optimization)
 **Current branch:** `master`
-**Test count:** ~675 across 51 test files
+**Test count:** 703 across 53 test files
 **Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54 → Phase 59
 
 ---
@@ -1881,7 +1881,43 @@ Shutdown: _finalize_quit() → save_session() → disk
 
 ---
 
-### Phase 63 — All Bugs Fixes from Log Analysis (2026-06-20)
+**Done — End of Project Dev Memory**
+
+---
+
+### Test Suite Optimization (2026-06-20)
+
+**What was built:**
+
+1. **Shared conftest.py** (`tests/conftest.py`) — centralized fixture definitions:
+   - `qapp` (session-scoped QApplication instance) — created once, shared by all Qt tests
+   - `app` (alias for `qapp`) — function-scoped for readability
+   - `mock_background_workers` — comprehensive PetWindow background worker mocking
+
+2. **Fixture consolidation** — removed duplicate fixture definitions from 15 test files:
+   - 6 files removed duplicate `qapp` fixtures (animator, opencode_worker, pet_renderer, response_manager, typing_buffer, write_coalescer)
+   - 3 files removed duplicate `app` fixtures (council_additions, thought_log_dialog, pet_window)
+   - 4 files replaced plain `def app()` with conftest fixture injection (behavior_integration, master_tick, settings_dialog, tts_worker)
+   - 2 files cleaned orphaned QApplication imports (data_viewer_dialog, login_dialog)
+
+3. **Session summary isolation fix** (`src/llm_session_persistence.py`):
+   - Added `generate_summary` parameter to `save_session()` — summary only generated on explicit shutdown, not on every save
+   - Improved summary extraction — tries structured JSON first, then text parts
+   - Fixed session_id extraction from create response (`.get("session_id")` → `.get("id")`)
+
+**Performance results:**
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Collection | timed out | 703 tests in 1.96s |
+| Fast tests (15) | — | 10.04s all pass |
+| Full suite (702) | >300s (timeout) | 200.13s all pass |
+
+**Files changed:**
+- **Created:** `tests/conftest.py`
+- **Modified:** `src/llm_session_persistence.py`, `tests/test_animator.py`, `tests/test_behavior_integration.py`, `tests/test_council_additions.py`, `tests/test_data_viewer_dialog.py`, `tests/test_login_dialog.py`, `tests/test_master_tick.py`, `tests/test_opencode_worker.py`, `tests/test_pet_renderer.py`, `tests/test_pet_window.py`, `tests/test_response_manager.py`, `tests/test_settings_dialog.py`, `tests/test_thought_log_dialog.py`, `tests/test_tts_worker.py`, `tests/test_typing_buffer.py`, `tests/test_write_coalescer.py`
+
+**Skill updated:** `daemon-test-optimization` → v2.0.0 with current fixture architecture and performance baseline.
 **Branch:** `task-63-fix-all-bugs`
 
 **What was built:**

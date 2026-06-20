@@ -2,15 +2,6 @@ import pytest
 from unittest.mock import patch, MagicMock
 
 
-@pytest.fixture
-def app():
-    from PyQt6.QtWidgets import QApplication
-    _app = QApplication.instance()
-    if _app is None:
-        _app = QApplication([])
-    return _app
-
-
 def test_dialog_creates_with_correct_title(app):
     from src.thought_log_dialog import ThoughtLogDialog
     dialog = ThoughtLogDialog()

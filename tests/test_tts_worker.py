@@ -1,20 +1,11 @@
 # tests/test_tts_worker.py
 from __future__ import annotations
-import sys
 import os
 import tempfile
 import wave
 import struct
 from unittest.mock import patch, MagicMock
-from PyQt6.QtWidgets import QApplication
 from src.tts_worker import TTSWorker
-
-
-def app():
-    _app = QApplication.instance()
-    if _app is None:
-        _app = QApplication(sys.argv)
-    return _app
 
 
 class TestTTSWorker:
@@ -46,8 +37,7 @@ class TestTTSWorker:
         assert worker._shutdown.is_set()
         assert worker._queue.empty()
 
-    def test_speaking_signals_are_pyqt_signals(self):
-        _ = app()
+    def test_speaking_signals_are_pyqt_signals(self, app):
         worker = TTSWorker()
         emitted_started = []
         emitted_finished = []

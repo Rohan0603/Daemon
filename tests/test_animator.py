@@ -1,20 +1,11 @@
 """Tests for src/animator.py — ParticleSystem, Emotion, EmotionAnimator."""
 from __future__ import annotations
-import sys
 import math
 import pytest
-from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QColor
 
 from src.animator import ParticleSystem, Emotion, EmotionAnimator, EMOTION_PROFILES
 from src.constants import PARTICLE_MAX_COUNT
-
-
-# ── Fixture ────────────────────────────────────────────────────────────────
-
-@pytest.fixture(scope="session")
-def qapp():
-    return QApplication.instance() or QApplication(sys.argv)
 
 
 # ── Tests: Emotion enum ────────────────────────────────────────────────────

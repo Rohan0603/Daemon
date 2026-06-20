@@ -12,19 +12,11 @@ from src.pet_fsm import PetState
 from src.behavior_controller import BehaviorController
 from src.events import EventBus, EventType
 
-
-def app():
-    import sys
-    from PyQt6.QtWidgets import QApplication
-    _app = QApplication.instance()
-    if _app is None:
-        _app = QApplication(sys.argv)
-    return _app
+pytestmark = pytest.mark.usefixtures("app")
 
 
 class TestBehaviorIntegration:
     def setup_method(self):
-        self._pw_app = app()
         from PyQt6.QtWidgets import QWidget
         def mock_init(self, *a, **kw):
             QWidget.__init__(self)

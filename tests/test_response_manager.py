@@ -2,20 +2,12 @@
 from __future__ import annotations
 import json
 import os
-import sys
 import tempfile
 from pathlib import Path
 import pytest
 from unittest.mock import MagicMock
-from PyQt6.QtWidgets import QApplication
 
 from src.constants import THOUGHT_POOL_SIZE, THOUGHT_POOL_THRESHOLD, THOUGHT_POOL_REFILL_COUNT
-
-
-@pytest.fixture(scope="session")
-def qapp():
-    app = QApplication.instance() or QApplication(sys.argv)
-    return app
 
 
 def _make_manager(qapp):

@@ -8,14 +8,6 @@ from src.pet_fsm import PetState
 
 # pytest markers
 
-@pytest.fixture
-def app():
-    from PyQt6.QtWidgets import QApplication
-    _app = QApplication.instance()
-    if _app is None:
-        _app = QApplication([])
-    return _app
-
 @pytest.mark.fast
 def test_onboarding_bubbles(app):
     with patch("src.pet_window.ClickThroughManager"), \

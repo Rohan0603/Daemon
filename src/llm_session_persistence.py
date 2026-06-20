@@ -124,10 +124,17 @@ def _get_session_path() -> Path:
     return STORAGE_DIR / SESSION_FILE_NAME
 
 
-def save_session(state: LLMSessionState) -> None:
-    """Save session state to disk using atomic write."""
-    # Generate and set summary if we have a session ID
-    if state.session_id:
+def save_session(state: LLMSessionState, generate_summary: bool = False) -> None:
+    """Save session state to disk using atomic write.
+    
+    Args:
+        state: The session state to persist
+        generate_summary: If True, call LLM to generate a conversation summary.
+                          Should only be True on shutdown to avoid wasting tokens
+                          and polluting the conversation history.
+    """
+    # Only generate summary when explicitly requested (e.g., on shutdown)
+    if generate_summary and state.session_id:
         try:
             config = load_config()
             summary = _generate_summary(state.session_id, state.history, config)
@@ -214,7 +221,7 @@ Summary:"""
             if create_resp.status_code >= 400:
                 logger.warning("Failed to create temporary summary session: HTTP %s", create_resp.status_code)
                 return ""
-            temp_session_id = create_resp.json().get("session_id")
+            temp_session_id = create_resp.json().get("id")
             if not temp_session_id:
                 logger.warning("Failed to get temporary summary session ID")
                 return ""
@@ -240,11 +247,27 @@ Summary:"""
                 logger.warning("Failed to generate summary: HTTP %s", response.status_code)
                 return ""
             
-            # Extract summary from response
+            # Extract summary from response — try structured JSON first, fall back to text
             data = response.json()
-            parts = data.get("parts", [])
-            text_parts = [p.get("text", "") for p in parts if p.get("type") == "text"]
-            summary = "".join(text_parts).strip()
+            
+            # Strategy 1: Response body has top-level "summary" (structured output)
+            summary = data.get("summary", "")
+            if summary and isinstance(summary, str):
+                summary = summary.strip()
+            else:
+                # Strategy 2: Extract from text parts
+                parts = data.get("parts", [])
+                text_parts = [p.get("text", "") for p in parts if p.get("type") == "text"]
+                raw_text = "".join(text_parts).strip()
+                # Try to parse as JSON (structured output inside text part)
+                if raw_text.startswith("{"):
+                    try:
+                        parsed = json.loads(raw_text)
+                        summary = parsed.get("summary", raw_text)
+                    except json.JSONDecodeError:
+                        summary = raw_text
+                else:
+                    summary = raw_text
         finally:
             # Always clean up the temporary session
             try:

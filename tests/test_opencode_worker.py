@@ -2,15 +2,8 @@ import os
 import subprocess
 import pytest
 from unittest.mock import patch, MagicMock
-from PyQt6.QtWidgets import QApplication
 import sys
 import requests as _real_requests
-
-
-@pytest.fixture(scope="session")
-def qapp():
-    app = QApplication.instance() or QApplication(sys.argv)
-    return app
 
 
 def _mock_response(status_code=200, json_payload=None, text=""):

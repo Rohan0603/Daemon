@@ -3,17 +3,9 @@
 The WriteCoalescer batches writes to local storage (memory, history, diary)
 on an 8-second timer to avoid disk thrashing during autonomous chatter.
 """
-import sys
 import pytest
 from unittest.mock import MagicMock
-from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
-
-
-@pytest.fixture(scope="session")
-def qapp():
-    app = QApplication.instance() or QApplication(sys.argv)
-    return app
 
 
 def _make_memory(tmp_path):
