@@ -218,7 +218,16 @@ def validate_config(cfg: dict) -> None:
     """Validates that mandatory config fields and environmental dependencies are present."""
     missing = []
     
-    # 1. Mandatory Fields
+    # 1. Top-Level Structure Checks
+    required_sections = ["llm", "pet", "tts", "consent", "window", "firebase", "mcp", "behavior", "logging", "storage"]
+    for section in required_sections:
+        if section not in cfg or not isinstance(cfg[section], dict):
+            missing.append(f"Section '{section}'")
+            
+    if missing:
+        raise MissingConfigurationError(f"Missing or invalid configuration sections: {', '.join(missing)}. Please restore them from assets/daemon_config_template.json.")
+
+    # 2. Mandatory Fields
     if not cfg.get("llm", {}).get("model_id"):
         missing.append("llm.model_id")
     if not cfg.get("llm", {}).get("api_key"):
@@ -233,7 +242,7 @@ def validate_config(cfg: dict) -> None:
     if missing:
         raise MissingConfigurationError(f"Missing mandatory configuration fields: {', '.join(missing)}")
         
-    # 2. Environmental Checks
+    # 3. Environmental Checks
     cred_path = cfg.get("firebase", {}).get("credentials_path")
     if cred_path:
         project_root = Path(__file__).parent.parent

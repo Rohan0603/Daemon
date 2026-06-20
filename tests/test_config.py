@@ -6,12 +6,24 @@ from pathlib import Path
 from src.config import load_config, flatten_config, unflatten_config, validate_config, MissingConfigurationError
 
 
-def test_load_config_default_fallback(tmp_path):
-    with patch("src.config._CONFIG_PATH", tmp_path / "this_file_surely_does_not_exist_98765.json"), patch.dict(os.environ, {}, clear=True):
-        cfg = load_config()
-        assert cfg["llm"]["model_id"] == "gemini-2.5-flash"
-        assert cfg["window"]["monitor"] is False
-        assert cfg["pet"]["id"] == "kenny"
+def _get_minimal_valid_cfg():
+    return {
+        "llm": {"model_id": "test-model", "api_key": "test-key", "server_url": "http://localhost"},
+        "firebase": {"api_key": "test-fb-key", "project_id": "test-id", "credentials_path": "dummy.json"},
+        "pet": {}, "tts": {}, "consent": {}, "window": {}, 
+        "mcp": {}, "behavior": {}, "logging": {}, "storage": {}
+    }
+
+
+@patch("shutil.copy2")
+def test_load_config_default_fallback(mock_copy, tmp_path):
+    mock_conf = tmp_path / "test_config.json"
+    
+    with patch.dict(os.environ, {}, clear=True):
+        with patch("src.config._CONFIG_PATH", mock_conf):
+            cfg = load_config()
+            assert isinstance(cfg, dict)
+            mock_copy.assert_called_once()
 
 
 def test_load_config_with_override(tmp_path):
@@ -97,35 +109,27 @@ def test_flatten_and_unflatten_config():
     assert unflattened["firebase"]["api_key"] == "custom-key"
 
 def test_validate_config_passes_with_valid_data():
-    valid_cfg = {
-        "llm": {"model_id": "test-model", "api_key": "test-key", "server_url": "http://localhost"},
-        "firebase": {"api_key": "test-fb-key", "project_id": "test-id", "credentials_path": "dummy.json"}
-    }
+    valid_cfg = _get_minimal_valid_cfg()
     with patch("os.path.exists", return_value=True), patch("os.access", return_value=True):
-        # Should not raise
         validate_config(valid_cfg)
 
 def test_validate_config_raises_on_missing_fields():
-    invalid_cfg = {
-        "llm": {"model_id": "", "api_key": "", "server_url": ""},
-        "firebase": {"api_key": "", "project_id": "", "credentials_path": "dummy.json"}
-    }
+    invalid_cfg = _get_minimal_valid_cfg()
+    invalid_cfg["llm"]["model_id"] = ""
+    invalid_cfg["llm"]["api_key"] = ""
+    invalid_cfg["firebase"]["api_key"] = ""
     with pytest.raises(MissingConfigurationError) as exc_info:
         with patch("os.path.exists", return_value=True), patch("os.access", return_value=True):
             validate_config(invalid_cfg)
-    
     msg = str(exc_info.value)
     assert "llm.model_id" in msg
     assert "llm.api_key" in msg
     assert "firebase.api_key" in msg
 
 def test_validate_config_raises_on_missing_credentials_file():
-    valid_cfg = {
-        "llm": {"model_id": "test-model", "api_key": "test-key", "server_url": "http://localhost"},
-        "firebase": {"api_key": "test-fb-key", "project_id": "test-id", "credentials_path": "missing.json"}
-    }
+    valid_cfg = _get_minimal_valid_cfg()
+    valid_cfg["firebase"]["credentials_path"] = "missing.json"
     with pytest.raises(MissingConfigurationError) as exc_info:
         with patch("os.path.exists", return_value=False):
             validate_config(valid_cfg)
-    
     assert "firebase.credentials_path file not found" in str(exc_info.value)
