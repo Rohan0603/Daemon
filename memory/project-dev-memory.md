@@ -1879,6 +1879,37 @@ Shutdown: _finalize_quit() → save_session() → disk
 
 **Test results:** Config validation tests pass. Added new unit tests for strict validation logic. Removed reliance on hardcoded DEFAULT_CONFIG across the test suite. All tests passing.
 
+---
+
+### Phase 63 — All Bugs Fixes from Log Analysis (2026-06-20)
+**Branch:** `task-63-fix-all-bugs`
+
+**What was built:**
+
+| # | Task | File(s) | Impact |
+|---|------|---------|--------|
+| 1 | Softened stutter persona — removed `('wha-what', 'I-I-I')` examples that triggered deepseek degeneration loop | `src/context_manager.py` | **CRITICAL** — prevents 108K char garbage output |
+| 2 | Added 4K char response size cap, truncates model output before JSON parsing | `src/constants.py`, `src/opencode_worker.py` | **HIGH** — prevents parser traversal of degenerate blobs |
+| 3 | Reduced HTTP timeout default from 180s → 30s, added 60s hard cap | `src/opencode_worker.py` | **HIGH** — prevents 2-minute blocking stalls |
+| 4 | Added `"type": "observation"` and `"priority": 5` to schema error fallback items | `src/opencode_worker.py` | **MEDIUM** — stops dead pool items accumulating |
+| 5 | Removed unnecessary `_clear_bubble_queue()` call in `_trigger_autonomous_query` | `src/pet_window.py` | **MEDIUM** — pending bubbles no longer silently dropped |
+| 6 | Added `normalize_window_title()` for context_hash stability across tab switches | `src/active_window.py`, `src/pet_window.py` | **LOW** — reduces refill frequency 3-5x during IDE use |
+| 7 | Guarded second `draw()` with `_refilling` check in `_on_autonomous_trigger` | `src/pet_window.py` | **LOW** — eliminates redundant pool walk |
+
+**Key details:**
+- `normalize_window_title()` uses a dict of known apps (VSCode, Discord, Firefox, Chrome, etc.) with fallback to hyphen-split and raw title
+- Normalization test: `vscode` returned for both `"Visual Studio Code"` and `"VSCode"` window titles
+- Response truncation logs a warning when output exceeds 4K chars
+
+**Files changed:** 5 files, +74/-11 lines
+- `src/active_window.py` — `normalize_window_title()` function
+- `src/constants.py` — `MAX_RESPONSE_CHARS = 4000`
+- `src/context_manager.py` — softened stutter persona in both trigger builders
+- `src/opencode_worker.py` — truncation, timeout reduction, fallback type field
+- `src/pet_window.py` — removed bubble clear, added normalized hash, refill guard
+
+**Test results:** 142/142 tests pass across FSM, animator, pet_window, context_manager, opencode_worker.
+
 **Done — End of Project Dev Memory**
 
 ---

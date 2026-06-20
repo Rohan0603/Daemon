@@ -5,6 +5,7 @@ import re
 import requests
 from PyQt6.QtCore import QThread, pyqtSignal
 from src.config import load_config, DEFAULT_SERVER_URL
+from src.constants import MAX_RESPONSE_CHARS
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +67,12 @@ class OpencodeWorker(QThread):
         server_url = llm_cfg.get("server_url") or DEFAULT_SERVER_URL
         model_id = llm_cfg.get("model_id", "")
         # Use longer timeout for refill operations (two-stage takes 2x API calls)
-        timeout_sec = llm_cfg.get("timeout_sec", 180)
+        timeout_sec = llm_cfg.get("timeout_sec", 30)
         if is_refill:
             timeout_sec = max(timeout_sec, 300)  # 5 minutes for refill
+        # Hard cap: even if config says longer, don't wait more than 60s for normal queries
+        if not is_refill:
+            timeout_sec = min(timeout_sec, 60)
         try:
             if not session_id:
                 if self._abort:
@@ -120,6 +124,10 @@ class OpencodeWorker(QThread):
                 logger.debug("API response had no text parts")
                 return None
             logger.info("API: received %s chars", len(text))
+            if len(text) > MAX_RESPONSE_CHARS:
+                logger.warning("API response (%d chars) exceeds limit (%d), truncating to first %d chars",
+                               len(text), MAX_RESPONSE_CHARS, MAX_RESPONSE_CHARS)
+                text = text[:MAX_RESPONSE_CHARS]
             return text
         except requests.exceptions.ConnectionError as e:
             logger.warning("API connection error: %s", e)
@@ -149,11 +157,14 @@ class OpencodeWorker(QThread):
         # Preserve the original prompt to prevent exponential history growth
         original_prompt = prompt
 
-        # Prepend previous conversation history as context if resuming
+        # Prepend previous conversation history ONLY when creating a new session.
+        # If we already have a session_id, the server has the conversation history.
+        # Prepending on every turn causes exponential duplication of "Previous
+        # conversation resumed after restart" blocks in the prompt.
         history_ctx = ""
         if self._session_state and hasattr(self._session_state, "history_context"):
             history_ctx = self._session_state.history_context
-        if history_ctx:
+        if history_ctx and not self._session_id:
             prompt = f"{history_ctx}\n\n[Current message]\n{prompt}"
 
         payload = {
@@ -328,6 +339,8 @@ class OpencodeWorker(QThread):
         return [{
             "thought": "Kenny's brain just bluescreened.",
             "dialogue": "Holy crap, my brain just segfaulted!",
+            "type": "observation",
+            "priority": 5,
         }]
 
     def run(self) -> None:

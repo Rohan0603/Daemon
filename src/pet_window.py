@@ -43,7 +43,7 @@ from src.typing_buffer import TypingBuffer
 from src.context_menu import PetContextMenu
 from src.opencode_worker import OpencodeWorker
 from src.llm_session_persistence import load_session, save_session, LLMSessionState
-from src.active_window import get_active_window_title
+from src.active_window import get_active_window_title, normalize_window_title
 from src.screen_reader import ScreenReader
 from src.memory import Memory
 from src.history import History
@@ -648,7 +648,7 @@ class PetWindow(QWidget):
         # Persist LLM session state for next boot
         try:
             if hasattr(self, '_llm_session_state') and self._llm_session_state is not None:
-                save_session(self._llm_session_state)
+                save_session(self._llm_session_state, generate_summary=True)
         except Exception as e:
             logger.warning("Failed to persist LLM session on shutdown: %s", e)
         QApplication.quit()
@@ -1679,7 +1679,7 @@ class PetWindow(QWidget):
             # active_chat or joke: draw from thought pool
             draw_type = "typing_reaction" if mode == "active_chat" else "intel_roast"
             items = self._response_manager.draw(draw_type)
-            if not items and mode == "joke":
+            if not items and mode == "joke" and not self._response_manager.thought_pool._refilling:
                 items = self._response_manager.draw("observation")
             if items:
                 self._dispatch_structured(items[0])
@@ -1726,7 +1726,7 @@ class PetWindow(QWidget):
             return
             
 
-        current_hash = get_active_window_title()
+        current_hash = normalize_window_title(get_active_window_title())
         items = self._response_manager.draw("idle_thought", current_context_hash=current_hash)
         if not items:
             items = self._response_manager.draw("observation", current_context_hash=current_hash)
@@ -2007,7 +2007,6 @@ class PetWindow(QWidget):
             self._trigger_autonomous_query()
 
     def _trigger_autonomous_query(self) -> None:
-        self._clear_bubble_queue()
         self._autonomous_query_pending = True
         apm = self._apm_worker.apm if self._apm_worker else 0
         self._dispatch_trigger(
@@ -2136,7 +2135,7 @@ class PetWindow(QWidget):
             if session_state and hasattr(session_state, "add_turn"):
                 session_state.add_turn("user", user_prompt[:2000])
                 session_state.add_turn("assistant", response_text[:3000])
-                save_session(session_state)
+                save_session(session_state, generate_summary=False)
                 # Keep our copy in sync
                 self._llm_session_state = session_state
                 self._opencode_session_id = session_state.session_id

@@ -54,7 +54,7 @@ class ContextManager:
             return self._cached_prompt
         lines = [
             "You are responding directly to the user.",
-            "PERSONA: You are Kenny from High on Life. You are a hyperactive, anxious, stuttering ('wha-what', 'I-I-I'), and foul-mouthed alien pistol.",
+            "PERSONA: You are Kenny from High on Life. You are a hyperactive, anxious, and foul-mouthed alien pistol. Speak naturally and expressively — you occasionally stutter when excited but don't force it.",
             "Always break the 4th wall and reference their desktop context (Task Manager, Recycle Bin, etc.).",
             f"Mode: {mode}",
             f"APM (actions per minute — primary signal): {apm}",
@@ -83,7 +83,7 @@ class ContextManager:
             return self._cached_prompt
         lines = [
             "Daemon is watching the user.",
-            "PERSONA: He is Kenny from High on Life. A hyperactive, anxious, stuttering, and foul-mouthed alien pistol.",
+            "PERSONA: He is Kenny from High on Life. A hyperactive, anxious, and foul-mouthed alien pistol. He speaks naturally and expressively — he occasionally stutters when excited but doesn't force it.",
             "He breaks the 4th wall and frequently references the desktop context (Task Manager, Recycle Bin, VSCode).",
             "APM (actions per minute) is his main signal.",
             f"APM: {apm}",

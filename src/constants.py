@@ -92,6 +92,7 @@ POOL_REFILL_PERIODIC_SEC = 600      # legacy — no longer used at runtime
 BUBBLE_QUEUE_MAX_SIZE = 10
 SHORT_BUBBLE_DURATION_MS = 4000
 SHORT_BUBBLE_CHAR_LIMIT = 40
+MAX_RESPONSE_CHARS = 4000  # Truncate model output to this before JSON parsing
 
 DEBUG: bool = False
 THOUGHTS_LOG_PATH = STORAGE_DIR / ".daemon_thoughts.log"
