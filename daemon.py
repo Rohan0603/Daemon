@@ -115,6 +115,27 @@ def main() -> None:
     import src.constants as constants
 
     cfg = load_config()
+    from src.config import validate_config, MissingConfigurationError
+    try:
+        validate_config(cfg)
+    except MissingConfigurationError as e:
+        logger.error(f"Configuration Validation Failed: {e}")
+        # Need to spawn Settings UI here
+        app = QApplication.instance() or QApplication(sys.argv)
+        from src.settings_dialog import SettingsDialog
+        dialog = SettingsDialog()
+        result = dialog.exec()
+        if result == dialog.DialogCode.Accepted:
+            # User saved, reload config and re-validate
+            cfg = load_config()
+            try:
+                validate_config(cfg)
+            except MissingConfigurationError as e2:
+                logger.fatal(f"Configuration still invalid after setup: {e2}")
+                sys.exit(1)
+        else:
+            logger.fatal("Setup cancelled by user. Exiting.")
+            sys.exit(1)
     flat_cfg = flatten_config(cfg)
     storage_keys = {"MEMORY_PATH", "HISTORY_PATH", "DIARY_PATH", "STATE_PATH",
                     "AUTH_TOKEN_PATH", "RESPONSE_CACHE_PATH", "THOUGHTS_LOG_PATH",
@@ -156,14 +177,7 @@ def main() -> None:
         config_overrides=log_config.get("levels"),
     )
 
-    # ── Config validation ────────────────────────────────────────────────
-    firebase_key = cfg.get("firebase", {}).get("api_key", "")
-    if not firebase_key:
-        logger.warning("[CONFIG] firebase.api_key is empty — Firebase Auth will fail")
-    opencode_url = cfg.get("llm", {}).get("server_url", "")
-    opencode_api_key = cfg.get("llm", {}).get("api_key", "")
-    if not opencode_api_key and "opencode" not in opencode_url:
-        logger.warning("[CONFIG] llm.api_key is empty — opencode may not authenticate")
+
 
     logger.info("=== DAEMON STARTUP (PID %d) ===", os.getpid())
     logger.info("Crash instrumentation active: crash_dump.log = %s", _CRASH_LOG)
