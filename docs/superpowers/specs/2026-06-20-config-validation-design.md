@@ -10,10 +10,15 @@ The goal is to enforce a strict Single Source of Truth (SSoT) for mandatory conf
 - **Custom Exception:** Create a new custom exception class: `MissingConfigurationError(Exception)`.
 - **Validation Function:** Implement a `validate_config(cfg: dict)` function. This function will be called immediately before `load_config()` returns the configuration.
 - **Mandatory Fields Checked:**
-  - `llm.model_id`
-  - `llm.api_key`
-  - `firebase.api_key`
-- **Error Condition:** If any of these fields are missing, `None`, or evaluate to an empty string, the function will gather the names of the missing fields and raise a `MissingConfigurationError(f"Missing mandatory configuration fields: {missing_keys}")`.
+  - `llm.model_id` (must not be empty)
+  - `llm.api_key` (must not be empty)
+  - `llm.server_url` (must not be empty)
+  - `firebase.api_key` (must not be empty)
+  - `firebase.project_id` (must not be empty)
+- **Environmental & Path Checks:**
+  - Verify that the physical Service Account JSON file specified by `firebase.credentials_path` exists on disk.
+  - Verify that the application has write access to the `data/` directory (e.g., by attempting a quick temporary file write).
+- **Error Condition:** If any of these fields are missing, empty, or if the environmental checks fail, the function will gather the names of the missing keys and failed checks and raise a `MissingConfigurationError` with a clear message.
 
 ## 2. Boot Sequence Interception (`daemon.py`)
 We must handle the `MissingConfigurationError` gracefully to provide an Interactive Prompt, rather than letting the application crash entirely.
