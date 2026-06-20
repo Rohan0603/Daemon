@@ -1,0 +1,98 @@
+{
+  "llm": {
+    "model_id": "gemini-2.5-flash",
+    "provider": "opencode-zen",
+    "server_url": "http://127.0.0.1:4096",
+    "timeout_sec": 180,
+    "api_key": ""
+  },
+  "pet": {
+    "id": "kenny",
+    "scale": 1.0,
+    "opacity": 0.85,
+    "speed_multiplier": 1.0,
+    "chattiness": 1.0
+  },
+  "tts": {
+    "enabled": true,
+    "rate": 220,
+    "volume": 1.0,
+    "voice_id": "en-US-GuyNeural",
+    "pitch": 1.15
+  },
+  "consent": {
+    "allow_intrusive_animations": true,
+    "allow_audio_disruptions": false,
+    "allow_browser_redirection": false,
+    "allow_clipboard_hijacking": false,
+    "allow_mouse_interference": false,
+    "allow_window_management": false,
+    "allow_keyboard_injection": false
+  },
+  "window": {
+    "monitor": false
+  },
+  "firebase": {
+    "api_key": "",
+    "project_id": "daemon-87f81",
+    "credentials_path": "data/firebase-credentials.json"
+  },
+  "mcp": {
+    "host": "127.0.0.1",
+    "port": 4097
+  },
+  "behavior": {
+    "apm_hyper_threshold": 150,
+    "apm_window_seconds": 60,
+    "speech_bubble_duration_ms": 8000,
+    "opencode_timeout_seconds": 90,
+    "wander_speed_px": 2,
+    "hyper_speed_multiplier": 3.0,
+    "gravity_acceleration": 0.5,
+    "throw_velocity_threshold": 5.0,
+    "throw_friction": 0.95,
+    "ground_padding_px": 0,
+    "chase_enter_radius_px": 120,
+    "chase_exit_radius_px": 250,
+    "sleep_idle_seconds": 300,
+    "boredom_timeout_sec": 30,
+    "autonomous_query_interval_sec": 20,
+    "active_chat_interval_sec": 25,
+    "joke_interval_sec": 60,
+    "autonomous_cooldown_sec": 45,
+    "behavior_tick_ms": 1000,
+    "write_coalesce_flush_sec": 8,
+    "silence_threshold": 5,
+    "engaged_threshold": 2,
+    "base_interval_sec": 15,
+    "max_backoff_sec": 120,
+    "backoff_multiplier": 1.5,
+    "emotion_tick_sec": 5,
+    "rapid_window_switch_threshold": 3,
+    "fsm_tick_ms": 33,
+    "click_through_poll_ms": 50,
+    "thought_pool_size": 20,
+    "thought_pool_threshold": 5,
+    "thought_pool_refill_count": 5,
+    "pool_decay_interval_sec": 120,
+    "pool_refill_periodic_sec": 600,
+    "apm_panic_threshold_low": 10,
+    "apm_panic_threshold_high": 200,
+    "apm_panic_cooldown_sec": 30,
+    "apm_state_change_cooldown": 5
+  },
+  "logging": {
+    "level": "INFO",
+    "dir": "logs",
+    "retention_days": 7
+  },
+  "storage": {
+    "memory_path": "data/.daemon_memory.json",
+    "history_path": "data/.daemon_history.json",
+    "diary_path": "data/.daemon_diary.json",
+    "state_path": "data/.daemon_state.json",
+    "auth_token_path": "data/.daemon_auth.json",
+    "response_cache_path": "data/.daemon_response_cache.json",
+    "thoughts_log_path": "data/.daemon_thoughts.log"
+  }
+}

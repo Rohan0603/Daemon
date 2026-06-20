@@ -748,3 +748,6 @@ py daemon.py --pet-id foo  # use pet_id "foo" instead of "kenny"
 ```
 
 Progress is tracked in `memory/project-dev-memory.md`. Update it after every task with commit hash, files changed, and any fixes applied.
+
+## Strict Configuration Validation
+**CRITICAL CONFIG WARNING:** The application operates on strict configuration validation. There is NO `DEFAULT_CONFIG` dictionary in the codebase. If you add a new feature that requires a new configuration key (e.g., `"chase_speed"`), you **must** instruct the user to update their `data/daemon_config.json`, or you must explicitly provide a migration script to inject it. Otherwise, the app will instantly crash with a KeyError on boot.
