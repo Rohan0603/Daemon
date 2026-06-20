@@ -304,9 +304,17 @@ class PetWindow(QWidget):
         # Persistent LLM session — resume across restarts
         self._llm_session_state = load_session()
         if self._llm_session_state.session_id:
-            self._opencode_session_id = self._llm_session_state.session_id
-            logger.info("Resuming LLM session %s (%d history turns)",
-                        self._llm_session_state.session_id, len(self._llm_session_state.history))
+            # Opencode serve was killed and respawned — the saved session ID is
+            # guaranteed dead. Keep the history for context injection, but clear
+            # the stale session so the first query creates a fresh one without
+            # a 404-retry cycle.
+            logger.info(
+                "Clearing stale session %s (opencode serve was respawned); "
+                "%d history turns preserved for context injection",
+                self._llm_session_state.session_id,
+                len(self._llm_session_state.history),
+            )
+            self._llm_session_state.session_id = None
 
         self._consecutive_silent = 0
         self._consecutive_engaged = ENGAGED_THRESHOLD
