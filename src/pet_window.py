@@ -262,9 +262,9 @@ class PetWindow(QWidget):
 
         if not (initial_state or {}).get("first_run_done", False):
             self._bubble_queue = [
-                "I'm Daemon.",
-                "Double-click me to ask opencode anything.",
-                "Right-click for options.",
+                "Hey! I'm Kenny! Nice to meet ya.",
+                "Double-click me if you wanna ask opencode anything, alright?",
+                "Right-click me for options. D-d-don't click too hard though!",
             ]
             self._greeting_timer = QTimer(self)
             self._greeting_timer.setSingleShot(True)
@@ -342,7 +342,7 @@ class PetWindow(QWidget):
         self._tray_icon.show()
 
         if skill_ready and not initial_state.get("skill_greeted", False):
-            self._show_bubble("dae: memory active.")
+            self._show_bubble("Oh god! My memory is active! Don't look in there!")
 
         self._boot_timer = QTimer(self)
         self._boot_timer.setSingleShot(True)
@@ -1431,7 +1431,7 @@ class PetWindow(QWidget):
         self._forced_sleep = sleeping
         if sleeping:
             self._fsm.transition_to(PetState.SLEEP)
-            self._show_bubble("Zzz... forced sleep mode.")
+            self._show_bubble("Oh thank god, forced sleep mode! I-I-I can finally rest...")
 
     def _on_mute_toggle(self, muted: bool) -> None:
         if self._tts_worker:
