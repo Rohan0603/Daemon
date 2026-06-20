@@ -1,4 +1,4 @@
-﻿# Daemon — Project Dev Memory
+# Daemon — Project Dev Memory
 
 > **READ THIS FIRST in every new session** (Claude or Antigravity). It holds the authoritative state of the project: what's done, what's next, known issues, and agent recommendations.
 
@@ -6,10 +6,10 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-20 (Phase 58 — Persistent LLM Sessions, fix round)
+**Date updated:** 2026-06-20 (Phase 59 — Boot Config Validation)
 **Current branch:** `master`
-**Test count:** ~672 across 51 test files
-**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54
+**Test count:** ~675 across 51 test files
+**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54 → Phase 59
 
 ---
 
@@ -1855,5 +1855,24 @@ Shutdown: _finalize_quit() → save_session() → disk
 - `server_url` empty-string bug (2026-06-20): `daemon_config.json` had `"server_url": ""`; all 4 code paths using `.get("server_url", DEFAULT)` returned `""` because the key existed. Changed to `.get("server_url") or DEFAULT_SERVER_URL` in `llm_session_persistence.py`, `opencode_worker.py` (2 locations), and `pet_window.py`.
 
 **Test results:** 56 new tests pass (25 persistence + 31 opencode_worker). All existing tests unaffected.
+
+---
+
+### Phase 59 — Boot Config Validation (2026-06-20)
+**Branch:** `master`
+
+**What was built:**
+- `MissingConfigurationError` class and `validate_config(cfg)` function in `src/config.py` as a single source of truth for config constraints.
+- `validate_config` checks for the existence of mandatory LLM and Firebase fields, explicitly verifies that `firebase.credentials_path` points to a valid file, and verifies write access to the `data/` directory.
+- Boot sequence interception in `daemon.py` `main()`: catches `MissingConfigurationError`, pops the `SettingsDialog` immediately, allowing the user to provide API keys before continuing. Exits on cancel or subsequent failure.
+- Redundant warning logs around `firebase_key` and `opencode_api_key` were removed.
+- A test environment leakage in `tests/test_config.py` was fixed by patching `os.environ` and `_CONFIG_PATH` to `tmp_path`.
+
+**Files changed:**
+- `src/config.py`
+- `tests/test_config.py`
+- `daemon.py`
+
+**Test results:** Config validation tests pass. Added 3 new unit tests. No failing existing tests.
 
 **Done — End of Project Dev Memory**
