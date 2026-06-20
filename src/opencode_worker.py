@@ -315,6 +315,35 @@ class OpencodeWorker(QThread):
         except (json.JSONDecodeError, ValueError):
             pass
 
+        # 4. JSONL strategy: split on newlines, parse each standalone JSON object
+        try:
+            lines = cleaned.split('\n')
+            items = []
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith('[') or line.startswith(']') or line == ',':
+                    continue
+                if line.endswith(','):
+                    line = line[:-1]
+                if line.startswith('{') and line.endswith('}'):
+                    try:
+                        obj = json.loads(line)
+                        items.append(obj)
+                    except json.JSONDecodeError:
+                        pass
+                elif line.startswith('{'):
+                    # Might be } followed by more on same line — try splitting
+                    try:
+                        obj = json.loads(line)
+                        items.append(obj)
+                    except json.JSONDecodeError:
+                        pass
+            if items and self._validate_items(items):
+                logger.debug("JSONL parse recovered %d items", len(items))
+                return items
+        except (json.JSONDecodeError, ValueError):
+            pass
+
         logger.warning(
             "All JSON parsing strategies failed for response (first 500 chars): %s",
             raw[:500],

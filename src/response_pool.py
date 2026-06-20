@@ -14,11 +14,13 @@ class ThoughtPool(QObject):
     refill_failed = pyqtSignal(str)
 
     def __init__(self, max_size: int, threshold: int,
-                 refill_count: int, parent=None):
+                 refill_count: int, parent=None,
+                 ttl_seconds: int = 300):
         super().__init__(parent)
         self._max_size = max_size
         self._threshold = threshold
         self._refill_count = refill_count
+        self._ttl_seconds = ttl_seconds
         self._items: list[dict] = []
         self._refilling = False
 
@@ -109,6 +111,8 @@ class ThoughtPool(QObject):
     def add_items(self, items: list[dict]):
         if not items:
             return
+        now_dt = datetime.now().isoformat()
+        now_ts = datetime.now().timestamp()
         tagged = []
         for item in items:
             tagged.append({
@@ -117,6 +121,7 @@ class ThoughtPool(QObject):
                 "action": item.get("action", "idle"),
                 "target_x": item.get("target_x"),
                 "priority": item.get("priority", 3),
+                "_created_at": now_ts,
             })
         self._items.extend(tagged)
         if len(self._items) > self._max_size:
@@ -126,8 +131,40 @@ class ThoughtPool(QObject):
         return len(self._items)
 
     def decay(self):
+        """Priority decay + TTL purge for stale items."""
+        now = datetime.now()
+        cutoff = now.timestamp() - self._ttl_seconds
+        # TTL purge: remove items older than ttl_seconds
+        fresh = []
+        for item in self._items:
+            created = item.get("_created_at")
+            if created:
+                try:
+                    if isinstance(created, (int, float)):
+                        age_sec = now.timestamp() - created
+                    else:
+                        created_dt = datetime.fromisoformat(created) if isinstance(created, str) else now
+                        age_sec = now.timestamp() - created_dt.timestamp()
+                    if age_sec > self._ttl_seconds:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            fresh.append(item)
+        purged = len(self._items) - len(fresh)
+        if purged:
+            logger.debug("TTL purge: removed %d stale items (pool %d -> %d)", purged, len(self._items), len(fresh))
+        self._items = fresh
+        # Priority decay for remaining items
         for item in self._items:
             item["priority"] = max(1, item.get("priority", 3) - 1)
+
+    def count_by_type(self) -> dict[str, int]:
+        """Return dict mapping type -> count for current pool items."""
+        counts: dict[str, int] = {}
+        for item in self._items:
+            t = item.get("type", "unknown")
+            counts[t] = counts.get(t, 0) + 1
+        return counts
 
     def _request_refill(self):
         if self._refilling:

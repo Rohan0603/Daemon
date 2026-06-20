@@ -2004,3 +2004,37 @@ Shutdown: _finalize_quit() → save_session() → disk
 - `src/response_pool.py`
 
 **Done — End of Project Dev Memory**
+
+---
+
+### Phase 63.5 — Runtime Audit & 11-Fix Patch (2026-06-20)
+**Branch:** `master` (no branch, tweaked directly)
+
+**Root cause:** Analysis of `logs/daemon_2026-06-20_18-36-53.log` cross-referenced with source code identified "my brain just segfaulted!" error as JSONL-parsing failure in `_parse_json_response` (A1). Broader audit found 10 more bugs/inefficiencies.
+
+**What was fixed:**
+
+| ID | Component | Bug | Fix |
+|----|-----------|-----|-----|
+| A1 | `opencode_worker.py` | JSONL returned by LLM — json.loads fails on "Extra data" | Added 3rd parse strategy: split `\n{`, parse each JS object line, wrap in `[ ]` |
+| A2 | `pet_window.py` | `_in_autonomous_trigger_handling` guard blocked ALL refills after pool depletion | Removed the guard entirely; other locks (isRunning, worker set, failure backoff) sufficient |
+| A3 | `pet_window.py` | `draw()` called twice per autonomous trigger (primary + fallback type), sending duplicate `refill_needed` | Removed `_refilling` check from fallback draw; pool's `_refilling` flag prevents dupe workers anyway |
+| B1 | `response_pool.py` | Pool items never expired — stale thoughts accumulated until max_size was hit | Added `ttl_seconds` (default 300) param; `_created_at` timestamp in `add_items`; TTL purge in `decay()` |
+| B2 | `response_pool.py` | No way to inspect pool composition by type | Added `count_by_type()` method returning `dict[str, int]` |
+| B3 | `pet_window.py` | After autonomous API response, surplus items added to pool but no refill scheduled | Added deferred refill in `_on_response_ready` (500ms `singleShot`) if pool still below threshold |
+| C1 | `typing_buffer.py` | Stale typing from hours earlier leaked into context | Added `_last_keystroke_time` / `_idle_timeout` (default 60s); `get_context()` clears buffer on idle |
+| C2 | `pet_window.py` | Autonomous triggers used same session as user, contaminating conversation history | Changed to `session_id=None` for autonomous; user queries keep `_opencode_session_id` |
+| C3 | `behavior_controller.py` | Timers accumulated during SLEEP — fired multiple triggers immediately on wake | Reset `_chat_timer_sec`, `_joke_timer_sec`, `_emotion_timer_sec` to 0 in SLEEP guard |
+| D1 | `pet_window.py` | APM panic fired LOOK_AWAY bubble even when pool was empty, locking GCD | Skip "low" APM panic when `remaining() < 3` |
+| D2 | `pet_window.py` | Consecutive LLM parse failures produced cascading "brain segfaulted" spam with no backoff | Track `_parse_failure_count`; after 3 consecutive, push `_consecutive_silent` to 5 to throttle |
+
+**Files changed:**
+- `src/opencode_worker.py`
+- `src/response_pool.py`
+- `src/typing_buffer.py`
+- `src/behavior_controller.py`
+- `src/pet_window.py`
+
+**Test results:** 702 passed, 1 skipped — zero regressions.
+
+**Key insight:** The "brain segfaulted" error was NOT a pool overflow or concurrency race. It was a `json.loads()` failing on JSONL format (multiple JSON objects on separate lines with no outer `[ ]`). Fix A1 resolves it definitively.

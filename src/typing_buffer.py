@@ -1,6 +1,7 @@
 # src/typing_buffer.py
 from __future__ import annotations
 import logging
+import time
 from collections import deque
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 
@@ -17,9 +18,11 @@ class TypingBuffer(QObject):
     text_updated = pyqtSignal()
     debounce_restart = pyqtSignal()  # emitted from pynput thread; main thread restarts timer
 
-    def __init__(self, max_chars: int = 500, parent=None):
+    def __init__(self, max_chars: int = 500, parent=None, idle_timeout: int = 60):
         super().__init__(parent)
         self._buffer = deque(maxlen=max_chars)
+        self._last_keystroke_time = time.time()
+        self._idle_timeout = idle_timeout
         self._listener = None
         self._debounce_timer = QTimer()
         self._debounce_timer.setSingleShot(True)
@@ -51,6 +54,12 @@ class TypingBuffer(QObject):
         return len(self._buffer)
 
     def get_context(self, max_chars: int = 300) -> str:
+        # Clear buffer if idle too long (stale typing from earlier session)
+        if time.time() - self._last_keystroke_time > self._idle_timeout:
+            if self._buffer:
+                logger.debug("TypingBuffer idle timeout: clearing %d chars", len(self._buffer))
+                self._buffer.clear()
+            return ""
         if not self._buffer:
             return ""
         text = "".join(self._buffer)
@@ -59,6 +68,7 @@ class TypingBuffer(QObject):
         return f"Recent Typing:\n  > {formatted}"
 
     def _on_press(self, key):
+        self._last_keystroke_time = time.time()
         if hasattr(key, 'char') and key.char is not None:
             self._buffer.append(key.char)
         elif key == keyboard.Key.backspace:

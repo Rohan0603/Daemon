@@ -239,6 +239,10 @@ class BehaviorController:
         try:
             # SLEEP guard: freeze all behavioral timers
             if self._fsm.current_state == PetState.SLEEP:
+                # Reset accumulated timers so they don't fire immediately on wake
+                self._chat_timer_sec = 0.0
+                self._joke_timer_sec = 0.0
+                self._emotion_timer_sec = 0.0
                 return
 
             # Window switch tracking for WONDER

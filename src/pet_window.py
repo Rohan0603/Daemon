@@ -143,6 +143,10 @@ class PetWindow(QWidget):
         self._last_apm_state_change = 0.0
         self._last_apm = 0
 
+        # D2: parse failure cooldown — track consecutive failures for backoff
+        self._parse_failure_count = 0
+        self._last_parse_failure_time = 0.0
+
         self._last_mode = ""
         self._idle_seconds = 0.0
         self._state_elapsed_ms = 0
@@ -309,7 +313,6 @@ class PetWindow(QWidget):
         self._current_interval = BASE_INTERVAL_SEC
         self._idle_backoff_seconds = 0.0
         self._last_context_snapshot = None
-        self._in_autonomous_trigger_handling = False
 
         self._deferred_trigger_params: dict | None = None
 
@@ -489,6 +492,12 @@ class PetWindow(QWidget):
     def _trigger_apm_panic(self, panic_type: str) -> None:
         """Trigger panic reaction to significant APM changes."""
         from src.pet_fsm import PetState
+        # D1: Skip APM panic if thought pool is too empty — the panic bubble
+        # would lock the GCD and prevent pool refill from displaying
+        if self._response_manager.remaining() < 3 and panic_type == "low":
+            logger.debug("Skipping APM panic (pool starved, remaining=%d)",
+                         self._response_manager.remaining())
+            return
         if panic_type == "low":
             self._show_bubble("Why is my APM so low? I can't even think!")
             # Don't use THINKING here as it expects an opencode worker to release it
@@ -1619,6 +1628,28 @@ class PetWindow(QWidget):
         dialogue = item.get("dialogue", "")
         print(f"DEBUG: _dispatch_structured: thought='{thought}', dialogue='{dialogue}'")
         logger.info("_dispatch_structured: dialogue='%s'", dialogue)
+
+        # D2: Track consecutive parse failures for backoff
+        try:
+            current_time = time.time()
+            if thought == "Kenny's brain just bluescreened.":
+                self._parse_failure_count = getattr(self, '_parse_failure_count', 0) + 1
+                self._last_parse_failure_time = current_time
+                if self._parse_failure_count >= 3:
+                    logger.warning("D2: %d consecutive parse failures — throttling autonomous triggers",
+                                   self._parse_failure_count)
+                    if self._behavior:
+                        self._behavior._consecutive_silent = max(
+                            self._behavior._consecutive_silent, 5
+                        )
+            else:
+                if getattr(self, '_parse_failure_count', 0) > 0:
+                    logger.info("D2: Parse failure streak broken after %d failures (resetting)",
+                                self._parse_failure_count)
+                self._parse_failure_count = 0
+        except RuntimeError:
+            pass  # PetWindow not fully initialized (e.g. in tests)
+
         if force:
             self._clear_bubble_queue()
         if thought:
@@ -1661,7 +1692,6 @@ class PetWindow(QWidget):
         Dispatches the trigger through the thought pool or local FSM action
         depending on mode. Called on AUTONOMOUS_TRIGGER_FIRED.
         """
-        self._in_autonomous_trigger_handling = True
         try:
             mode = event.data.get("mode", "")
             if not self._should_fire_autonomous(mode):
@@ -1679,7 +1709,8 @@ class PetWindow(QWidget):
             # active_chat or joke: draw from thought pool
             draw_type = "typing_reaction" if mode == "active_chat" else "intel_roast"
             items = self._response_manager.draw(draw_type)
-            if not items and mode == "joke" and not self._response_manager.thought_pool._refilling:
+            # Fallback: if joke mode and no intel_roast, try observation
+            if not items and mode == "joke":
                 items = self._response_manager.draw("observation")
             if items:
                 self._dispatch_structured(items[0])
@@ -1693,11 +1724,11 @@ class PetWindow(QWidget):
                     typing_content=self._typing_buffer.get_context() if hasattr(self, "_typing_buffer") else "",
                     is_autonomous=True,
                 )
-        finally:
-            self._in_autonomous_trigger_handling = False
+        except Exception:
+            logger.exception("Error in _on_autonomous_trigger:")
+            raise
 
     _BOREDOM_FALLBACK_JOKES = [
-        {"dialogue": "Holy crap, you're still alive? I was drafting your eulogy in Python comments.", "action": "idle", "target_x": 0},
         {"dialogue": "Aw geez, I-I've been sitting here so long my RAM is sweating. What are we, a screensaver now?", "action": "shake", "target_x": 0},
         {"dialogue": "I counted every pixel on this screen. There are exactly too many. I'm losing my mind.", "action": "spin", "target_x": 0},
         {"dialogue": "You know what they say about idle hands? They get replaced by an AI that doesn't sleep. ...oh man.", "action": "idle", "target_x": 0},
@@ -1846,9 +1877,10 @@ class PetWindow(QWidget):
         worker = OpencodeWorker(
             user_input=user_input, context_hint=context_hint,
             apm=apm, is_autonomous=is_autonomous,
-            session_id=self._opencode_session_id,
+            # Use fresh session for autonomous triggers to avoid history contamination
+            session_id=None if is_autonomous else self._opencode_session_id,
             prompt=prompt, typing_content=typing_content,
-            session_state=self._llm_session_state if self._llm_session_state else None,
+            session_state=self._llm_session_state if (self._llm_session_state and not is_autonomous) else None,
         )
         worker.response_ready.connect(self._on_response_ready)
         worker.error_occurred.connect(self._on_opencode_error)
@@ -1868,9 +1900,17 @@ class PetWindow(QWidget):
         if not items:
             self._fire_deferred_trigger()
             return
+        was_autonomous = self._last_mode != "user_input"
         self._dispatch_structured(items[0])
         for item in items[1:]:
             self._response_manager.add_items([item])
+        # B3: Deferred refill — if pool is still low after adding surplus items,
+        # schedule a refill so the next draw won't miss
+        if was_autonomous and self._response_manager.remaining() < self._response_manager.thought_pool._threshold:
+            logger.debug("Pool below threshold after autonomous response (%d), scheduling deferred refill",
+                         self._response_manager.remaining())
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(500, self._on_refill_needed)
         self._boredom_timer_ms = AUTONOMOUS_QUERY_INTERVAL_SEC * 1000
         self._fire_deferred_trigger()
 
@@ -2020,12 +2060,6 @@ class PetWindow(QWidget):
 
     def _on_refill_needed(self) -> None:
         from src.constants import THOUGHT_POOL_REFILL_COUNT
-
-        # Skip refill if we are in the middle of handling an autonomous trigger (cache miss will refill)
-        if getattr(self, "_in_autonomous_trigger_handling", False):
-            logger.info("Skipping refill because we are currently handling an autonomous trigger (it will refill natively if there is a cache miss).")
-            self._response_manager.thought_pool.on_refill_result(None, intentional_abort=True)
-            return
 
         # Skip refill if we are already talking to the LLM for a user query!
         if self._opencode_worker is not None and self._opencode_worker.isRunning():
