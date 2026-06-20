@@ -12,6 +12,7 @@ class FSMActionBridge(QObject):
     request = pyqtSignal(str, object, object)  # action, target_x, target_y
     toast_request = pyqtSignal(str, str)  # title, message
     summarize_requested = pyqtSignal(str, str) # providerID, modelID
+    reminder_request = pyqtSignal(str, object) # action, data
 
     def __init__(self, parent=None):
         super().__init__(parent)

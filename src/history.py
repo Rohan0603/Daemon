@@ -1,29 +1,29 @@
 from __future__ import annotations
-import json
 import logging
-import os
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
-from src.constants import HISTORY_PATH
+from src.brain_store import BrainStore
 
 logger = logging.getLogger(__name__)
-
 
 if TYPE_CHECKING:
     from src.write_coalescer import WriteCoalescer
 
-
 _MAX_ENTRIES = 100
-
 
 class History:
     def __init__(self, path: str | None = None,
                  coalescer: "WriteCoalescer | None" = None) -> None:
-        self._path = path or HISTORY_PATH
-        self._entries: list[dict] = []
+        self._brain = BrainStore.get_instance(path)
         self._coalescer = coalescer
-        self._load()
+
+    @property
+    def _entries(self):
+        return self._brain.history
+
+    @_entries.setter
+    def _entries(self, value):
+        self._brain.history = value
 
     def add_entry(
         self,
@@ -69,7 +69,7 @@ class History:
             daemon = entry["daemon_response"]
             if len(daemon) > 60:
                 daemon = daemon[:57] + "..."
-            lines.append(f'- You: "{user}" → Daemon: "{daemon}"')
+            lines.append(f'- You: "{user}" ? Daemon: "{daemon}"')
         return "\n".join(lines)
 
     def count(self) -> int:
@@ -79,31 +79,7 @@ class History:
         self._save()
 
     def _save(self) -> None:
-        tmp = self._path + ".tmp"
-        try:
-            bak_path = self._path + ".bak"
-            if os.path.exists(self._path):
-                try:
-                    os.replace(self._path, bak_path)
-                except OSError:
-                    pass
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"entries": self._entries, "count": len(self._entries)}, f)
-            os.replace(tmp, self._path)
-        except Exception as e:
-            logger.warning("History save failed for %s: %s", self._path, e)
+        self._brain.save()
 
     def _load(self) -> None:
-        try:
-            data = json.loads(Path(self._path).read_text(encoding="utf-8"))
-            self._entries = data.get("entries", [])
-        except Exception:
-            logger.warning("History load failed for %s — trying .bak", self._path)
-            try:
-                bak_path = self._path + ".bak"
-                data = json.loads(Path(bak_path).read_text(encoding="utf-8"))
-                self._entries = data.get("entries", [])
-                logger.info("History loaded from backup (%d entries)", len(self._entries))
-            except Exception as e2:
-                logger.warning("History backup load also failed for %s: %s", self._path, e2)
-                self._entries = []
+        self._brain._load()

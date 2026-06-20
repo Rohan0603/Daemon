@@ -29,3 +29,6 @@ prometheus-client>=0.19.0
 
 # --- External CLI dependency (not pip-installable) ---
 # opencode CLI must be installed separately and on PATH
+
+# --- Build ---
+pyinstaller>=6.0.0

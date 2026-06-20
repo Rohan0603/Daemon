@@ -77,10 +77,7 @@ def main() -> None:
 
     print(f"[seed_brain] Using uid={uid}")
 
-    def token_provider() -> str:
-        return auth.get_valid_token() or ""
-
-    crud = FirebaseCRUD(token_provider=token_provider, project_id=FIREBASE_PROJECT_ID)
+    crud = FirebaseCRUD()
     if not crud.available:
         print("[seed_brain] Cannot connect to Firestore.", file=sys.stderr)
         sys.exit(1)

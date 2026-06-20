@@ -10,7 +10,7 @@ def _get_minimal_valid_cfg():
     return {
         "llm": {"model_id": "test-model", "api_key": "test-key", "server_url": "http://localhost"},
         "firebase": {"api_key": "test-fb-key", "project_id": "test-id", "credentials_path": "dummy.json"},
-        "pet": {}, "tts": {}, "consent": {}, "window": {}, 
+        "user": {}, "pet": {}, "tts": {}, "consent": {}, "window": {}, 
         "mcp": {}, "behavior": {}, "logging": {}, "storage": {},
         "visuals": {}, "triggers": {}
     }

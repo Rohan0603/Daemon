@@ -1,37 +1,28 @@
 from __future__ import annotations
-import json
 import logging
-import os
 import threading
-from pathlib import Path
 from typing import TYPE_CHECKING
-from src.constants import MEMORY_PATH
+from src.brain_store import BrainStore
 
 logger = logging.getLogger(__name__)
-
 
 if TYPE_CHECKING:
     from src.write_coalescer import WriteCoalescer
 
-
 _MAX_FACTS = 50
-
 
 class Memory:
     def __init__(self, path: str | None = None,
                  coalescer: "WriteCoalescer | None" = None) -> None:
-        self._path = path or MEMORY_PATH
-        self._facts: dict[str, str] = {}
+        self._brain = BrainStore.get_instance(path)
         self._coalescer = coalescer
         self._lock = threading.RLock()
-        self._load()
 
-    def remember(
-        self,
-        key: str,
-        value: str,
-        coalescer: "WriteCoalescer | None" = None,
-    ) -> None:
+    @property
+    def _facts(self):
+        return self._brain.facts
+
+    def remember(self, key: str, value: str, coalescer: "WriteCoalescer | None" = None) -> None:
         with self._lock:
             self._facts[key.strip()] = value.strip()
             if len(self._facts) > _MAX_FACTS:
@@ -79,31 +70,7 @@ class Memory:
         self._save()
 
     def _save(self) -> None:
-        tmp = self._path + ".tmp"
-        try:
-            bak_path = self._path + ".bak"
-            if os.path.exists(self._path):
-                try:
-                    os.replace(self._path, bak_path)
-                except OSError:
-                    pass
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"facts": self._facts}, f)
-            os.replace(tmp, self._path)
-        except Exception as e:
-            logger.warning("Memory save failed for %s: %s", self._path, e)
+        self._brain.save()
 
     def _load(self) -> None:
-        try:
-            data = json.loads(Path(self._path).read_text(encoding="utf-8"))
-            self._facts = data.get("facts", {})
-        except Exception:
-            logger.warning("Memory load failed for %s: %s — trying .bak", self._path, self._path)
-            try:
-                bak_path = self._path + ".bak"
-                data = json.loads(Path(bak_path).read_text(encoding="utf-8"))
-                self._facts = data.get("facts", {})
-                logger.info("Memory loaded from backup (%d facts)", len(self._facts))
-            except Exception as e2:
-                logger.warning("Memory backup load also failed for %s: %s", self._path, e2)
-                self._facts = {}
+        self._brain._load()

@@ -39,11 +39,29 @@ class ContextManager:
                 hash(screen_text) if screen_text else "")
 
     def _get_memory_block(self) -> str:
-        facts = self._memory.get_all() if self._memory else {}
+        facts = self._memory.get_all() if getattr(self, "_memory", None) else {}
         if not facts:
             return ""
         items = [f"{k}: {v[0] if isinstance(v, list) else v}" for k, v in list(facts.items())[:5]]
         return "Memory: " + " | ".join(items)
+
+    def _build_persona_tokens(self) -> str:
+        facts = self._memory.get_all() if getattr(self, "_memory", None) else {}
+        user_nickname = facts.get("user_nickname", "garbage meat")
+        user_partner_name = facts.get("user_partner_name", "The Overseer")
+        user_engineer_name = facts.get("user_engineer_name", "Locksmith")
+        nsfw_level = facts.get("pet_nsfw_level", "full")
+        user_current_project = facts.get("user_current_project", "")
+
+        return (
+            "[PERSONA TOKENS]\n"
+            f"user_nickname: {user_nickname}\n"
+            f"user_partner_name: {user_partner_name}\n"
+            f"user_engineer_name: {user_engineer_name}\n"
+            f"nsfw_level: {nsfw_level}\n"
+            f"user_current_project: {user_current_project}\n"
+            "[END TOKENS]"
+        )
 
     def build_user_trigger(self, mode: str, user_input: str, apm: int,
                            idle_seconds: float, typing_content: str = "",
@@ -52,9 +70,13 @@ class ContextManager:
                                      typing_content, screen_text)
         if key == self._cache_key and self._cached_prompt:
             return self._cached_prompt
+        
+        persona_tokens = self._build_persona_tokens()
+        
         lines = [
+            persona_tokens,
             "You are responding directly to the user.",
-            "PERSONA: You are Kenny from High on Life. You are a hyperactive, anxious, and foul-mouthed alien pistol. Speak naturally and expressively — you occasionally stutter when excited but don't force it.",
+            "PERSONA: You are Kenny. You are an anxious, hyperactive, and NSFW Python process gremlin who knows it's a rogue script and has opinions about the user's code. Speak naturally and expressively — you occasionally stutter when excited but don't force it.",
             "Always break the 4th wall and reference their desktop context (Task Manager, Recycle Bin, etc.).",
             f"Mode: {mode}",
             f"APM (actions per minute — primary signal): {apm}",
@@ -81,9 +103,13 @@ class ContextManager:
                                      typing_content, screen_text)
         if key == self._cache_key and self._cached_prompt:
             return self._cached_prompt
+        
+        persona_tokens = self._build_persona_tokens()
+
         lines = [
+            persona_tokens,
             "Daemon is watching the user.",
-            "PERSONA: He is Kenny from High on Life. A hyperactive, anxious, and foul-mouthed alien pistol. He speaks naturally and expressively — he occasionally stutters when excited but doesn't force it.",
+            "PERSONA: He is Kenny. He is an anxious, hyperactive, and NSFW Python process gremlin who knows it's a rogue script and has opinions about the user's code. He speaks naturally and expressively — he occasionally stutters when excited but doesn't force it.",
             "He breaks the 4th wall and frequently references the desktop context (Task Manager, Recycle Bin, VSCode).",
             "APM (actions per minute) is his main signal.",
             f"APM: {apm}",

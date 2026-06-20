@@ -115,6 +115,10 @@ class BehaviorController:
 
         # Currently evaluated emotion
         self._current_emotion = Emotion.MIRTH
+        
+        # Distractions
+        self._distraction_apps = []
+        self._event_bus.subscribe(EventType.SCREEN_TIME_THRESHOLD_REACHED, self._on_screen_time_threshold)
 
     # ── Public setters (called by PetWindow) ──────────────────────────
 
@@ -343,6 +347,54 @@ class BehaviorController:
             raise
 
     # ── Trigger Dispatch (via EventBus) ──────────────────────────────
+
+    def handle_file_edited(self, file_path: str):
+        # 10% chance to roast the file change autonomously
+        import random
+        if random.random() < 0.1:
+            logger.debug(f"[Code Review] Triggering autonomous code review for {file_path}")
+            self._trigger_code_review_roast(file_path)
+
+    def _trigger_code_review_roast(self, file_path: str):
+        logger.debug(f"[Code Review] Generating roast for recent git diff involving {file_path}")
+        if self._fsm.current_state != PetState.IDLE:
+            self._fsm.transition_to(PetState.IDLE)
+        self._fsm.transition_to(PetState.AUTONOMOUS_THINKING)
+        self._set_gcd(8.0)
+        
+        self._event_bus.emit_autonomous_trigger(
+            mode=f"code_review:{file_path}",
+            apm=self._current_apm,
+            idle_seconds=self._idle_seconds
+        )
+
+    def _on_screen_time_threshold(self, event):
+        app_name = event.data.get("app_name")
+        minutes = event.data.get("minutes")
+        logger.debug(f"[Screen Time] Threshold reached for {app_name}: {minutes} mins. Triggering roast!")
+        
+        # Check if distraction
+        if app_name.lower() in [d.lower() for d in PROCRASTINATION_DOMAINS]:
+            self._trigger_screen_time_roast(app_name, minutes * 60)
+
+    def _trigger_screen_time_roast(self, app_name: str, duration: int) -> None:
+        if self._gcd_expiry_timestamp > time.time():
+            return
+            
+        logger.info("Triggering screen time roast for %s (%d sec)", app_name, duration)
+        
+        if self._fsm.current_state != PetState.IDLE:
+            self._fsm.transition_to(PetState.IDLE)
+        self._fsm.transition_to(PetState.AUTONOMOUS_THINKING)
+        
+        # Set short GCD so the bubble shows
+        self._gcd_expiry_timestamp = time.time() + 8.0
+        
+        self._event_bus.emit_autonomous_trigger(
+            mode=f"screen_time_roast:{app_name}",
+            apm=self._current_apm,
+            idle_seconds=self._idle_seconds
+        )
 
     def _trigger_chat(self) -> None:
         """Handle active chat: publish event, draw from thought pool."""

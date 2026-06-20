@@ -19,7 +19,7 @@ def test_load_missing_file_returns_defaults(tmp_path):
     from src.persistence import load_state
     path = str(tmp_path / "nonexistent.json")
     result = load_state(path)
-    assert result == {"mood": 0, "interactions": 0, "runtime_seconds": 0, "skill_greeted": False, "first_run_done": False}
+    assert result == {"mood": 0, "interactions": 0, "runtime_seconds": 0, "skill_greeted": False, "first_run_done": False, "screen_time": {}, "screen_time_date": ""}
 
 
 def test_load_corrupt_file_returns_defaults(tmp_path):
@@ -28,7 +28,7 @@ def test_load_corrupt_file_returns_defaults(tmp_path):
     with open(path, "w") as f:
         f.write("{{{{ not valid json")
     result = load_state(path)
-    assert result == {"mood": 0, "interactions": 0, "runtime_seconds": 0, "skill_greeted": False, "first_run_done": False}
+    assert result == {"mood": 0, "interactions": 0, "runtime_seconds": 0, "skill_greeted": False, "first_run_done": False, "screen_time": {}, "screen_time_date": ""}
 
 
 def test_load_partial_file_fills_defaults(tmp_path):
@@ -69,7 +69,7 @@ class TestPersistenceEdgeCases:
         path = str(tmp_path / "state.json")
         save_state({}, path)
         result = load_state(path)
-        assert result == {"mood": 0, "interactions": 0, "runtime_seconds": 0, "skill_greeted": False, "first_run_done": False}
+        assert result == {"mood": 0, "interactions": 0, "runtime_seconds": 0, "skill_greeted": False, "first_run_done": False, "screen_time": {}, "screen_time_date": ""}
 
     def test_save_with_nested_data(self, tmp_path):
         from src.persistence import save_state, load_state
@@ -102,7 +102,7 @@ class TestPersistenceEdgeCases:
         with open(bak_path, "w") as f:
             f.write("also corrupt")
         result = load_state(path)
-        assert result == {"mood": 0, "interactions": 0, "runtime_seconds": 0, "skill_greeted": False, "first_run_done": False}
+        assert result == {"mood": 0, "interactions": 0, "runtime_seconds": 0, "skill_greeted": False, "first_run_done": False, "screen_time": {}, "screen_time_date": ""}
 
     def test_bak_created_on_save(self, tmp_path):
         from src.persistence import save_state

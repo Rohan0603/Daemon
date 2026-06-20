@@ -2038,3 +2038,27 @@ Shutdown: _finalize_quit() → save_session() → disk
 **Test results:** 702 passed, 1 skipped — zero regressions.
 
 **Key insight:** The "brain segfaulted" error was NOT a pool overflow or concurrency race. It was a `json.loads()` failing on JSONL format (multiple JSON objects on separate lines with no outer `[ ]`). Fix A1 resolves it definitively.
+
+---
+
+### Phase 64 � Screen Time, Reminders, Diff Tool, Test Optimization (2026-06-20)
+**Branch:** `master`
+
+**What was built:**
+- Completed T24: Screen Time Tracker. Added `get_screen_time` tool and `_on_screen_time_threshold` roasting trigger.
+- Completed T25: Git Diff Tool. Added `get_recent_git_diff` tool and `handle_file_edited` roasting trigger.
+- Completed T26: Reminders. Added `set_reminder`, `get_reminders`, and `dismiss_reminder` tools along with `_reminder_timer` and visual bubble delivery.
+- Cleaned up root directory and `data/` directory by removing stale configuration, log, and JSON files.
+- Re-ran tests, confirming test optimizations and fixes in `test_screen_time.py`.
+- Created `build.ps1` using PyInstaller for seamless executable generation and production deployments.
+
+**Files changed:**
+- `src/mcp_server.py`
+- `src/pet_window.py`
+- `src/behavior_controller.py`
+- `src/events.py`
+- `tests/test_screen_time.py`
+- `build.ps1`
+- `requirements.txt`
+
+**Test results:** Config, screen_time, and other tests passing.

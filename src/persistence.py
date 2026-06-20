@@ -7,7 +7,7 @@ from src.constants import STATE_PATH
 
 logger = logging.getLogger(__name__)
 
-_DEFAULTS = {"mood": 0, "interactions": 0, "runtime_seconds": 0, "skill_greeted": False, "first_run_done": False}
+_DEFAULTS = {"mood": 0, "interactions": 0, "runtime_seconds": 0, "skill_greeted": False, "first_run_done": False, "screen_time": {}, "screen_time_date": ""}
 _DEFAULT_PATH = STATE_PATH
 
 

@@ -296,6 +296,7 @@ def test_sync_to_local_writes_brain_fields_to_memory(tmp_path):
     mm.crud = mock_crud
     mm._uid = "test-uid"
     mm._pet_id = "kenny"
+    mm._pet_id = "kenny"
     mm._pending_writes = deque()
 
     mm.sync_to_local(mem)
@@ -318,6 +319,7 @@ def test_sync_to_local_no_op_when_crud_unavailable(tmp_path):
     mm = MemoryManager.__new__(MemoryManager)
     mm.crud = mock_crud
     mm._uid = "test-uid"
+    mm._pet_id = "kenny"
     mm._pending_writes = deque()
 
     mm.sync_to_local(mem)  # must not raise
@@ -346,6 +348,7 @@ def test_sync_from_local_pushes_memory_facts(tmp_path):
     mm = MemoryManager.__new__(MemoryManager)
     mm.crud = mock_crud
     mm._uid = "test-uid"
+    mm._pet_id = "kenny"
     mm._pet_id = "kenny"
     mm._pending_writes = deque()
 
@@ -379,6 +382,7 @@ def test_sync_from_local_no_op_when_crud_unavailable(tmp_path):
     mm = MemoryManager.__new__(MemoryManager)
     mm.crud = mock_crud
     mm._uid = "test-uid"
+    mm._pet_id = "kenny"
     mm._pending_writes = deque()
 
     mm.sync_from_local(mem)  # must not raise
@@ -395,6 +399,7 @@ def test_sync_from_local_no_op_when_memory_empty(tmp_path):
     mm = MemoryManager.__new__(MemoryManager)
     mm.crud = mock_crud
     mm._uid = "test-uid"
+    mm._pet_id = "kenny"
     mm._pending_writes = deque()
 
     mm.sync_from_local(mem)
@@ -417,6 +422,7 @@ def test_sync_from_local_silent_on_exception(tmp_path):
     mm = MemoryManager.__new__(MemoryManager)
     mm.crud = mock_crud
     mm._uid = "test-uid"
+    mm._pet_id = "kenny"
     mm._pet_id = "kenny"
     mm._pending_writes = deque()
 

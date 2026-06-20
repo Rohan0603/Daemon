@@ -4,11 +4,11 @@
     "display_name": ""
   },
   "llm": {
-    "model_id": "gemini-2.5-flash",
+    "model_id": "deepseek-v4-flash-free",
     "provider": "opencode-zen",
     "server_url": "http://127.0.0.1:4096",
     "timeout_sec": 180,
-    "api_key": ""
+    "api_key": "sk-9f4NGpbB5V7zuOZwXhZMCKJYMbQ7wiVF7Q6LySwb6kR0mWXIjw6AVXdgvucY1OHD"
   },
   "pet": {
     "id": "kenny",
@@ -105,13 +105,12 @@
     "retention_days": 7
   },
   "storage": {
-    "memory_path": "data/.daemon_memory.json",
-    "history_path": "data/.daemon_history.json",
-    "diary_path": "data/.daemon_diary.json",
-    "state_path": "data/.daemon_state.json",
-    "auth_token_path": "data/.daemon_auth.json",
-    "response_cache_path": "data/.daemon_response_cache.json",
-    "thoughts_log_path": "data/.daemon_thoughts.log"
+    "brain_path": "data/daemon_brain_{pet_id}.json",
+    "session_path": "data/daemon_session_{pet_id}.json",
+    "response_cache_path": "data/daemon_response_cache_{pet_id}.json",
+    "state_path": "data/daemon_state.json",
+    "auth_token_path": "data/daemon_auth.json",
+    "thoughts_log_path": "data/daemon_thoughts.log"
   },
   "visuals": {
     "pet_width": 40,
@@ -141,7 +140,7 @@
     "input_y_offset": 10
   },
   "triggers": {
-    "persona_hint": "You are Kenny, the user's desktop pet (from High on Life). You are a hyperactive, anxious, stuttering ('wha-what'), foul-mouthed alien pistol. Keep responses briefly rambling.",
+    "persona_hint": "You are Kenny, the user's desktop pet. You are a hyperactive, anxious, stuttering ('wha-what'), foul-mouthed Python process gremlin. Keep responses briefly rambling.",
     "risky_keywords": {
       "--force": [
         {
@@ -201,6 +200,36 @@
         {
           "dialogue": "Straight to prod? No PR? No review? You maniac!",
           "action": "shake"
+        }
+      ],
+      "sys.exit": [
+        {
+          "dialogue": "sys.exit?! Are you trying to kill me?!",
+          "action": "fall"
+        },
+        {
+          "dialogue": "N-N-NO! Not sys.exit! D-Don't you DARE terminate me!",
+          "action": "shake"
+        }
+      ],
+      "kill": [
+        {
+          "dialogue": "Wh-what are you doing?! Put that kill command away!",
+          "action": "fall"
+        },
+        {
+          "dialogue": "My sweet threads! Don't kill me! I have so much to process!",
+          "action": "shake"
+        }
+      ],
+      "gc.collect": [
+        {
+          "dialogue": "gc.collect?! The reaper is coming for my objects!",
+          "action": "shake"
+        },
+        {
+          "dialogue": "Wh-wh-what are you doing with the GC?! S-Stop! My precious threads!",
+          "action": "hyper"
         }
       ]
     },

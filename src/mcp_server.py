@@ -191,6 +191,56 @@ MCP_TOOLS = [
             "required": ["level"]
         }
     },
+    {
+        "name": "get_screen_time",
+        "description": "Get today's screen time usage per application (in seconds).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "get_recent_git_diff",
+        "description": "Get the git diff of the currently staged files or the last commit if working directory is clean.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "set_reminder",
+        "description": "Set a reminder that will emit a system toast and pet bubble after a given time.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "message": {"type": "string", "description": "Reminder message"},
+                "time_minutes": {"type": "number", "description": "Time in minutes to wait before reminding"}
+            },
+            "required": ["message", "time_minutes"]
+        }
+    },
+    {
+        "name": "get_reminders",
+        "description": "List all currently active reminders.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+        }
+    },
+    {
+        "name": "dismiss_reminder",
+        "description": "Dismiss/cancel an active reminder by ID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "Reminder ID"}
+            },
+            "required": ["id"]
+        }
+    },
 ]
 
 
@@ -661,6 +711,61 @@ class MCPHandler(BaseHTTPRequestHandler):
             logging.getLogger().setLevel(level)
             logger.info("Root logger level set to %s by MCP tool", level_str)
             return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": f"Log level set to {level_str}"}]}})
+
+        elif name == "get_screen_time":
+            logger.debug("[MCP] Tool called: get_screen_time")
+            from src.persistence import load_state
+            state = load_state()
+            screen_time = state.get("screen_time", {})
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": json.dumps(screen_time, indent=2)}]}})
+
+        elif name == "get_recent_git_diff":
+            logger.debug("[MCP] Tool called: get_recent_git_diff")
+            import subprocess
+            try:
+                # First try to get staged diff
+                diff = subprocess.check_output(["git", "diff", "--cached"], stderr=subprocess.STDOUT, text=True).strip()
+                if not diff:
+                    # If empty, try un-staged diff
+                    diff = subprocess.check_output(["git", "diff"], stderr=subprocess.STDOUT, text=True).strip()
+                if not diff:
+                    # If still empty, get last commit diff
+                    diff = subprocess.check_output(["git", "show", "--stat", "-p", "HEAD"], stderr=subprocess.STDOUT, text=True).strip()
+                # Truncate if too long
+                if len(diff) > 4000:
+                    diff = diff[:4000] + "\n...[truncated]"
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": diff}]}})
+            except Exception as e:
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": str(e)}})
+
+        elif name == "set_reminder":
+            logger.debug(f"[MCP] Tool called: set_reminder with args: {args}")
+            import concurrent.futures
+            future = concurrent.futures.Future()
+            data = {"message": args.get("message"), "time_minutes": args.get("time_minutes"), "future": future}
+            self._fsm_bridge.reminder_request.emit("set", data)
+            rem_id = future.result(timeout=2.0)
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": f"Reminder set with ID: {rem_id}"}]}})
+
+        elif name == "get_reminders":
+            logger.debug("[MCP] Tool called: get_reminders")
+            import concurrent.futures
+            future = concurrent.futures.Future()
+            self._fsm_bridge.reminder_request.emit("get", {"future": future})
+            active = future.result(timeout=2.0)
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": json.dumps(active, indent=2)}]}})
+
+        elif name == "dismiss_reminder":
+            logger.debug(f"[MCP] Tool called: dismiss_reminder with args: {args}")
+            import concurrent.futures
+            future = concurrent.futures.Future()
+            data = {"id": args.get("id"), "future": future}
+            self._fsm_bridge.reminder_request.emit("dismiss", data)
+            success = future.result(timeout=2.0)
+            if success:
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": f"Reminder {args.get('id')} dismissed"}]}})
+            else:
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32000, "message": "Reminder ID not found"}})
 
         else:
             logger.debug("MCP unknown tool: %s", name)

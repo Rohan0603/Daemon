@@ -20,7 +20,7 @@ from src.constants import (
     INPUT_WIDTH, INPUT_HEIGHT, INPUT_Y_OFFSET,
     BOREDOM_TIMEOUT_SEC,
     AUTONOMOUS_QUERY_INTERVAL_SEC, ACTIVE_CHAT_INTERVAL_SEC, JOKE_INTERVAL_SEC,
-    DIARY_PATH, RESPONSE_CACHE_PATH,
+    BRAIN_PATH, RESPONSE_CACHE_PATH,
     THOUGHTS_LOG_PATH,
     DEBUG,
     SILENCE_THRESHOLD, ENGAGED_THRESHOLD, BASE_INTERVAL_SEC,
@@ -93,6 +93,14 @@ class PetWindow(QWidget):
         self._fresh_login = fresh_login
         self.mood_score = initial_state.get("mood", 0)
         self.interaction_count = initial_state.get("interactions", 0)
+
+        self.screen_time = self._initial_state.get("screen_time", {})
+        self.screen_time_date = self._initial_state.get("screen_time_date", "")
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self.screen_time_date != today:
+            self.screen_time = {}
+            self.screen_time_date = today
+        self._screen_time_tick = 0
         self._skill_ready = skill_ready
         self._force_quit = False
         self._click_through: ClickThroughManager | None = None
@@ -200,19 +208,21 @@ class PetWindow(QWidget):
         self._fsm_bridge = FSMActionBridge()
         self._fsm_bridge.request.connect(self._on_mcp_fsm_action)
         self._fsm_bridge.toast_request.connect(self._on_toast_requested)
+        self._fsm_bridge.reminder_request.connect(self._on_reminder_request)
+        self._reminders = {}
         if hasattr(self._fsm_bridge, "summarize_requested"):
             self._fsm_bridge.summarize_requested.connect(self._handle_summarize_request)
         self._bubble_queue: list[str] = []
         self._bubble_text = ""
         self._bubble_timer_ms = 0
-        self._bubble_rect = QRect()
+        brain_path = self._config.get("storage", {}).get("brain_path", BRAIN_PATH)
 
-        self._memory = Memory(path=memory_path)
-        self._history = History(path=history_path)
+        self._memory = Memory(path=brain_path)
+        self._history = History(path=brain_path)
         self._crud = None
         self._firebase_available = False
         self._firebase_mem = None
-        self._diary_path = DIARY_PATH
+        self._diary_path = brain_path
 
         self._diary_store = DiaryStore(self._diary_path)
         self._mcp_server = MCPServer(self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, config=self._config)
@@ -527,12 +537,106 @@ class PetWindow(QWidget):
             self._behavior.set_idle_seconds(self._idle_seconds)
             self._behavior.tick(now - self._last_master_tick_time)
             self._last_master_tick_time = now
+
+            self._screen_time_tick += 1
+            if self._screen_time_tick >= 10:
+                self._update_screen_time()
+                self._screen_time_tick = 0
         except Exception as e:
             logger.critical("CRASH in _master_tick: %s", e, exc_info=True)
             raise
 
+    def _update_screen_time(self) -> None:
+        today = datetime.now().strftime("%Y-%m-%d")
+        if self.screen_time_date != today:
+            self.screen_time = {}
+            self.screen_time_date = today
+
+        from src.active_window import get_active_window_title
+        window_title = get_active_window_title()
+        if not window_title:
+            return
+            
+        if "-" in window_title:
+            app_name = window_title.split("-")[-1].strip()
+        else:
+            app_name = window_title.strip()
+
+        if app_name not in self.screen_time:
+            self.screen_time[app_name] = 0
+        self.screen_time[app_name] += 10  # Called every 10s
+
+        warn_sec = self._memory.get_all().get("screen_time_warn_sec", 3600)
+        if self.screen_time[app_name] == warn_sec:
+            # Emit threshold event
+            from src.events import Event, EventType
+            self._events.publish(Event(
+                type=EventType.SCREEN_TIME_THRESHOLD_REACHED,
+                source="pet_window",
+                data={"app_name": app_name, "duration": self.screen_time[app_name]}
+            ))
+
     def _handle_summarize_request(self, provider_id: str, model_id: str) -> None:
         self._trigger_ghost_summarization()
+
+    def _on_reminder_request(self, action: str, data: dict) -> None:
+        logger.debug(f"[Reminders] MCP Request received: {action} with data: {data}")
+        if action == "set":
+            import uuid
+            rem_id = str(uuid.uuid4())[:8]
+            msg = data.get("message", "Reminder")
+            mins = data.get("time_minutes", 1)
+            
+            logger.debug(f"[Reminders] Setting reminder {rem_id}: '{msg}' for {mins} minutes.")
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(lambda: self._fire_reminder(rem_id, msg))
+            timer.start(int(mins * 60000))
+            
+            self._reminders[rem_id] = {
+                "message": msg,
+                "time_minutes": mins,
+                "created_at": time.time(),
+                "timer": timer
+            }
+            # The MCP handler handles the return value (via a future, but since it's async, we just set it)
+            if "future" in data:
+                data["future"].set_result(rem_id)
+        elif action == "get":
+            active = []
+            for k, v in self._reminders.items():
+                active.append({
+                    "id": k,
+                    "message": v["message"],
+                    "time_minutes": v["time_minutes"],
+                    "elapsed_minutes": (time.time() - v["created_at"]) / 60.0
+                })
+            if "future" in data:
+                data["future"].set_result(active)
+        elif action == "dismiss":
+            rem_id = data.get("id")
+            if rem_id in self._reminders:
+                self._reminders[rem_id]["timer"].stop()
+                del self._reminders[rem_id]
+                if "future" in data:
+                    data["future"].set_result(True)
+            else:
+                if "future" in data:
+                    data["future"].set_result(False)
+
+    def _fire_reminder(self, rem_id: str, msg: str) -> None:
+        logger.debug(f"[Reminders] Timer expired for reminder {rem_id}. Firing UI events!")
+        if rem_id in self._reminders:
+            del self._reminders[rem_id]
+        
+        # Build the visual trigger
+        self._on_toast_requested("Reminder", msg)
+        self._bubble_queue.append(msg)
+        self._show_next_bubble()
+        
+        # Transition state
+        from src.pet_fsm import PetState
+        self._fsm.transition_to(PetState.BOUNCING)
 
     def _force_quit_app(self) -> None:
         if self._force_quit:
@@ -693,7 +797,8 @@ class PetWindow(QWidget):
 
     def _on_file_edited(self, filepath: str):
         # Optional context storing for the context manager
-        pass
+        if hasattr(self._behavior, "handle_file_edited"):
+            self._behavior.handle_file_edited(filepath)
 
     def closeEvent(self, event) -> None:
         if self._force_quit:

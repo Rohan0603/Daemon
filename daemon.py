@@ -274,7 +274,7 @@ def main() -> None:
     state = load_state()
     start_time = time.monotonic()
 
-    app = QApplication(sys.argv)
+    app = QApplication.instance() or QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
     # ── Firebase Auth gate ────────────────────────────────────────────────

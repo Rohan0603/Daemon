@@ -131,7 +131,7 @@ def test_save_is_callable(tmp_path):
     h.add_entry("q", "a", "idle")
     h.save()  # must not raise
     data = json.loads((tmp_path / "hist.json").read_text())
-    assert len(data["entries"]) == 1
+    assert len(data["history"]) == 1
 
 
 def test_add_entry_marks_dirty_when_coalescer_provided(tmp_path):

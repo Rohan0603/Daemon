@@ -127,7 +127,7 @@ def test_tools_list_count():
     handler = _handler()
     response = handler._handle_tools_list()
     tools = response["result"]["tools"]
-    assert len(tools) == 13
+    assert len(tools) == 18
     names = [t["name"] for t in tools]
     assert "change_visual_state" in names
     assert "read_clipboard" in names
@@ -148,7 +148,7 @@ def test_tools_list():
     response = handler._handle_tools_list()
     assert response["jsonrpc"] == "2.0"
     assert "result" in response
-    assert len(response["result"]["tools"]) == 13
+    assert len(response["result"]["tools"]) == 18
     tool = response["result"]["tools"][0]
     assert tool["name"] == "change_visual_state"
     assert "inputSchema" in tool

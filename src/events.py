@@ -57,6 +57,7 @@ class EventType(Enum):
     SCREEN_CONTENT_CHANGED = "screen_content_changed"
     APM_THRESHOLD_CROSSED = "apm_threshold_crossed"
     TYPING_BURST_DETECTED = "typing_burst_detected"
+    SCREEN_TIME_THRESHOLD_REACHED = "screen_time_threshold_reached"
 
     # Health/Status Events
     BRAIN_DISCONNECTED = "brain_disconnected"

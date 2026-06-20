@@ -59,3 +59,10 @@ def _mock_firebase_diary(m: MagicMock) -> MagicMock:
     m.write_local_diary = MagicMock()
     m.push_pending_diaries.return_value = 0
     return m
+
+from src.brain_store import BrainStore
+
+@pytest.fixture(autouse=True)
+def clear_brain_store_instances(monkeypatch):
+    BrainStore._instances.clear()
+    monkeypatch.setattr(BrainStore, '_migrate_v1_data', lambda self: None)
