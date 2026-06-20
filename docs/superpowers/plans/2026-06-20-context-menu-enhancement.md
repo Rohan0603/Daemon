@@ -125,7 +125,7 @@ git commit -m "feat: implement triple-confirmation lobotomy wipe"
 - Modify: `.opencode/skills/kenny/SKILL.md` (or wherever Kenny prompt is)
 
 - [ ] **Step 1: Overhaul LLM Prompts & Hardcoded Strings**
-Update the instructions for Kenny to emphasize High on Life persona traits: long-winded anxious rambling, stuttering ("wha-what", "I-I-I"), 4th wall breaks, desktop-context references (Task Manager, Recycle Bin).
+Read the `docs/superpowers/specs/kenny_reference_dialogs.md` file to internalize the 70 reference lines. Update the instructions for Kenny to emphasize High on Life persona traits: long-winded anxious rambling, stuttering ("wha-what", "I-I-I"), 4th wall breaks, desktop-context references (Task Manager, Recycle Bin). Make sure to heavily bias the prompt or examples using the newly provided references.
 
 - [ ] **Step 2: Commit**
 ```bash
