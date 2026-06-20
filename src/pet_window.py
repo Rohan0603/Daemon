@@ -317,6 +317,7 @@ class PetWindow(QWidget):
         self._deferred_trigger_params: dict | None = None
 
         self._brain_disconnected = False
+        self._refill_in_progress = False
         self._health_timer = QTimer(self)
         self._health_timer.setSingleShot(True)
         self._health_timer.setInterval(3000)
@@ -1678,6 +1679,9 @@ class PetWindow(QWidget):
         if self._autonomous_query_pending:
             logger.debug("[%s] Skipping: autonomous query pending", mode)
             return False
+        if getattr(self, '_refill_in_progress', False):
+            logger.debug("[%s] Skipping: refill in progress", mode)
+            return False
         if self._fsm.current_state in (
             PetState.THINKING, PetState.DRAGGED, PetState.FALLING,
             PetState.SLEEP,
@@ -1863,6 +1867,7 @@ class PetWindow(QWidget):
                 self._opencode_worker.finished.connect(self._opencode_worker.deleteLater)
                 
                 self._opencode_worker = None
+                self._opencode_session_id = None
                 self._autonomous_query_pending = False
                 self._deferred_trigger_params = None
             else:
@@ -2085,6 +2090,7 @@ class PetWindow(QWidget):
                 return
 
         count = THOUGHT_POOL_REFILL_COUNT
+        self._refill_in_progress = True
         base_prompt = self._context_manager.build_mixed_bag_prompt(count)
         window = get_active_window_title() or "unknown"
         # Single-stage refill: context included inline, no separate investigation call
@@ -2111,6 +2117,7 @@ class PetWindow(QWidget):
 
     def _on_refill_result(self, items: list) -> None:
         logger.info("Refill result: %d items", len(items) if items else 0)
+        self._refill_in_progress = False
         worker = self._refill_workers.pop("thought_pool", None)
         if worker is not None:
             worker.deleteLater()
@@ -2136,6 +2143,7 @@ class PetWindow(QWidget):
         # For now, just log; the next _master_tick will naturally draw from the pool
 
     def _on_refill_error(self) -> None:
+        self._refill_in_progress = False
         worker = self._refill_workers.pop("thought_pool", None)
         if worker is not None:
             worker.deleteLater()
