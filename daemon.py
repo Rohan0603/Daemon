@@ -180,6 +180,8 @@ def main() -> None:
 
 
     logger.info("=== DAEMON STARTUP (PID %d) ===", os.getpid())
+    model_id = cfg.get("llm", {}).get("model_id", "Unknown")
+    logger.info("Using LLM Model ID: %s", model_id)
     logger.info("Crash instrumentation active: crash_dump.log = %s", _CRASH_LOG)
     import time
     _boot_marks = {}  # Track boot stage timings
