@@ -36,7 +36,11 @@ We will refactor the existing `ThoughtLogDialog` into a more generic `DataViewer
 ## 3. New Functionalities Implementation
 - **Force Sleep:** A new `_forced_sleep` boolean will be added to the `PetWindow` state. When toggled ON, autonomous actions (`_active_chat_timer`, `_joke_timer`, etc.) will be suppressed, and the FSM will be forced into `PetState.SLEEP`. Unchecking it wakes the pet.
 - **Mute Voice:** Will toggle the text-to-speech engine. This mirrors the functionality in the `SettingsDialog` but exposes it directly on the context menu for 1-click access.
-- **Lobotomy (Wipe All Data):** A destructive action. When clicked, it must show a native `QMessageBox` warning prompt. If the user confirms, it will clear the local stores (`Memory`, `History`, `DiaryStore`), clear them from Firebase if synced, and reset context hashes to effectively wipe the pet's slate clean.
+- **Lobotomy (Wipe All Data):** A destructive action. When clicked, it will require going through 3 confirmation popups in Kenny's persona to prevent accidental wiping:
+  1. "Whoa whoa whoa, you want to wipe my entire brain?! Are you serious right now?" (Yes / No)
+  2. "I'm not kidding, this deletes EVERYTHING. My memories, my history, my beautiful thoughts. All of it. Still want to do this?" (Do it / Cancel)
+  3. "Final warning! I'm gonna wake up not knowing who you are! Press 'Obliterate' if you're actually this heartless." (Obliterate / Nevermind)
+  If all 3 are confirmed, it will clear the local stores (`Memory`, `History`, `DiaryStore`), clear them from Firebase if synced, and reset context hashes to effectively wipe the pet's slate clean.
 
 ## 4. Components Affected
 - `src/context_menu.py`: Update the menu hierarchy, add new actions, and introduce new signals (`sleep_toggle`, `mute_toggle`, `wipe_memory`).
