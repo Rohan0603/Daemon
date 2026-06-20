@@ -145,7 +145,7 @@ class ContextManager:
             f"- \"dialogue\": spoken text (max 100 chars)\n"
             f"- \"thought\": internal monologue (max 150 chars)\n"
             f"- \"priority\": integer 1-5\n"
-            f"- \"context_hash\": copy from the Screen Context below if making an observation\n\n"
+            f"- \"context_hash\": copy the value of Screen Context if making an observation, otherwise omit\n\n"
             f"Types guide:\n"
             f"- typing_reaction: short reaction to user typing speed\n"
             f"- observation: comment on what's on user's screen\n"

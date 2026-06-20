@@ -39,9 +39,17 @@ class ThoughtPool(QObject):
             if item.get("type") != target_type:
                 continue
             item_hash = item.get("context_hash")
-            if item_hash is not None and current_context_hash is not None and item_hash != current_context_hash:
-                stale_indices.append(idx)
-                continue
+            if item_hash is not None and current_context_hash is not None:
+                ih = str(item_hash).lower().strip()
+                ch = str(current_context_hash).lower().strip()
+                if ih not in ch and ch not in ih:
+                    stale_count = item.get("stale_count", 0) + 1
+                    item["stale_count"] = stale_count
+                    if stale_count >= 3:
+                        stale_indices.append(idx)
+                    continue
+                else:
+                    item["stale_count"] = 0
             priority = item.get("priority", 3)
             if priority > best_priority:
                 best_priority = priority

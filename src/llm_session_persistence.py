@@ -207,29 +207,50 @@ Summary:"""
         llm_cfg = config.get("llm", {})
         server_url = llm_cfg.get("server_url") or DEFAULT_SERVER_URL
         timeout_sec = llm_cfg.get("timeout_sec", 180)
-        
-        # Prepare the request payload
-        payload = {
-            "parts": [{"type": "text", "text": prompt}],
-            "structured": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]},
-        }
-        
-        # Send the request
-        response = requests.post(
-            f"{server_url}/session/{session_id}/message",
-            json=payload,
-            timeout=timeout_sec
-        )
-        
-        if response.status_code >= 400:
-            logger.warning("Failed to generate summary: HTTP %s", response.status_code)
+
+        # Create a temporary session to avoid polluting the active session
+        try:
+            create_resp = requests.post(f"{server_url}/session", json={}, timeout=10)
+            if create_resp.status_code >= 400:
+                logger.warning("Failed to create temporary summary session: HTTP %s", create_resp.status_code)
+                return ""
+            temp_session_id = create_resp.json().get("session_id")
+            if not temp_session_id:
+                logger.warning("Failed to get temporary summary session ID")
+                return ""
+        except Exception as e:
+            logger.warning("Failed to create temporary summary session: %s", e)
             return ""
-        
-        # Extract summary from response
-        data = response.json()
-        parts = data.get("parts", [])
-        text_parts = [p.get("text", "") for p in parts if p.get("type") == "text"]
-        summary = "".join(text_parts).strip()
+
+        try:
+            # Prepare the request payload
+            payload = {
+                "parts": [{"type": "text", "text": prompt}],
+                "structured": {"type": "object", "properties": {"summary": {"type": "string"}}, "required": ["summary"]},
+            }
+            
+            # Send the request to the temporary session
+            response = requests.post(
+                f"{server_url}/session/{temp_session_id}/message",
+                json=payload,
+                timeout=timeout_sec
+            )
+            
+            if response.status_code >= 400:
+                logger.warning("Failed to generate summary: HTTP %s", response.status_code)
+                return ""
+            
+            # Extract summary from response
+            data = response.json()
+            parts = data.get("parts", [])
+            text_parts = [p.get("text", "") for p in parts if p.get("type") == "text"]
+            summary = "".join(text_parts).strip()
+        finally:
+            # Always clean up the temporary session
+            try:
+                requests.delete(f"{server_url}/session/{temp_session_id}", timeout=5)
+            except Exception as e:
+                logger.debug("Failed to delete temporary summary session: %s", e)
         
         # If the response is wrapped in markdown or has extra text, try to extract just the summary
         # Look for common patterns like "Summary:" or just take the last meaningful line

@@ -1919,3 +1919,21 @@ Shutdown: _finalize_quit() → save_session() → disk
 - `src/pet_window.py`
 
 **Done — End of Project Dev Memory**
+
+---
+
+### Phase 62 — Session Summary & Refill Optimization (2026-06-20)
+**Branch:** `task-62-session-summary-refill-fixes`
+
+**What was built:**
+- Isolated conversation summary generation in a temporary session in `src/llm_session_persistence.py` to prevent polluting the active session history on the server.
+- Aligned context hash checks by normalizing comparisons, implementing substring matches, and adding a `stale_count` limit (up to 3 draws) in `ThoughtPool.draw_by_type()` before discarding observations.
+- Fixed a sequencing bug where redundant concurrent refill workers were spawned during autonomous triggers by introducing the `self._in_autonomous_trigger_handling` flag to skip refilling during active trigger sequences.
+
+**Files changed:**
+- `src/llm_session_persistence.py`
+- `src/context_manager.py`
+- `src/pet_window.py`
+- `src/response_pool.py`
+
+**Done — End of Project Dev Memory**

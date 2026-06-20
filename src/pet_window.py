@@ -309,6 +309,7 @@ class PetWindow(QWidget):
         self._current_interval = BASE_INTERVAL_SEC
         self._idle_backoff_seconds = 0.0
         self._last_context_snapshot = None
+        self._in_autonomous_trigger_handling = False
 
         self._deferred_trigger_params: dict | None = None
 
@@ -1660,36 +1661,40 @@ class PetWindow(QWidget):
         Dispatches the trigger through the thought pool or local FSM action
         depending on mode. Called on AUTONOMOUS_TRIGGER_FIRED.
         """
-        mode = event.data.get("mode", "")
-        if not self._should_fire_autonomous(mode):
-            return
+        self._in_autonomous_trigger_handling = True
+        try:
+            mode = event.data.get("mode", "")
+            if not self._should_fire_autonomous(mode):
+                return
 
-        if mode == "boredom":
-            # Local FSM action only — no GCD, no opencode
-            actions = ["PERIMETER", "SHAKING", "SPINNING", "LOOK_AWAY", "BOUNCING"]
-            action = random.choice(actions)
-            target_state = getattr(PetState, action)
-            self._fsm.transition_to(target_state)
-            self._on_output_displayed(engaged=False)
-            return
+            if mode == "boredom":
+                # Local FSM action only — no GCD, no opencode
+                actions = ["PERIMETER", "SHAKING", "SPINNING", "LOOK_AWAY", "BOUNCING"]
+                action = random.choice(actions)
+                target_state = getattr(PetState, action)
+                self._fsm.transition_to(target_state)
+                self._on_output_displayed(engaged=False)
+                return
 
-        # active_chat or joke: draw from thought pool
-        draw_type = "typing_reaction" if mode == "active_chat" else "intel_roast"
-        items = self._response_manager.draw(draw_type)
-        if not items and mode == "joke":
-            items = self._response_manager.draw("observation")
-        if items:
-            self._dispatch_structured(items[0])
-            self._on_output_displayed(engaged=True)
-        else:
-            # No local cache hit — trigger opencode dispatch
-            self._dispatch_trigger(
-                mode=mode,
-                apm=event.data.get("apm", 0),
-                idle_seconds=event.data.get("idle_seconds", 0.0),
-                typing_content=self._typing_buffer.get_context() if hasattr(self, "_typing_buffer") else "",
-                is_autonomous=True,
-            )
+            # active_chat or joke: draw from thought pool
+            draw_type = "typing_reaction" if mode == "active_chat" else "intel_roast"
+            items = self._response_manager.draw(draw_type)
+            if not items and mode == "joke":
+                items = self._response_manager.draw("observation")
+            if items:
+                self._dispatch_structured(items[0])
+                self._on_output_displayed(engaged=True)
+            else:
+                # No local cache hit — trigger opencode dispatch
+                self._dispatch_trigger(
+                    mode=mode,
+                    apm=event.data.get("apm", 0),
+                    idle_seconds=event.data.get("idle_seconds", 0.0),
+                    typing_content=self._typing_buffer.get_context() if hasattr(self, "_typing_buffer") else "",
+                    is_autonomous=True,
+                )
+        finally:
+            self._in_autonomous_trigger_handling = False
 
     _BOREDOM_FALLBACK_JOKES = [
         {"dialogue": "Holy crap, you're still alive? I was drafting your eulogy in Python comments.", "action": "idle", "target_x": 0},
@@ -1721,7 +1726,7 @@ class PetWindow(QWidget):
             return
             
 
-        current_hash = self._last_context_snapshot if hasattr(self, "_last_context_snapshot") else None
+        current_hash = get_active_window_title()
         items = self._response_manager.draw("idle_thought", current_context_hash=current_hash)
         if not items:
             items = self._response_manager.draw("observation", current_context_hash=current_hash)
@@ -2017,6 +2022,12 @@ class PetWindow(QWidget):
     def _on_refill_needed(self) -> None:
         from src.constants import THOUGHT_POOL_REFILL_COUNT
 
+        # Skip refill if we are in the middle of handling an autonomous trigger (cache miss will refill)
+        if getattr(self, "_in_autonomous_trigger_handling", False):
+            logger.info("Skipping refill because we are currently handling an autonomous trigger (it will refill natively if there is a cache miss).")
+            self._response_manager.thought_pool.on_refill_result(None, intentional_abort=True)
+            return
+
         # Skip refill if we are already talking to the LLM for a user query!
         if self._opencode_worker is not None and self._opencode_worker.isRunning():
             logger.info("Skipping refill because a user query is actively running.")
@@ -2045,7 +2056,8 @@ class PetWindow(QWidget):
         window = get_active_window_title() or "unknown"
         # Single-stage refill: context included inline, no separate investigation call
         single_prompt = (
-            f"Context — window: {window}, APM: {self._current_apm}.\n"
+            f"Screen Context: {window}\n"
+            f"APM: {self._current_apm}\n"
             f"Generate thoughts a panicked pet would have in this context.\n\n"
             f"{base_prompt}"
         )
