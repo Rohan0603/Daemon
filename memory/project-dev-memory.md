@@ -1858,7 +1858,7 @@ Shutdown: _finalize_quit() → save_session() → disk
 
 ---
 
-### Phase 59 — Boot Config Validation (2026-06-20)
+### Phase 59 — Boot Config Validation & Strict Config Validation (2026-06-20)
 **Branch:** `master`
 
 **What was built:**
@@ -1867,12 +1867,16 @@ Shutdown: _finalize_quit() → save_session() → disk
 - Boot sequence interception in `daemon.py` `main()`: catches `MissingConfigurationError`, pops the `SettingsDialog` immediately, allowing the user to provide API keys before continuing. Exits on cancel or subsequent failure.
 - Redundant warning logs around `firebase_key` and `opencode_api_key` were removed.
 - A test environment leakage in `tests/test_config.py` was fixed by patching `os.environ` and `_CONFIG_PATH` to `tmp_path`.
+- Implemented **Strict Configuration Validation**: Removed DEFAULT_CONFIG entirely from src/config.py so that the file system (data/daemon_config.json) is the single source of truth.
+- Created ssets/daemon_config_template.json to act as a fallback. load_config will automatically copy this template to the data directory if the user config does not exist.
+- Expanded alidate_config to explicitly enforce the existence of all 10 top-level configuration sections.
+- Updated AGENTS.md with a critical rule warning future agents that the app will crash if new config keys are added without explicitly placing them in daemon_config.json.
 
 **Files changed:**
 - `src/config.py`
 - `tests/test_config.py`
 - `daemon.py`
 
-**Test results:** Config validation tests pass. Added 3 new unit tests. No failing existing tests.
+**Test results:** Config validation tests pass. Added new unit tests for strict validation logic. Removed reliance on hardcoded DEFAULT_CONFIG across the test suite. All tests passing.
 
 **Done — End of Project Dev Memory**
