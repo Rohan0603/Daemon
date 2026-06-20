@@ -130,9 +130,21 @@ class TestApplyBrainUpdateEdgeCases:
 
     def test_apply_brain_update_map_merge(self):
         from src.brain_schema import apply_brain_update
-        update = {"intel_insider_knowledge": {"secret": "xyz"}}
+        update = {"progression_flags": {"new_flag": "xyz"}}
         result = apply_brain_update(update)
-        assert result["intel_insider_knowledge"] == {"secret": "xyz"}
+        assert result["progression_flags"] == {"new_flag": "xyz"}
+        
+    def test_apply_brain_update_new_persona_fields(self):
+        from src.brain_schema import apply_brain_update
+        update = {
+            "user_partner_name": "New Partner",
+            "pet_pomodoro_config": {"work_min": 50},
+            "screen_time_warn_sec": 7200
+        }
+        result = apply_brain_update(update)
+        assert result["user_partner_name"] == "New Partner"
+        assert result["pet_pomodoro_config"] == {"work_min": 50}
+        assert result["screen_time_warn_sec"] == 7200
 
     def test_apply_brain_update_int_value(self):
         from src.brain_schema import apply_brain_update
@@ -151,7 +163,7 @@ class TestBrainSchemaEdgeCases:
 
     def test_default_brain_all_unlocked_lists_have_items(self):
         from src.brain_schema import BRAIN_SCHEMA, DEFAULT_BRAIN
-        empties_allowed = {"intel_archive", "user_preferences", "user_long_term_goals", "user_imposed_rules"}
+        empties_allowed = {"intel_archive", "user_preferences", "user_long_term_goals", "user_imposed_rules", "intel_insider_knowledge", "user_current_project"}
         for key, schema in BRAIN_SCHEMA.items():
             if not schema["locked"]:
                 if schema["type"] == "list":
