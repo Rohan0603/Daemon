@@ -153,6 +153,16 @@ class FirebaseAuth:
         self._id_token = data.get("idToken")
         self._refresh_token = data.get("refreshToken")
         self._expires_at = data.get("expires_at", 0.0)
+        
+        if self._uid:
+            from src.config import load_config, save_config
+            cfg = load_config()
+            if "user" not in cfg:
+                cfg["user"] = {}
+            if cfg["user"].get("uid") != self._uid:
+                cfg["user"]["uid"] = self._uid
+                save_config(cfg)
+                
         return self._uid is not None
 
     def is_authenticated(self) -> bool:
@@ -182,6 +192,14 @@ class FirebaseAuth:
         self._refresh_token = data.get("refreshToken")
         expires_in = int(data.get("expiresIn", 3600))
         self._expires_at = time.time() + expires_in
+        
+        from src.config import load_config, save_config
+        cfg = load_config()
+        if "user" not in cfg:
+            cfg["user"] = {}
+        if cfg["user"].get("uid") != self._uid:
+            cfg["user"]["uid"] = self._uid
+            save_config(cfg)
         if self._event_bus:
             self._event_bus.publish(Event(
                 type=EventType.AUTH_SUCCESS,

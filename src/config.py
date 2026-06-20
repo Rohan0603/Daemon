@@ -21,6 +21,8 @@ STORAGE_DIR = Path(__file__).parent.parent / "data"
 CONFIG_PATH = STORAGE_DIR / "daemon_config.json"
 
 FLAT_TO_NESTED = {
+    "USER_UID": ("user", "uid"),
+    "USER_DISPLAY_NAME": ("user", "display_name"),
     "OPENCODE_API_MODEL_ID": ("llm", "model_id"),
     "OPENCODE_API_MODEL_PROVIDER": ("llm", "provider"),
     "OPENCODE_SERVER_URL": ("llm", "server_url"),
@@ -30,8 +32,10 @@ FLAT_TO_NESTED = {
     "pet_opacity": ("pet", "opacity"),
     "pet_speed_multiplier": ("pet", "speed_multiplier"),
     "pet_speed": ("pet", "speed_multiplier"),
+    "pet_speed": ("pet", "speed_multiplier"),
     "chattiness": ("pet", "chattiness"),
     "pet_id": ("pet", "id"),
+    "PET_ACTIVE_PERSONAS": ("pet", "active_personas"),
     "tts_enabled": ("tts", "enabled"),
     "tts_rate": ("tts", "rate"),
     "tts_volume": ("tts", "volume"),
@@ -136,6 +140,8 @@ FLAT_TO_NESTED = {
 }
 
 NESTED_TO_FLAT = {
+    ("user", "uid"): "USER_UID",
+    ("user", "display_name"): "USER_DISPLAY_NAME",
     ("llm", "model_id"): "OPENCODE_API_MODEL_ID",
     ("llm", "provider"): "OPENCODE_API_MODEL_PROVIDER",
     ("llm", "server_url"): "OPENCODE_SERVER_URL",
@@ -144,8 +150,10 @@ NESTED_TO_FLAT = {
     ("pet", "scale"): "pet_scale",
     ("pet", "opacity"): "pet_opacity",
     ("pet", "speed_multiplier"): "pet_speed_multiplier",
+    ("pet", "speed_multiplier"): "pet_speed_multiplier",
     ("pet", "chattiness"): "chattiness",
     ("pet", "id"): "pet_id",
+    ("pet", "active_personas"): "PET_ACTIVE_PERSONAS",
     ("tts", "enabled"): "tts_enabled",
     ("tts", "rate"): "tts_rate",
     ("tts", "volume"): "tts_volume",
@@ -289,7 +297,7 @@ def validate_config(cfg: dict) -> None:
     missing = []
     
     # 1. Top-Level Structure Checks
-    required_sections = ["llm", "pet", "tts", "consent", "window", "firebase", "mcp", "behavior", "logging", "storage", "visuals", "triggers"]
+    required_sections = ["user", "llm", "pet", "tts", "consent", "window", "firebase", "mcp", "behavior", "logging", "storage", "visuals", "triggers"]
     for section in required_sections:
         if section not in cfg or not isinstance(cfg[section], dict):
             missing.append(f"Section '{section}'")

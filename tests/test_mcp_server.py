@@ -450,7 +450,7 @@ def test_tools_call_read_file_valid():
     assert response["jsonrpc"] == "2.0"
     assert "result" in response
     text = response["result"]["content"][0]["text"]
-    assert "BOREDOM_TIMEOUT_SEC" in text
+    assert "STRUCTURED_SCHEMA" in text
 
 
 def test_tools_call_read_file_pagination():

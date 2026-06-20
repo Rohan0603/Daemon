@@ -7,8 +7,16 @@ import logging
 import traceback
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication
-from src.constants import STORAGE_DIR
+from src.constants import STORAGE_DIR, DEBUG, MAX_RESPONSE_CHARS
 from src.config import DEFAULT_SERVER_URL
+
+def _resolve_skill_path(pet_id: str) -> Path:
+    """Resolve the SKILL.md path for a given pet_id, falling back to kenny if not found."""
+    project_root = Path(__file__).parent
+    skill_dir = project_root / ".opencode" / "skills" / pet_id
+    if not skill_dir.exists():
+        skill_dir = project_root / ".opencode" / "skills" / "kenny"
+    return skill_dir / "SKILL.md"
 
 logger = logging.getLogger("daemon")
 

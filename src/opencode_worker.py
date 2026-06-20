@@ -78,7 +78,12 @@ class OpencodeWorker(QThread):
                 if self._abort:
                     return None
                 logger.info("API: creating session at %s/session", server_url)
-                session_payload = {"skill": "kenny"}
+                
+                from src.config import load_config
+                cfg = load_config()
+                pet_id = cfg.get("pet", {}).get("id", "kenny")
+                
+                session_payload = {"skill": pet_id}
                 if model_id:
                     session_payload["agent"] = model_id
                 r = requests.post(

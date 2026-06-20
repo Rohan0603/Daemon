@@ -1,17 +1,24 @@
 {
+  "user": {
+    "uid": "uid1",
+    "display_name": ""
+  },
   "llm": {
-    "model_id": "deepseek-v4-flash-free",
+    "model_id": "gemini-2.5-flash",
     "provider": "opencode-zen",
     "server_url": "http://127.0.0.1:4096",
     "timeout_sec": 180,
-    "api_key": "sk-Kl6KqXvG4vlSylT1TmvcWh5ge5GIBgXFGV1n1glADmjpqUraLZJxxm3BOO0TudY6"
+    "api_key": ""
   },
   "pet": {
     "id": "kenny",
+    "active_personas": [
+      "kenny"
+    ],
     "scale": 1.0,
     "opacity": 0.85,
     "speed_multiplier": 1.0,
-    "chattiness": 3.0
+    "chattiness": 1.0
   },
   "tts": {
     "enabled": true,
@@ -22,12 +29,12 @@
   },
   "consent": {
     "allow_intrusive_animations": true,
-    "allow_audio_disruptions": true,
-    "allow_browser_redirection": true,
-    "allow_clipboard_hijacking": true,
-    "allow_mouse_interference": true,
-    "allow_window_management": true,
-    "allow_keyboard_injection": true
+    "allow_audio_disruptions": false,
+    "allow_browser_redirection": false,
+    "allow_clipboard_hijacking": false,
+    "allow_mouse_interference": false,
+    "allow_window_management": false,
+    "allow_keyboard_injection": false
   },
   "window": {
     "monitor": false

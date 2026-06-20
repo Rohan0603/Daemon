@@ -1,4 +1,8 @@
 {
+  "user": {
+    "uid": "",
+    "display_name": ""
+  },
   "llm": {
     "model_id": "gemini-2.5-flash",
     "provider": "opencode-zen",
@@ -8,6 +12,9 @@
   },
   "pet": {
     "id": "kenny",
+    "active_personas": [
+      "kenny"
+    ],
     "scale": 1.0,
     "opacity": 0.85,
     "speed_multiplier": 1.0,

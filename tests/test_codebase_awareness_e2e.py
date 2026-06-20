@@ -39,7 +39,7 @@ def test_full_read_pipeline():
     })
     assert "result" in resp
     text = resp["result"]["content"][0]["text"]
-    assert "BOREDOM_TIMEOUT_SEC" in text or "MAX_IDLE_BACKOFF_SEC" in text
+    assert "STRUCTURED_SCHEMA" in text or "DEBUG: bool" in text
 
     # 3. Search for a class
     resp = handler._handle_tools_call({
