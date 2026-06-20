@@ -6,9 +6,9 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-16 (Phase 54 — API Call Reduction)
+**Date updated:** 2026-06-20 (Phase 58 — Persistent LLM Sessions, fix round)
 **Current branch:** `master`
-**Test count:** ~630 across 49 test files
+**Test count:** ~672 across 51 test files
 **Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54
 
 ---
@@ -1731,5 +1731,129 @@ Extracted the autonomous behavior system from PetWindow's ~2175-line god object 
 - **Structlog JSON:** Opt-in via `json_output: true` in config; produces NDJSON for ELK/Loki ingestion
 
 **Test results:** 645 passed (full regression).
+
+
+### Phase 57 — Plugin Architecture (2026-06-20)
+
+**Goal:** Dynamic emotion/behavior loading via filesystem plugins — foundational infrastructure for extensibility without modifying core code.
+
+**Design:**
+- **Plugin protocol:** Each `.py` file in `plugins/` exports a `register(registry)` function called at boot
+- **PluginRegistry** — central registry for plugin-contributed components (emotion profiles, emotion rules, behavior triggers)
+- **PluginManager** — filesystem discovery and loading with per-module validation
+- **Priority system:** Plugin rules run at configurable priority (lower = higher precedence), built-in rules run at priority 100
+- **Cooldown:** Behavior triggers have per-trigger cooldown to prevent spam
+
+**Files created:**
+
+| File | Description |
+|------|-------------|
+| `src/plugin_registry.py` | PluginRegistry — registration + query API for emotion profiles, emotion rules, behavior triggers |
+| `src/plugin_manager.py` | PluginManager — filesystem discovery (plugins/*.py), import/validation, per-plugin lifecycle |
+| `plugins/__init__.py` | Plugin directory marker |
+| `plugins/emotion_nostalgia.py` | **Sample plugin** — overrides PATHOS profile with sepia tone, adds emotion rule for legacy windows, adds behavior trigger for archive browsing |
+| `tests/test_plugin_system.py` | 17 tests covering registry, plugin loading, cooldown, error handling, integration |
+
+**Files modified:**
+
+| File | Description |
+|------|-------------|
+| `src/animator.py` | Added `apply_plugin_profiles()` — merges plugin-registered profiles into `EMOTION_PROFILES` dict |
+| `src/behavior_controller.py` | Added `plugin_registry` parameter; `_evaluate_plugin_emotion()` runs plugin rules before built-in chain |
+| `src/pet_window.py` | Passes `plugin_registry` through to `BehaviorController` |
+| `daemon.py` | Creates `PluginRegistry`, `PluginManager`, discovers and loads plugins, applies profiles at boot |
+
+**Boot sequence addition:**
+```
+generate_codebase_map() - after
+  → PluginRegistry()
+  → PluginManager.discover()
+  → PluginManager.load_all()
+  → apply_plugin_profiles()
+  → (continues to opencode serve check)
+```
+
+**Plugin rules API:**
+```python
+# Emotion profile override
+registry.register_emotion_profile(Emotion.PATHOS, profile, plugin_name="my_plugin")
+
+# Emotion evaluation rule (context dict → Emotion or None)
+registry.register_emotion_rule("my_rule", fn, priority=50)
+
+# Behavior trigger (context dict → dict or None)
+registry.register_behavior_trigger("my_trigger", fn, cooldown_sec=120)
+```
+
+**Known limitations:**
+- Emotion enum is fixed — plugins cannot add new enum values, only override profiles for existing ones
+- No plugin hot-reload (plugins loaded once at boot)
+- No plugin CLI management yet (`hermes plugin install/enable/disable`)
+- Sample plugin `emotion_nostalgia.py` is purely demonstrational — override/remove in production
+
+**Test results:** 17 new tests pass (all plugin system tests). Full existing test suite unaffected (animator, behavior controller all green).
+
+
+### Phase 58 — Persistent LLM Sessions (2026-06-20)
+
+**Goal:** Resume opencode conversation sessions across daemon restarts — preserve session ID, conversation history (last 30 turns), and inject history context into the first message of a new session when the old one can't be resumed.
+
+**New files:**
+| File | Purpose |
+|------|---------|
+| `src/llm_session_persistence.py` | `ChatTurn`, `LLMSessionState` dataclasses + `save_session()`, `load_session()`, `clear_session()` |
+| `tests/test_llm_session_persistence.py` | 25 tests covering dataclass, save/load/clear, corrupt data, history trimming, worker integration |
+
+**Modified files:**
+| File | Change |
+|------|--------|
+| `src/opencode_worker.py` | Added `session_state` param, `session_turn_completed` signal, `_emit_turn_completed()` — prepends `history_context` to prompt on resume |
+| `src/pet_window.py` | Loads `LLMSessionState` on init, passes to workers, connects `session_turn_completed` → `_on_session_turn_completed` (saves after every turn), saves on shutdown in `_finalize_quit` |
+| `src/llm_session_persistence.py` | Added `DEFAULT_SERVER_URL` import, fixed `server_url` fallback for empty-string config |
+| `src/opencode_worker.py` | (2nd fix) Changed `.get("server_url", DEFAULT)` → `.get("server_url") or DEFAULT` for both abort cleanup and `_post_message` paths |
+| `src/pet_window.py` | (2nd fix) Same pattern fix in `_force_quit_app` opencode session cleanup |
+
+**Data flow:**
+```
+Boot: load_session() → reads data/llm_session.json
+  ├─ session_id set → reuse as _opencode_session_id (try to resume)
+  └─ history present → history_context injected into first message
+
+Every turn: worker emits session_turn_completed(session_state, prompt, response)
+  → main thread calls save_session() → atomic write to data/llm_session.json
+
+Shutdown: _finalize_quit() → save_session() → disk
+```
+
+**Session reuse logic:**
+- Saved `session_id` is passed to `OpendcodeWorker` on construction
+- If the server-side session is still alive (serve process hasn't restarted), it reconnects seamlessly
+- If the session is gone (404/500 on message send), error handler clears `_opencode_session_id`, and the next worker creates a fresh session — but the `history_context` from the previous session is still injected into the first message of the new session
+- `history_context` format:
+  ```
+  [Previous conversation resumed after restart]
+  Conversation summary: <summary>
+  
+  User: <last few messages>
+  Assistant: <last few messages>
+  
+  [Current message]
+  ```
+
+**Key design decisions:**
+- History capped at 30 turns (configurable via `MAX_HISTORY_TURNS`) to keep prompt sizes manageable
+- Individual turn content truncated to 2000 chars (user) / 3000 chars (assistant) on save, 500 chars in `history_context` for display
+- Atomic write pattern (`.tmp` + rename) prevents corrupt files
+- No session state saved for refill workers or summary workers — only user-facing conversations persist
+
+**Known limitations:**
+- Server-side sessions are lost when `opencode serve` restarts (server has no persistence)
+- Session state is only saved on explicit turns (user → assistant), not on autonomous refills
+- No session pruning / archival yet — old sessions accumulate in `data/llm_session.json`
+
+**Fixes applied:**
+- `server_url` empty-string bug (2026-06-20): `daemon_config.json` had `"server_url": ""`; all 4 code paths using `.get("server_url", DEFAULT)` returned `""` because the key existed. Changed to `.get("server_url") or DEFAULT_SERVER_URL` in `llm_session_persistence.py`, `opencode_worker.py` (2 locations), and `pet_window.py`.
+
+**Test results:** 56 new tests pass (25 persistence + 31 opencode_worker). All existing tests unaffected.
 
 **Done — End of Project Dev Memory**

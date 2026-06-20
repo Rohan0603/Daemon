@@ -181,6 +181,18 @@ def main() -> None:
     except Exception as e:
         logger.warning("Failed to generate codebase map: %s", e)
 
+    # ── Plugin loading ───────────────────────────────────────────────────
+    from src.plugin_registry import PluginRegistry
+    from src.plugin_manager import PluginManager
+    from src.animator import apply_plugin_profiles
+
+    plugin_registry = PluginRegistry()
+    plugin_manager = PluginManager(plugin_registry)
+    plugin_manager.discover()
+    plugin_manager.load_all()
+    apply_plugin_profiles(plugin_registry)
+    logger.info("Loaded %d plugin(s)", len(plugin_manager.loaded_plugins))
+
     if os.name == "nt":
         try:
             import ctypes
@@ -243,6 +255,7 @@ def main() -> None:
         auth=auth,
         fresh_login=fresh_login,
         pet_id=pet_id,
+        plugin_registry=plugin_registry,
     )
     _boot_marks["petwindow"] = time.monotonic()
 

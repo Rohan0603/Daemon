@@ -42,6 +42,7 @@ from src.apm_worker import APMWorker
 from src.typing_buffer import TypingBuffer
 from src.context_menu import PetContextMenu
 from src.opencode_worker import OpencodeWorker
+from src.llm_session_persistence import load_session, save_session, LLMSessionState
 from src.active_window import get_active_window_title
 from src.screen_reader import ScreenReader
 from src.memory import Memory
@@ -77,6 +78,7 @@ class PetWindow(QWidget):
         auth: "FirebaseAuth | None" = None,
         fresh_login: bool = False,
         pet_id: str = "kenny",
+        plugin_registry: object = None,
         **kwargs
     ) -> None:
         if "agy_enabled" in kwargs:
@@ -85,6 +87,7 @@ class PetWindow(QWidget):
         self._pet_id = pet_id
         self._auth = auth
         self._opencode_enabled = opencode_enabled
+        self._plugin_registry = plugin_registry
         initial_state = initial_state or {}
         self._initial_state = initial_state
         self._fresh_login = fresh_login
@@ -239,6 +242,7 @@ class PetWindow(QWidget):
             animator=self._animator,
             opencode_enabled=self._opencode_enabled,
             chattiness=self._chattiness,
+            plugin_registry=self._plugin_registry,
         )
 
         self._typing_last_len = 0
@@ -289,6 +293,12 @@ class PetWindow(QWidget):
         self._last_daemon_action: str = "idle"
         self._refill_workers: dict[str, OpencodeWorker] = {}
         self._refill_workers_lock = threading.Lock()
+        # Persistent LLM session — resume across restarts
+        self._llm_session_state = load_session()
+        if self._llm_session_state.session_id:
+            self._opencode_session_id = self._llm_session_state.session_id
+            logger.info("Resuming LLM session %s (%d history turns)",
+                        self._llm_session_state.session_id, len(self._llm_session_state.history))
 
         self._consecutive_silent = 0
         self._consecutive_engaged = ENGAGED_THRESHOLD
@@ -530,7 +540,21 @@ class PetWindow(QWidget):
                 on_complete()
             return
         
-        history_text = "\n".join([f"{item.get('role', 'unknown')}: {item.get('content', '')}" for item in recent])
+        # History entries have user_input, daemon_response, action, timestamp keys
+        lines = []
+        for item in recent:
+            ui = (item.get("user_input") or "").strip()
+            dr = (item.get("daemon_response") or "").strip()
+            if ui:
+                lines.append(f"User: {ui[:1000]}")
+            if dr:
+                lines.append(f"Assistant: {dr[:1000]}")
+        if not lines:
+            logger.debug("Skipping summary: no meaningful history content")
+            if on_complete:
+                on_complete()
+            return
+        history_text = "\n".join(lines)
         prompt = f"Summarize this session strictly into a single observation about the user's habits:\n{history_text}"
         
         from src.opencode_worker import OpencodeWorker
@@ -606,6 +630,12 @@ class PetWindow(QWidget):
             _cleanup_uia()
         except Exception:
             pass
+        # Persist LLM session state for next boot
+        try:
+            if hasattr(self, '_llm_session_state') and self._llm_session_state is not None:
+                save_session(self._llm_session_state)
+        except Exception as e:
+            logger.warning("Failed to persist LLM session on shutdown: %s", e)
         QApplication.quit()
 
     def _on_lsp_error_detected(self, payload: dict):
@@ -1514,6 +1544,7 @@ class PetWindow(QWidget):
     def _dispatch_structured(self, item: dict, force: bool = False) -> None:
         thought = item.get("thought", "")
         dialogue = item.get("dialogue", "")
+        print(f"DEBUG: _dispatch_structured: thought='{thought}', dialogue='{dialogue}'")
         logger.info("_dispatch_structured: dialogue='%s'", dialogue)
         if force:
             self._clear_bubble_queue()
@@ -1738,11 +1769,13 @@ class PetWindow(QWidget):
             apm=apm, is_autonomous=is_autonomous,
             session_id=self._opencode_session_id,
             prompt=prompt, typing_content=typing_content,
+            session_state=self._llm_session_state if self._llm_session_state else None,
         )
         worker.response_ready.connect(self._on_response_ready)
         worker.error_occurred.connect(self._on_opencode_error)
         worker.session_created.connect(self._on_session_created)
         worker.brain_update_ready.connect(self._on_brain_update)
+        worker.session_turn_completed.connect(self._on_session_turn_completed)
         worker.start()
         self._opencode_worker = worker
 
@@ -1810,16 +1843,19 @@ class PetWindow(QWidget):
             )
 
     def _log_thought(self, thought: str, mode: str, dialogue: str) -> None:
-        log_path = THOUGHTS_LOG_PATH
+        print("DEBUG: _log_thought called")
+        log_path = Path(THOUGHTS_LOG_PATH)
+        # Debug: print type and value
+        print(f"DEBUG: log_path type: {type(log_path)}, value: {log_path}")
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         entry = (
             f"[{timestamp}] [{mode}] Thought({len(thought)}c): {thought}\n"
             f"[{timestamp}] [{mode}] Dialogue: {dialogue}\n"
         )
         if log_path.exists():
-            lines = Path(log_path).read_text(encoding="utf-8").splitlines()
+            lines = log_path.read_text(encoding="utf-8").splitlines()
             if len(lines) >= 1000:
-                Path(log_path).write_text("\n".join(lines[-500:]) + "\n", encoding="utf-8")
+                log_path.write_text("\n".join(lines[-500:]) + "\n", encoding="utf-8")
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(entry)
 
@@ -2004,6 +2040,22 @@ class PetWindow(QWidget):
 
     def _on_session_created(self, session_id: str) -> None:
         self._opencode_session_id = session_id
+        # Also update the persisted session state
+        if self._llm_session_state:
+            self._llm_session_state.session_id = session_id
+
+    def _on_session_turn_completed(self, session_state, user_prompt: str, response_text: str) -> None:
+        """Save conversation turn to persistent session state."""
+        try:
+            if session_state and hasattr(session_state, "add_turn"):
+                session_state.add_turn("user", user_prompt[:2000])
+                session_state.add_turn("assistant", response_text[:3000])
+                save_session(session_state)
+                # Keep our copy in sync
+                self._llm_session_state = session_state
+                self._opencode_session_id = session_state.session_id
+        except Exception as e:
+            logger.warning("Failed to persist session turn: %s", e)
 
 
     def _on_brain_update(self, update: dict) -> None:
@@ -2053,7 +2105,7 @@ class PetWindow(QWidget):
         from src.config import load_config, DEFAULT_SERVER_URL
         
         cfg = load_config()
-        opencode_server_url = cfg.get("llm", {}).get("server_url", DEFAULT_SERVER_URL)
+        opencode_server_url = cfg.get("llm", {}).get("server_url") or DEFAULT_SERVER_URL
         
         try:
             _req.delete(

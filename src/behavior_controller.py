@@ -62,12 +62,14 @@ class BehaviorController:
         base_boredom_interval: int = BOREDOM_TIMEOUT_SEC,
         max_idle_backoff: int = 300,
         chattiness: float = 1.0,
+        plugin_registry: object = None,
     ) -> None:
         self._event_bus = event_bus
         self._response_manager = response_manager
         self._typing_buffer = typing_buffer
         self._fsm = fsm
         self._animator = animator
+        self._plugin_registry = plugin_registry
 
         # External state (updated by PetWindow)
         self._opencode_enabled = opencode_enabled
@@ -396,7 +398,15 @@ class BehaviorController:
         """Determine current emotion from OS context.
 
         Pure function based on current state — no side effects.
+        First checks plugin-registered emotion rules (if any), then
+        falls back to the built-in priority chain.
         """
+        # ── Plugin rules (higher precedence) ──
+        plugin_emotion = self._evaluate_plugin_emotion()
+        if plugin_emotion is not None:
+            return plugin_emotion
+
+        # ── Built-in rules ──
         window = get_active_window_title().lower()
         win_title = window  # Reuse cached value
 
@@ -432,6 +442,29 @@ class BehaviorController:
 
         # MIRTH: Default
         return Emotion.MIRTH
+
+    def _evaluate_plugin_emotion(self) -> Emotion | None:
+        """Check plugin emotion rules. Returns an Emotion or None.
+
+        Plugins run at their registered priority order (lower = first).
+        The first rule that returns a non-None Emotion wins.
+        """
+        registry = getattr(self, "_plugin_registry", None)
+        if registry is None:
+            return None
+        # Lazy import to avoid circular dependency at module level
+        from src.plugin_registry import PluginRegistry
+        if not isinstance(registry, PluginRegistry):
+            return None
+        context = {
+            "apm": self._current_apm,
+            "idle_seconds": self._idle_seconds,
+            "window_title": get_active_window_title() or "",
+            "typing_content": self._typing_buffer.get_context() if self._typing_buffer else "",
+            "window_switch_count": self._window_switch_count,
+            "last_risky_match": self._last_risky_match,
+        }
+        return registry.evaluate_emotion(context)
 
     # ── Guard Logic ──────────────────────────────────────────────────
 

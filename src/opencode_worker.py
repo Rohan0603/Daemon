@@ -17,6 +17,7 @@ class OpencodeWorker(QThread):
     path_used = pyqtSignal(str)
     brain_update_ready = pyqtSignal(dict)
     pool_items_ready = pyqtSignal(dict)
+    session_turn_completed = pyqtSignal(object, object, object)  # session_state, user_input, response_text
 
     def __init__(self, user_input: str, context_hint: str = "", apm: int = 0,
                  is_autonomous: bool = False, parent=None,
@@ -24,19 +25,21 @@ class OpencodeWorker(QThread):
                  prompt: str | None = None,
                  typing_content: str = "",
                  two_stage_prompts: tuple[str, str] | None = None,
-                 config: dict | None = None) -> None:
+                 config: dict | None = None,
+                 session_state: object = None) -> None:
         super().__init__(parent)
         self._user_input = user_input
         self._context_hint = context_hint
         self._apm = apm
         self._is_autonomous = is_autonomous
-        self._session_id = session_id
+        self._session_id = session_id or (session_state.session_id if session_state else None)
         self._prebuilt_prompt = prompt
         self._typing_content = typing_content
         self._used_api = False
         self._two_stage = two_stage_prompts
         self._abort = False
         self._config = config if config is not None else load_config()
+        self._session_state = session_state
 
     def abort(self) -> None:
         self._abort = True
@@ -46,7 +49,7 @@ class OpencodeWorker(QThread):
                 import requests
                 from src.config import load_config
                 config = load_config()
-                server_url = config.get("llm", {}).get("server_url", DEFAULT_SERVER_URL)
+                server_url = config.get("llm", {}).get("server_url") or DEFAULT_SERVER_URL
                 requests.delete(
                     f"{server_url}/session/{self._session_id}",
                     timeout=5,
@@ -60,7 +63,7 @@ class OpencodeWorker(QThread):
         if self._abort:
             return None
         llm_cfg = self._config.get("llm", {})
-        server_url = llm_cfg.get("server_url", DEFAULT_SERVER_URL)
+        server_url = llm_cfg.get("server_url") or DEFAULT_SERVER_URL
         model_id = llm_cfg.get("model_id", "")
         # Use longer timeout for refill operations (two-stage takes 2x API calls)
         timeout_sec = llm_cfg.get("timeout_sec", 180)
@@ -142,6 +145,14 @@ class OpencodeWorker(QThread):
         llm_cfg = self._config.get("llm", {})
         provider = llm_cfg.get("provider", "")
         model_id = llm_cfg.get("model_id", "")
+
+        # Prepend previous conversation history as context if resuming
+        history_ctx = ""
+        if self._session_state and hasattr(self._session_state, "history_context"):
+            history_ctx = self._session_state.history_context
+        if history_ctx:
+            prompt = f"{history_ctx}\n\n[Current message]\n{prompt}"
+
         payload = {
             "parts": [{"type": "text", "text": prompt}],
             "structured": STRUCTURED_SCHEMA,
@@ -161,12 +172,26 @@ class OpencodeWorker(QThread):
             items = self._parse_json_response(raw)
             if items is not None:
                 logger.debug("RECV parsed: %d items, first: %s", len(items), json.dumps(items[0] if items else {}))
+                # Emit turn data for persistence
+                self._emit_turn_completed(prompt, raw)
                 self.response_ready.emit(items)
                 return
             items = self._handle_schema_error(raw)
+            self._emit_turn_completed(prompt, raw)
             self.response_ready.emit(items)
         else:
             logger.warning("send: API returned empty or None")
+
+    def _emit_turn_completed(self, user_prompt: str, response_text: str) -> None:
+        """Emit session_turn_completed signal if session_state is available."""
+        if self._session_state and hasattr(self._session_state, "add_turn"):
+            try:
+                from src.llm_session_persistence import LLMSessionState
+                if isinstance(self._session_state, LLMSessionState):
+                    self._session_state.session_id = self._session_id
+                    self.session_turn_completed.emit(self._session_state, user_prompt, response_text)
+            except ImportError:
+                pass
 
     def _send_two_stage(self) -> None:
         """DEPRECATED — no longer called (refill uses single prompt now).

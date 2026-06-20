@@ -346,3 +346,30 @@ class EmotionAnimator:
         """Delegate particle rendering to the particle system."""
         if painter is not None:
             self._particles.draw(painter)
+
+
+# ── Plugin Integration ──────────────────────────────────────────────
+
+def apply_plugin_profiles(registry: object) -> None:
+    """Merge plugin-registered emotion profiles into EMOTION_PROFILES.
+
+    Called at boot after plugins are loaded. Plugin profiles override
+    the built-in defaults.
+    """
+    from src.plugin_registry import PluginRegistry
+
+    if not isinstance(registry, PluginRegistry):
+        logger.warning("apply_plugin_profiles: expected PluginRegistry, got %s", type(registry).__name__)
+        return
+
+    profiles = registry.get_emotion_profiles()
+    if not profiles:
+        logger.debug("No plugin emotion profiles to apply")
+        return
+
+    for emotion, profile in profiles.items():
+        if emotion in EMOTION_PROFILES:
+            logger.info("Plugin overrides built-in profile for %s", emotion.value)
+        else:
+            logger.info("Plugin adds profile for %s", emotion.value)
+        EMOTION_PROFILES[emotion] = profile
