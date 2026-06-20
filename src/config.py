@@ -363,7 +363,18 @@ def load_config() -> dict:
         if p.exists():
             save_config(data)
 
-    return _apply_env_overrides(data)
+    final_data = _apply_env_overrides(data)
+    
+    # Patch constants module
+    try:
+        from src import constants
+        flat = flatten_config(final_data)
+        for k, v in flat.items():
+            setattr(constants, k, v)
+    except Exception as e:
+        logger.warning("Failed to patch constants: %s", e)
+        
+    return final_data
 
 
 def save_config(config: dict) -> bool:
