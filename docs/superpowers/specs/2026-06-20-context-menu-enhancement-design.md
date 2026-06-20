@@ -46,3 +46,10 @@ We will refactor the existing `ThoughtLogDialog` into a more generic `DataViewer
 - `src/context_menu.py`: Update the menu hierarchy, add new actions, and introduce new signals (`sleep_toggle`, `mute_toggle`, `wipe_memory`).
 - `src/pet_window.py`: Wire the new signals to their respective handler methods (`_on_sleep_toggle`, `_on_mute_toggle`, `_on_lobotomy_requested`). Update `_on_recall_memory` and `_on_recall_history` to open the dialog.
 - `src/thought_log_dialog.py`: Refactor to support generic content injection (History, Memory) while maintaining its Matrix-style green-on-black aesthetic.
+
+## 5. Persona & Dialogue Enhancement (High on Life)
+We will perform a pass over Kenny's hardcoded and LLM-prompted dialogues to closer match his nervous, talkative, and slightly unhinged personality from *High on Life*. 
+- Replace generic error messages with long-winded, anxious rambling.
+- Add fourth-wall breaks about being a desktop pet ("I can crawl without your mouse, you know...").
+- Integrate stuttering ("wha-what", "I-I-I") into both hardcoded strings and LLM generation rules.
+- Adapt specific game references to desktop context (e.g., swapping "G3 Cartel" for "Task Manager" or "Windows Updates").
