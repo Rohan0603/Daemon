@@ -50,8 +50,7 @@ def test_load_config_with_override(tmp_path):
         assert cfg["llm"]["server_url"] == "http://custom-url:4096"
         assert cfg["pet"]["scale"] == 1.5
         assert cfg["window"]["monitor"] is True
-        # No fallback fields anymore, it just loads what's there
-        assert "id" not in cfg["pet"]
+        assert cfg["pet"]["id"] == "kenny"
 
 
 def test_flatten_and_unflatten_config():

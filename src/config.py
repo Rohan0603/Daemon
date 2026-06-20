@@ -257,13 +257,13 @@ DEFAULT_SERVER_URL: str = "http://127.0.0.1:4096"
 
 
 def _deep_merge(target: dict, source: dict) -> None:
-    """Recursively merge source dict into target dict in-place, filtering by target keys."""
+    """Recursively merge source dict into target dict in-place."""
+    import copy
     for k, v in source.items():
-        if k in target:
-            if isinstance(v, dict) and isinstance(target[k], dict):
-                _deep_merge(target[k], v)
-            else:
-                target[k] = v
+        if k in target and isinstance(v, dict) and isinstance(target[k], dict):
+            _deep_merge(target[k], v)
+        else:
+            target[k] = copy.deepcopy(v) if isinstance(v, (dict, list)) else v
 
 
 def _apply_env_overrides(cfg: dict) -> dict:
@@ -327,11 +327,19 @@ def validate_config(cfg: dict) -> None:
 
 
 def load_config() -> dict:
-    """Load config from CONFIG_PATH, copying from template if missing."""
+    """Load config from CONFIG_PATH, merging missing keys from template."""
     p = Path(_CONFIG_PATH)
+    template_path = Path(__file__).parent.parent / "assets" / "daemon_config_template.json"
+    
+    template_data = {}
+    if template_path.exists():
+        try:
+            template_data = json.loads(template_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning("Failed to load template config: %s", e)
+
     if not p.exists():
         logger.info("Config not found at %s — copying from template", p)
-        template_path = Path(__file__).parent.parent / "assets" / "daemon_config_template.json"
         if template_path.exists():
             p.parent.mkdir(exist_ok=True)
             shutil.copy2(template_path, p)
@@ -346,7 +354,15 @@ def load_config() -> dict:
     except Exception as e:
         logger.warning("Failed to load config from %s: %s", _CONFIG_PATH, e)
         data = {}
+
+    if template_data:
+        _deep_merge(template_data, data)
+        data = template_data
         
+        # Auto-save so the missing sections are permanently written to the user's file
+        if p.exists():
+            save_config(data)
+
     return _apply_env_overrides(data)
 
 
