@@ -1,7 +1,9 @@
 import json
+import os
+import pytest
 from unittest.mock import patch
 from pathlib import Path
-from src.config import load_config, flatten_config, unflatten_config, DEFAULT_CONFIG
+from src.config import load_config, flatten_config, unflatten_config, DEFAULT_CONFIG, validate_config, MissingConfigurationError
 
 
 def test_load_config_default_fallback():
@@ -93,3 +95,37 @@ def test_flatten_and_unflatten_config():
     assert unflattened["pet"]["speed_multiplier"] == 1.1
     assert unflattened["window"]["monitor"] is True
     assert unflattened["firebase"]["api_key"] == "custom-key"
+
+def test_validate_config_passes_with_valid_data():
+    valid_cfg = {
+        "llm": {"model_id": "test-model", "api_key": "test-key", "server_url": "http://localhost"},
+        "firebase": {"api_key": "test-fb-key", "project_id": "test-id", "credentials_path": "dummy.json"}
+    }
+    with patch("os.path.exists", return_value=True), patch("os.access", return_value=True):
+        # Should not raise
+        validate_config(valid_cfg)
+
+def test_validate_config_raises_on_missing_fields():
+    invalid_cfg = {
+        "llm": {"model_id": "", "api_key": "", "server_url": ""},
+        "firebase": {"api_key": "", "project_id": "", "credentials_path": "dummy.json"}
+    }
+    with pytest.raises(MissingConfigurationError) as exc_info:
+        with patch("os.path.exists", return_value=True), patch("os.access", return_value=True):
+            validate_config(invalid_cfg)
+    
+    msg = str(exc_info.value)
+    assert "llm.model_id" in msg
+    assert "llm.api_key" in msg
+    assert "firebase.api_key" in msg
+
+def test_validate_config_raises_on_missing_credentials_file():
+    valid_cfg = {
+        "llm": {"model_id": "test-model", "api_key": "test-key", "server_url": "http://localhost"},
+        "firebase": {"api_key": "test-fb-key", "project_id": "test-id", "credentials_path": "missing.json"}
+    }
+    with pytest.raises(MissingConfigurationError) as exc_info:
+        with patch("os.path.exists", return_value=False):
+            validate_config(valid_cfg)
+    
+    assert "firebase.credentials_path file not found" in str(exc_info.value)

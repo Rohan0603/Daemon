@@ -12,12 +12,16 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
+class MissingConfigurationError(Exception):
+    """Raised when critical configuration values or files are missing."""
+    pass
+
 STORAGE_DIR = Path(__file__).parent.parent / "data"
 CONFIG_PATH = STORAGE_DIR / "daemon_config.json"
 
 DEFAULT_CONFIG = {
     "llm": {
-      "model_id": "north-mini-code-free",
+      "model_id": "gemini-2.5-flash",
       "provider": "opencode-zen",
       "server_url": "http://127.0.0.1:4096",
       "timeout_sec": 180,
@@ -306,6 +310,39 @@ def _apply_env_overrides(cfg: dict) -> dict:
                 cfg[section] = {}
             cfg[section][subkey] = val.strip()
     return cfg
+
+
+def validate_config(cfg: dict) -> None:
+    """Validates that mandatory config fields and environmental dependencies are present."""
+    missing = []
+    
+    # 1. Mandatory Fields
+    if not cfg.get("llm", {}).get("model_id"):
+        missing.append("llm.model_id")
+    if not cfg.get("llm", {}).get("api_key"):
+        missing.append("llm.api_key")
+    if not cfg.get("llm", {}).get("server_url"):
+        missing.append("llm.server_url")
+    if not cfg.get("firebase", {}).get("api_key"):
+        missing.append("firebase.api_key")
+    if not cfg.get("firebase", {}).get("project_id"):
+        missing.append("firebase.project_id")
+        
+    if missing:
+        raise MissingConfigurationError(f"Missing mandatory configuration fields: {', '.join(missing)}")
+        
+    # 2. Environmental Checks
+    cred_path = cfg.get("firebase", {}).get("credentials_path")
+    if cred_path:
+        project_root = Path(__file__).parent.parent
+        resolved_path = project_root / cred_path if not os.path.isabs(cred_path) else Path(cred_path)
+        if not resolved_path.exists():
+            raise MissingConfigurationError(f"firebase.credentials_path file not found at {resolved_path}")
+
+    # Write access check for data dir
+    data_dir = Path(__file__).parent.parent / "data"
+    if data_dir.exists() and not os.access(data_dir, os.W_OK):
+        raise MissingConfigurationError(f"No write permissions for data directory: {data_dir}")
 
 
 def load_config() -> dict:
