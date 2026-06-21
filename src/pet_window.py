@@ -42,7 +42,6 @@ from src.apm_worker import APMWorker
 from src.typing_buffer import TypingBuffer
 from src.context_menu import PetContextMenu
 from src.opencode_worker import OpencodeWorker
-from src.strands_worker import StrandsAutonomousWorker
 from src.llm_session_persistence import load_session, save_session, LLMSessionState
 from src.active_window import get_active_window_title, normalize_window_title
 from src.screen_reader import ScreenReader
@@ -159,6 +158,7 @@ class PetWindow(QWidget):
         self._last_mode = ""
         self._idle_seconds = 0.0
         self._state_elapsed_ms = 0
+        self._screen_time_tick = 0
         self._build_event: str | None = None
 
         self._fsm = PetFSM()
@@ -378,7 +378,7 @@ class PetWindow(QWidget):
         # Wire EventBus subscriber for autonomous triggers from BehaviorController
         self._events.subscribe(
             EventType.AUTONOMOUS_TRIGGER_FIRED,
-            self._on_autonomous_trigger_fired,
+            self._on_autonomous_trigger,
         )
 
     def _setup_window(self) -> None:
@@ -1339,22 +1339,26 @@ class PetWindow(QWidget):
             logger.critical("CRASH in paintEvent: %s", e, exc_info=True)
 
     def mouseDoubleClickEvent(self, event) -> None:
+        logger.info("mouseDoubleClickEvent triggered. opencode_enabled=%s, current_state=%s", self._opencode_enabled, self._fsm.current_state)
         if not self._opencode_enabled:
             return
         if self._fsm.current_state == PetState.THINKING:
             return
         local = event.position().toPoint()
         pet_rect = QRect(self._pet_x, self._pet_y, int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
+        logger.debug("Double click coordinates: local=%s, pet_rect=%s, contains=%s", local, pet_rect, pet_rect.contains(local))
         if pet_rect.contains(local):
             self._show_input_field()
 
     def _show_input_field(self) -> None:
         field_x = self._pet_x + PET_WIDTH // 2 - INPUT_WIDTH // 2
         field_y = self._pet_y - INPUT_HEIGHT - INPUT_Y_OFFSET
+        logger.info("Displaying input field at coordinates (%d, %d)", field_x, field_y)
         self._input_field.move(field_x, field_y)
         self._input_field.clear()
         self._input_field.show()
         self._input_field.setFocus()
+        logger.debug("Input field visible status: %s, hasFocus: %s", self._input_field.isVisible(), self._input_field.hasFocus())
 
     def _on_input_submitted(self) -> None:
         from src.log_context import set_correlation_id
@@ -1409,40 +1413,20 @@ class PetWindow(QWidget):
         self._current_user_input = text
         self._last_mode = "user_input"
 
-        # Safely halt any existing in-flight ReAct loop to prevent memory leaks/crashes
-        if hasattr(self, 'strands_worker') and self.strands_worker and self.strands_worker.isRunning():
-            self.strands_worker.abort()
-            self.strands_worker.wait() # Safely block for the cancellation point
-
-        current_context = self._build_context_snapshot() 
-        profanity_level = self._config.get("pet", {}).get("profanity_level", "moderate")
-
-        # Pull last 10 turns for context injection
-        recent_chat_raw = self._history.get_recent(10)
-        recent_chat = []
-        for item in recent_chat_raw:
-            if item.get("user_input"):
-                recent_chat.append({"role": "user", "content": item["user_input"]})
-            if item.get("daemon_response"):
-                recent_chat.append({"role": "assistant", "content": item["daemon_response"]})
-
-        # Append current user query
-        recent_chat.append({"role": "user", "content": text})
-
-        self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level)
-        self.strands_worker.execution_complete.connect(self._on_strands_response_ready)
-
-        # Handle failures gracefully to un-stick the FSM
-        def handle_failure(err):
-            logger.error("Strands error: %s", err)
-            self._fsm.transition_to(PetState.IDLE)
-            self._current_user_input = None
-
-        self.strands_worker.execution_failed.connect(handle_failure)
-
-        # Force FSM into thinking state
+        context = self._build_context_snapshot()
+        typing = self._typing_buffer.get_context() if self._typing_buffer else ""
+        apm = self._apm_worker.apm if self._apm_worker else 0
+        logger.info("Starting user query: '%s', active window: '%s'", text[:40], context.get("active_window"))
         self._fsm.transition_to(PetState.THINKING)
-        self.strands_worker.start()
+        self._dispatch_trigger(
+            mode="user_input",
+            user_input=text,
+            context_hint=context.get("active_window", ""),
+            apm=apm,
+            idle_seconds=0.0,
+            typing_content=typing,
+            is_autonomous=False,
+        )
 
 
     def _on_opencode_result(self, text: str) -> None:
@@ -1464,6 +1448,7 @@ class PetWindow(QWidget):
         logger.warning("_on_opencode_error called with error: '%s'", error)
         self._autonomous_query_pending = False
         self._deferred_trigger_params = None
+        self._current_user_input = ""
         self._fsm.current_state = PetState.IDLE
         # Invalidate session ID — the worker that errored may have been aborted,
         # leaving a stale server-side session. Next worker will create a fresh one.
@@ -1538,13 +1523,17 @@ class PetWindow(QWidget):
 
 
     def eventFilter(self, obj, event) -> bool:
-        if obj is self._input_field and event.type() == QEvent.Type.KeyPress:
-            if event.key() == Qt.Key.Key_Escape:
+        if obj is self._input_field:
+            if event.type() == QEvent.Type.KeyPress:
+                logger.debug("KeyPress event on input field: key=%s", event.key())
+                if event.key() == Qt.Key.Key_Escape:
+                    logger.info("Escape pressed: hiding input field")
+                    self._input_field.hide()
+                    return True
+            elif event.type() == QEvent.Type.FocusOut:
+                logger.info("FocusOut event on input field: hiding input field")
                 self._input_field.hide()
-                return True
-        if obj is self._input_field and event.type() == QEvent.Type.FocusOut:
-            self._input_field.hide()
-            return False
+                return False
         return super().eventFilter(obj, event)
 
     def _on_global_hotkey(self) -> None:
@@ -1829,7 +1818,7 @@ class PetWindow(QWidget):
             return False
         return True
 
-    def _on_autonomous_trigger_fired(self, event=None):
+    def _on_autonomous_trigger(self, event=None):
         try:
             mode = event.data.get("mode", "") if event and hasattr(event, "data") else ""
             if not self._should_fire_autonomous(mode):
@@ -1838,6 +1827,7 @@ class PetWindow(QWidget):
             if mode == "boredom":
                 # Local FSM action only — no GCD, no opencode
                 actions = ["PERIMETER", "SHAKING", "SPINNING", "LOOK_AWAY", "BOUNCING"]
+                import random
                 action = random.choice(actions)
                 target_state = getattr(PetState, action)
                 self._fsm.transition_to(target_state)
@@ -1855,68 +1845,22 @@ class PetWindow(QWidget):
                 self._on_output_displayed(engaged=True)
                 return
 
-            # No local cache hit — trigger Strands worker dispatch
-            # 1. Safely halt any existing in-flight ReAct loop to prevent memory leaks/crashes
-            if hasattr(self, 'strands_worker') and self.strands_worker and self.strands_worker.isRunning():
-                self.strands_worker.abort()
-                self.strands_worker.wait() # Safely block for the cancellation point
-                
-            current_context = self._build_context_snapshot() 
-            profanity_level = self._config.get("pet", {}).get("profanity_level", "moderate")
-            
-            # 2. Pull last 10 turns for context injection
-            recent_chat_raw = self._history.get_recent(10)
-            recent_chat = []
-            for item in recent_chat_raw:
-                if item.get("user_input"):
-                    recent_chat.append({"role": "user", "content": item["user_input"]})
-                if item.get("daemon_response"):
-                    recent_chat.append({"role": "assistant", "content": item["daemon_response"]})
-            
-            self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level)
-            self.strands_worker.execution_complete.connect(self._on_strands_response_ready)
-            
-            # 3. Handle failures gracefully to un-stick the FSM
-            def handle_failure(err):
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error("Strands error: %s", err)
-                self._fsm.transition_to(PetState.IDLE)
-                self._autonomous_query_pending = False
-
-            self.strands_worker.execution_failed.connect(handle_failure)
-            
-            # Force FSM into tracking state
-            self._fsm.transition_to(PetState.AUTONOMOUS_THINKING)
-            self.strands_worker.start()
+            # No local cache hit — trigger worker dispatch
+            self._autonomous_query_pending = True
+            self._dispatch_trigger(
+                mode=mode,
+                user_input="",
+                context_hint="",
+                apm=self._current_apm,
+                idle_seconds=self._idle_seconds,
+                typing_content=self._typing_buffer.get_context() if self._typing_buffer else "",
+                is_autonomous=True,
+            )
         except Exception:
             import logging
             logger = logging.getLogger(__name__)
-            logger.exception("Error in _on_autonomous_trigger_fired:")
+            logger.exception("Error in _on_autonomous_trigger:")
             raise
-
-    def _on_strands_response_ready(self, items: list):
-        self._autonomous_query_pending = False
-
-        user_input = getattr(self, "_current_user_input", "")
-        self._current_user_input = ""
-
-        if items:
-            # Publish to the decoupled Behavior logic layer via EventBus
-            # (Requires registering a listener for LLM_RESPONSE_READY in BehaviorController)
-            self._events.publish(Event(
-                type=EventType.LLM_RESPONSE_READY,
-                source="strands_worker",
-                data={"items": items}
-            ))
-            # Fallback for immediate UI dispatch if EventBus refactor is deferred:
-            is_user = bool(user_input)
-            self._dispatch_structured(items[0], force=is_user, user_input=user_input)
-            
-        # If surplus items are generated, prime your thought pools
-        if len(items) > 1:
-            for surplus in items[1:]:
-                self._response_manager.thought_pool.add_item(surplus)
 
 
     _BOREDOM_FALLBACK_JOKES = [
@@ -2105,8 +2049,11 @@ class PetWindow(QWidget):
         if not items:
             self._fire_deferred_trigger()
             return
+        user_input = getattr(self, "_current_user_input", "")
+        self._current_user_input = ""
+        is_user = bool(user_input)
         was_autonomous = self._last_mode != "user_input"
-        self._dispatch_structured(items[0])
+        self._dispatch_structured(items[0], force=is_user, user_input=user_input)
         for item in items[1:]:
             self._response_manager.add_items([item])
         # B3: Deferred refill — if pool is still low after adding surplus items,
@@ -2152,11 +2099,11 @@ class PetWindow(QWidget):
         }
         pet_state = state_map.get(action)
         if pet_state is not None:
-            self._fsm.transition_to(
-                pet_state,
-                target_x=int(target_x) if target_x is not None else None,
-                target_y=int(target_y) if target_y is not None else None,
-            )
+            if target_x is not None:
+                self._fsm._ctx.target_x = int(target_x)
+            if target_y is not None:
+                self._fsm._ctx.target_y = int(target_y)
+            self._fsm.transition_to(pet_state)
 
     def _on_toast_requested(self, title: str, message: str):
         if self._tray_icon and self._tray_icon.isVisible():
