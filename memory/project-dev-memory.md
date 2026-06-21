@@ -2091,3 +2091,21 @@ Shutdown: _finalize_quit() → save_session() → disk
 - tests/test_llm_session_persistence.py
 
 **Test results:** 119 tests passed, 1 warning.
+
+
+---
+
+### Phase 66 — User Input Response Immediate Display Fix (2026-06-21)
+**Branch:** master
+
+**What was built:**
+- Fixed user query response delay/queuing by passing `force=True` to `_dispatch_structured` when resolving user queries in `_on_response_ready`. This forces the speech bubble to display the response immediately and clear any currently active autonomous bubbles (such as typing or APM reactions).
+- Fixed conversational history mapping for user queries by extracting and passing `user_input` to `_dispatch_structured` (which previously recorded user queries as empty string in conversational logs).
+- Added resetting of `self._current_user_input` to `""` in `_on_opencode_error` to prevent stale input states.
+- Created unit test file `tests/test_user_query_dispatch.py` to cover immediate dispatching on user query responses and normal dispatching on autonomous triggers.
+
+**Files changed:**
+- src/pet_window.py
+- tests/test_user_query_dispatch.py (new)
+
+**Test results:** All unit tests and regression tests passed.
