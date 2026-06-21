@@ -2129,3 +2129,20 @@ Shutdown: _finalize_quit() → save_session() → disk
 - `tests/test_master_tick.py`
 
 **Test results:** All unit tests and behavior integration tests passed.
+
+
+---
+
+### Phase 68 — MCP Server SSE Broadcast Support (2026-06-21)
+**Branch:** master
+
+**What was built:**
+- Fixed MCP client initialization timeout by adding support for standard SSE client-server exchange in `src/mcp_server.py`.
+- Added a connection registry `MCPHandler._active_sse_handlers` under a thread lock to track active SSE event connections.
+- Broadcasted JSON-RPC response payloads as `event: message` SSE events to all active SSE streams inside `/message` POST handler, satisfying standard clients like `sse_client` from the `mcp` SDK.
+- Preserved direct response returning in the HTTP POST body for backward-compatibility with custom/legacy clients.
+
+**Files changed:**
+- `src/mcp_server.py`
+
+**Test results:** All unit tests and behavior integration tests passed.
