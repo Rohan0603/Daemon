@@ -25,55 +25,63 @@ def _handler(bridge=None, memory=None, diary_store=None):
 
 from src.constants import THOUGHTS_LOG_PATH
 from pathlib import Path
-import urllib.request
+import io
+import json
 
-def test_post_log_writes_to_thoughts_and_logger(mcp_server):
-    mcp_server.start()
-    host, port = mcp_server.server_address
-    url = f"http://{host}:{port}/log"
-    
+
+def test_post_log_writes_to_thoughts_and_logger():
+    handler = _handler()
     payload = {
         "service": "opencode",
         "level": "ERROR",
         "message": "Connection reset",
-        "extra": {"retries": 3}
+        "extra": {"retries": 3},
     }
-    
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST")
-    req.add_header("Content-Type", "application/json")
-    
-    with urllib.request.urlopen(req) as response:
-        assert response.status == 200
-        res_body = json.loads(response.read().decode("utf-8"))
-        assert res_body.get("success") is True
-        
-    # Verify thoughts log was written
+    body = json.dumps(payload).encode("utf-8")
+    handler.client_address = ("127.0.0.1", 12345)
+    handler.send_response = MagicMock()
+    handler.end_headers = MagicMock()
+    handler.log_request = MagicMock()
+    handler.path = "/log"
+    handler.requestline = "POST /log HTTP/1.1"
+    handler.request_version = "HTTP/1.1"
+    handler.command = "POST"
+    handler.headers = {"Content-Length": str(len(body))}
+    handler.rfile = io.BytesIO(body)
+    handler.wfile = io.BytesIO()
+    handler.do_POST()
+    handler.wfile.seek(0)
+    resp = json.loads(handler.wfile.read().decode("utf-8"))
+    assert resp.get("success") is True
     content = Path(THOUGHTS_LOG_PATH).read_text(encoding="utf-8")
     assert "[opencode] Connection reset" in content
 
 
-def test_post_session_summarize(mcp_server):
-    mcp_server.start()
-    host, port = mcp_server.server_address
-    url = f"http://{host}:{port}/session/1234/summarize"
-    
-    # Mock the signal emit
-    mcp_server.server.fsm_bridge.emit_summarize_requested = MagicMock()
-    
+def test_post_session_summarize():
+    handler = _handler()
+    handler.server.fsm_bridge.emit_summarize_requested = MagicMock()
     payload = {
         "providerID": "openai",
-        "modelID": "gpt-4"
+        "modelID": "gpt-4",
     }
-    
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST")
-    req.add_header("Content-Type", "application/json")
-    
-    with urllib.request.urlopen(req) as response:
-        assert response.status == 200
-        res_body = json.loads(response.read().decode("utf-8"))
-        assert res_body.get("success") is True
-        assert "events" in res_body
-    mcp_server.server.fsm_bridge.emit_summarize_requested.assert_called_once_with("openai", "gpt-4")
+    body = json.dumps(payload).encode("utf-8")
+    handler.client_address = ("127.0.0.1", 12345)
+    handler.send_response = MagicMock()
+    handler.end_headers = MagicMock()
+    handler.log_request = MagicMock()
+    handler.path = "/session/1234/summarize"
+    handler.requestline = "POST /session/1234/summarize HTTP/1.1"
+    handler.request_version = "HTTP/1.1"
+    handler.command = "POST"
+    handler.headers = {"Content-Length": str(len(body))}
+    handler.rfile = io.BytesIO(body)
+    handler.wfile = io.BytesIO()
+    handler.do_POST()
+    handler.wfile.seek(0)
+    resp = json.loads(handler.wfile.read().decode("utf-8"))
+    assert resp.get("success") is True
+    assert "events" in resp
+    handler.server.fsm_bridge.emit_summarize_requested.assert_called_once_with("openai", "gpt-4")
 
 
 from src.mcp_server import _read_clipboard, _capture_blackmail_evidence
