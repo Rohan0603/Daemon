@@ -123,41 +123,7 @@ def test_user_trigger_includes_screen_text():
     assert "Notepad" in prompt
 
 
-def test_autonomous_trigger_has_5_dialogs_instruction():
-    from src.context_manager import ContextManager
-    cm = ContextManager.__new__(ContextManager)
-    cm._snapshot = {}
-    cm._full_injected = False
-    cm._cache_key = None
-    cm._cached_prompt = None
-    prompt = cm.build_autonomous_trigger("active_chat", 50, 30.0)
-    assert "'thought' and 'dialogue'" in prompt
 
-
-def test_user_trigger_has_single_json_object():
-    from src.context_manager import ContextManager
-    cm = ContextManager.__new__(ContextManager)
-    cm._snapshot = {}
-    cm._full_injected = False
-    cm._cache_key = None
-    cm._cached_prompt = None
-    prompt = cm.build_user_trigger("user_input", "hello", 50, 0.0)
-    assert "JSON array containing EXACTLY ONE object" in prompt
-    assert "'thought' and 'dialogue'" in prompt
-
-
-def test_user_trigger_mentions_required_keys():
-    """User trigger must explicitly name 'thought' and 'dialogue' keys to prevent schema drift."""
-    from src.context_manager import ContextManager
-    cm = ContextManager.__new__(ContextManager)
-    cm._snapshot = {}
-    cm._full_injected = False
-    cm._cache_key = None
-    cm._cached_prompt = None
-    prompt = cm.build_user_trigger("user_input", "test", 50, 0.0)
-    assert "MUST contain" in prompt
-    assert "thought" in prompt
-    assert "dialogue" in prompt
 
 
 def test_trigger_prompt_excludes_skill_content():
@@ -181,22 +147,7 @@ def test_trigger_prompt_excludes_skill_content():
                 assert line.strip() not in auto_prompt, f"SKILL.md leaked into autonomous trigger: {line.strip()[:40]}"
 
 
-def test_build_mixed_bag_prompt_includes_all_types():
-    """Mixed bag prompt lists all four type options."""
-    from src.context_manager import ContextManager
-    cm = ContextManager.__new__(ContextManager)
-    cm._snapshot = {}
-    cm._full_injected = False
-    cm._cache_key = None
-    cm._cached_prompt = None
-    prompt = cm.build_mixed_bag_prompt(5)
-    assert "typing_reaction" in prompt
-    assert "observation" in prompt
-    assert "intel_roast" in prompt
-    assert "idle_thought" in prompt
-    assert "type" in prompt
-    assert "dialogue" in prompt
-    assert "priority" in prompt
+
 
 
 def test_build_mixed_bag_prompt_respects_count():

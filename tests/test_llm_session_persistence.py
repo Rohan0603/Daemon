@@ -81,17 +81,6 @@ class TestLLMSessionState:
         assert state.history[1].role == "assistant"
         assert state.history[1].content == "world"
 
-    def test_add_turn_trim_to_max(self, state):
-        from src.llm_session_persistence import MAX_HISTORY_TURNS
-        # Add 35 user+assistant pairs = 70 turns, MAX_HISTORY_TURNS=30
-        for i in range(MAX_HISTORY_TURNS + 5):
-            state.add_turn("user", f"msg_{i}")
-            state.add_turn("assistant", f"resp_{i}")
-        assert len(state.history) == MAX_HISTORY_TURNS
-        # First 10 pairs (20 entries) should be trimmed, keeping last 30 entries
-        # Position 0 after trim corresponds to pair index (70-30)//2 = 20
-        assert state.history[0].content == f"msg_{20}"
-
     def test_to_from_dict(self, state):
         state.add_turn("user", "hello")
         state.add_turn("assistant", "world")

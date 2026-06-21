@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from src.write_coalescer import WriteCoalescer
 
-_MAX_ENTRIES = 100
 
 class History:
     def __init__(self, path: str | None = None,
@@ -39,8 +38,6 @@ class History:
             "action": action or "idle",
         }
         self._entries.append(entry)
-        if len(self._entries) > _MAX_ENTRIES:
-            self._entries = self._entries[-_MAX_ENTRIES:]
         effective = coalescer if coalescer is not None else self._coalescer
         if effective is not None:
             effective.mark_dirty("history")

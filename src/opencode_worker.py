@@ -2,6 +2,10 @@ from __future__ import annotations
 import json
 import logging
 import re
+import warnings
+
+warnings.warn("OpencodeWorker is deprecated. Use StrandsAutonomousWorker instead.", DeprecationWarning, stacklevel=2)
+
 import requests
 from PyQt6.QtCore import QThread, pyqtSignal
 from src.config import load_config, DEFAULT_SERVER_URL
@@ -260,10 +264,10 @@ class OpencodeWorker(QThread):
         self.response_ready.emit(items)
 
     def _parse_json_response(self, raw: str) -> list[dict] | None:
-        """Parse JSON response from LLM with multiple fallback strategies.
-
-        Returns parsed list of dicts or None if all parsing fails.
-        On failure, logs detailed diagnostic info (line, column, context).
+        """Parse JSON response from LLM.
+        
+        Relies on OpenCode API's structural enforcement. Custom regex and JSONL
+        fallbacks have been pruned since Strands natively handles validation.
         """
         cleaned = raw.strip()
 
@@ -287,70 +291,9 @@ class OpencodeWorker(QThread):
                 "JSON decode error at line %d col %d: %s",
                 e.lineno, e.colno, e.msg,
             )
-            # Log context around the error position
-            lines = cleaned.split('\n')
-            start = max(0, (e.lineno or 1) - 3)
-            end = min(len(lines), (e.lineno or 1) + 2)
-            ctx = '\n'.join(
-                f"{i+1}| {lines[i]}" for i in range(start, end)
-            )
-            logger.debug("JSON parse context around error:\n%s", ctx)
-
-        # 3. Regex extraction for array of objects (more precise)
-        # Match: [ { ... }, { ... }, ... ] with proper bracket nesting
-        try:
-            # Find the outermost array brackets
-            start = cleaned.find('[')
-            if start != -1:
-                bracket_count = 0
-                end = -1
-                for i, ch in enumerate(cleaned[start:], start):
-                    if ch == '[':
-                        bracket_count += 1
-                    elif ch == ']':
-                        bracket_count -= 1
-                        if bracket_count == 0:
-                            end = i + 1
-                            break
-                if end != -1:
-                    candidate = cleaned[start:end]
-                    items = json.loads(candidate)
-                    if isinstance(items, list) and self._validate_items(items):
-                        return items
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-        # 4. JSONL strategy: split on newlines, parse each standalone JSON object
-        try:
-            lines = cleaned.split('\n')
-            items = []
-            for line in lines:
-                line = line.strip()
-                if not line or line.startswith('[') or line.startswith(']') or line == ',':
-                    continue
-                if line.endswith(','):
-                    line = line[:-1]
-                if line.startswith('{') and line.endswith('}'):
-                    try:
-                        obj = json.loads(line)
-                        items.append(obj)
-                    except json.JSONDecodeError:
-                        pass
-                elif line.startswith('{'):
-                    # Might be } followed by more on same line — try splitting
-                    try:
-                        obj = json.loads(line)
-                        items.append(obj)
-                    except json.JSONDecodeError:
-                        pass
-            if items and self._validate_items(items):
-                logger.debug("JSONL parse recovered %d items", len(items))
-                return items
-        except (json.JSONDecodeError, ValueError):
-            pass
-
+            
         logger.warning(
-            "All JSON parsing strategies failed for response (first 500 chars): %s",
+            "JSON parsing failed for response (first 500 chars): %s",
             raw[:500],
         )
         return None

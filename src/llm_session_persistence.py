@@ -30,7 +30,6 @@ from src.config import load_config, DEFAULT_SERVER_URL
 
 logger = logging.getLogger(__name__)
 
-MAX_HISTORY_TURNS = 30  # Keep last 30 exchanges (user + assistant pairs)
 
 SESSION_FILE_NAME = "llm_session.json"
 
@@ -70,8 +69,6 @@ class LLMSessionState:
     def add_turn(self, role: str, content: str) -> None:
         """Append a conversation turn, trimming to MAX_HISTORY_TURNS."""
         self.history.append(ChatTurn(role=role, content=content, timestamp=time.time()))
-        if len(self.history) > MAX_HISTORY_TURNS:
-            self.history = self.history[-MAX_HISTORY_TURNS:]
         self.last_used_at = time.time()
 
     def to_dict(self) -> dict:
@@ -108,7 +105,7 @@ class LLMSessionState:
             return ""
         lines = []
         lines.append("[Previous conversation resumed after restart]")
-        for turn in self.history[-MAX_HISTORY_TURNS:]:
+        for turn in self.history:
             label = "User" if turn.role == "user" else "Assistant"
             # Truncate long turns to avoid ballooning the prompt
             content = turn.content[:500] if len(turn.content) > 500 else turn.content

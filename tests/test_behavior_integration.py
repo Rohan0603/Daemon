@@ -48,7 +48,7 @@ class TestBehaviorIntegration:
             from src.events import EventType
             bus.subscribe(
                 EventType.AUTONOMOUS_TRIGGER_FIRED,
-                self.pw._on_autonomous_trigger,
+                self.pw._on_autonomous_trigger_fired,
             )
             self.pw._dispatch_structured = MagicMock()
             self.pw._dispatch_trigger = MagicMock()
@@ -58,6 +58,7 @@ class TestBehaviorIntegration:
             self.pw._apm_state = "normal"
             self.pw._last_apm_state_change = 0.0
             self.pw._last_apm = 0
+            self.pw._screen_time_tick = 0
 
     def test_behavior_created_with_pet_window(self):
         assert self.pw._behavior is not None

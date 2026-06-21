@@ -42,6 +42,7 @@ from src.apm_worker import APMWorker
 from src.typing_buffer import TypingBuffer
 from src.context_menu import PetContextMenu
 from src.opencode_worker import OpencodeWorker
+from src.strands_worker import StrandsAutonomousWorker
 from src.llm_session_persistence import load_session, save_session, LLMSessionState
 from src.active_window import get_active_window_title, normalize_window_title
 from src.screen_reader import ScreenReader
@@ -377,7 +378,7 @@ class PetWindow(QWidget):
         # Wire EventBus subscriber for autonomous triggers from BehaviorController
         self._events.subscribe(
             EventType.AUTONOMOUS_TRIGGER_FIRED,
-            self._on_autonomous_trigger,
+            self._on_autonomous_trigger_fired,
         )
 
     def _setup_window(self) -> None:
@@ -1803,14 +1804,9 @@ class PetWindow(QWidget):
             return False
         return True
 
-    def _on_autonomous_trigger(self, event) -> None:
-        """EventBus subscriber: handle autonomous trigger from BehaviorController.
-
-        Dispatches the trigger through the thought pool or local FSM action
-        depending on mode. Called on AUTONOMOUS_TRIGGER_FIRED.
-        """
+    def _on_autonomous_trigger_fired(self, event=None):
         try:
-            mode = event.data.get("mode", "")
+            mode = event.data.get("mode", "") if event and hasattr(event, "data") else ""
             if not self._should_fire_autonomous(mode):
                 return
 
@@ -1832,18 +1828,67 @@ class PetWindow(QWidget):
             if items:
                 self._dispatch_structured(items[0])
                 self._on_output_displayed(engaged=True)
-            else:
-                # No local cache hit — trigger opencode dispatch
-                self._dispatch_trigger(
-                    mode=mode,
-                    apm=event.data.get("apm", 0),
-                    idle_seconds=event.data.get("idle_seconds", 0.0),
-                    typing_content=self._typing_buffer.get_context() if hasattr(self, "_typing_buffer") else "",
-                    is_autonomous=True,
-                )
+                return
+
+            # No local cache hit — trigger Strands worker dispatch
+            # 1. Safely halt any existing in-flight ReAct loop to prevent memory leaks/crashes
+            if hasattr(self, 'strands_worker') and self.strands_worker and self.strands_worker.isRunning():
+                self.strands_worker.abort()
+                self.strands_worker.wait() # Safely block for the cancellation point
+                
+            current_context = self._behavior.build_context_snapshot() 
+            profanity_level = self._config.get("pet", {}).get("profanity_level", "moderate")
+            
+            # 2. Pull last 10 turns for context injection
+            recent_chat_raw = self._history.get_recent(10)
+            recent_chat = []
+            for item in recent_chat_raw:
+                if item.get("user_input"):
+                    recent_chat.append({"role": "user", "content": item["user_input"]})
+                if item.get("daemon_response"):
+                    recent_chat.append({"role": "assistant", "content": item["daemon_response"]})
+            
+            self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level)
+            self.strands_worker.execution_complete.connect(self._on_strands_response_ready)
+            
+            # 3. Handle failures gracefully to un-stick the FSM
+            def handle_failure(err):
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error("Strands error: %s", err)
+                self._fsm.transition_to(PetState.IDLE)
+                self._autonomous_query_pending = False
+
+            self.strands_worker.execution_failed.connect(handle_failure)
+            
+            # Force FSM into tracking state
+            self._fsm.transition_to(PetState.AUTONOMOUS_THINKING)
+            self.strands_worker.start()
         except Exception:
-            logger.exception("Error in _on_autonomous_trigger:")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.exception("Error in _on_autonomous_trigger_fired:")
             raise
+
+    def _on_strands_response_ready(self, items: list):
+        self._autonomous_query_pending = False
+
+        if items:
+            # Publish to the decoupled Behavior logic layer via EventBus
+            # (Requires registering a listener for LLM_RESPONSE_READY in BehaviorController)
+            self._events.publish(Event(
+                type=EventType.LLM_RESPONSE_READY,
+                source="strands_worker",
+                data={"items": items}
+            ))
+            # Fallback for immediate UI dispatch if EventBus refactor is deferred:
+            self._dispatch_structured(items[0])
+            
+        # If surplus items are generated, prime your thought pools
+        if len(items) > 1:
+            for surplus in items[1:]:
+                self._response_manager.thought_pool.add_item(surplus)
+
 
     _BOREDOM_FALLBACK_JOKES = [
         {"dialogue": "Aw geez, I-I've been sitting here so long my RAM is sweating. What are we, a screensaver now?", "action": "shake", "target_x": 0},

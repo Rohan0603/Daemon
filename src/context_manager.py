@@ -90,7 +90,6 @@ class ContextManager:
         if screen_text:
             lines.append("")
             lines.append(f"Screen: {screen_text}")
-        lines.append("Respond with a JSON array containing EXACTLY ONE object. Every item MUST contain 'thought' and 'dialogue'.")
         self._cached_prompt = "\n".join(lines)
         self._cache_key = key
         logger.debug("build_user_trigger: prompt=%d chars", len(self._cached_prompt))
@@ -125,7 +124,6 @@ class ContextManager:
         lines.append("")
         lines.append("He is thinking to himself. This is an internal monologue — he is NOT responding to the user.")
         lines.append("He should NOT say 'you asked' or 'you said' because the user did not say anything.")
-        lines.append("Generate exactly 5 items as a JSON array. Every item MUST contain 'thought' and 'dialogue', and may optionally include 'brain_update'.")
         self._cached_prompt = "\n".join(lines)
         self._cache_key = key
         logger.debug("build_autonomous_trigger: prompt=%d chars", len(self._cached_prompt))
@@ -165,17 +163,6 @@ class ContextManager:
     def build_mixed_bag_prompt(self, count: int = 5) -> str:
         """Build prompt for unified Mixed-Bag ThoughtPool refill."""
         return (
-            f"Generate EXACTLY {count} items as a JSON array.\n\n"
-            f"Each item MUST have:\n"
-            f"- \"type\": one of [\"typing_reaction\", \"observation\", \"intel_roast\", \"idle_thought\"]\n"
-            f"- \"dialogue\": spoken text (max 100 chars)\n"
-            f"- \"thought\": internal monologue (max 150 chars)\n"
-            f"- \"priority\": integer 1-5\n"
-            f"- \"context_hash\": copy the value of Screen Context if making an observation, otherwise omit\n\n"
-            f"Types guide:\n"
-            f"- typing_reaction: short reaction to user typing speed\n"
-            f"- observation: comment on what's on user's screen\n"
-            f"- intel_roast: snarky roast based on known user facts\n"
-            f"- idle_thought: random internal monologue when nothing's happening\n\n"
-            f"Respond ONLY with the JSON array, no preamble."
+            f"Generate exactly {count} thoughts. Types: "
+            f"typing_reaction, observation, intel_roast, idle_thought."
         )

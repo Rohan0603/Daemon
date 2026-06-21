@@ -32,3 +32,8 @@ prometheus-client>=0.19.0
 
 # --- Build ---
 pyinstaller>=6.0.0
+
+# --- Strands Integration ---
+strands-agents
+strands-agents-mcp-server
+mcp

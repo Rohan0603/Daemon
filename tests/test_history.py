@@ -106,14 +106,6 @@ def test_autonomous_entry_stored_as_empty_user_input(tmp_path):
     assert recent[0]["daemon_response"] == "autonomous check-in"
 
 
-def test_max_entries_enforced(tmp_path):
-    from src.history import History, _MAX_ENTRIES
-    hist, _ = _make_history(tmp_path)
-    for i in range(_MAX_ENTRIES + 50):
-        hist.add_entry(f"in{i}", f"out{i}", "idle")
-    assert hist.count() == _MAX_ENTRIES
-    assert hist.get_recent(1)[0]["user_input"] == f"in{_MAX_ENTRIES + 49}"
-
 
 def test_context_block_shows_recent_first(tmp_path):
     hist, _ = _make_history(tmp_path)
