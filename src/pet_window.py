@@ -42,6 +42,7 @@ from src.apm_worker import APMWorker
 from src.typing_buffer import TypingBuffer
 from src.context_menu import PetContextMenu
 from src.opencode_worker import OpencodeWorker
+from src.strands_worker import StrandsAutonomousWorker
 from src.llm_session_persistence import load_session, save_session, LLMSessionState
 from src.active_window import get_active_window_title, normalize_window_title
 from src.screen_reader import ScreenReader
@@ -378,7 +379,7 @@ class PetWindow(QWidget):
         # Wire EventBus subscriber for autonomous triggers from BehaviorController
         self._events.subscribe(
             EventType.AUTONOMOUS_TRIGGER_FIRED,
-            self._on_autonomous_trigger,
+            self._on_autonomous_trigger_fired,
         )
 
     def _setup_window(self) -> None:
@@ -1413,20 +1414,41 @@ class PetWindow(QWidget):
         self._current_user_input = text
         self._last_mode = "user_input"
 
-        context = self._build_context_snapshot()
-        typing = self._typing_buffer.get_context() if self._typing_buffer else ""
-        apm = self._apm_worker.apm if self._apm_worker else 0
-        logger.info("Starting user query: '%s', active window: '%s'", text[:40], context.get("active_window"))
+        # Safely halt any existing in-flight ReAct loop to prevent memory leaks/crashes
+        if hasattr(self, 'strands_worker') and self.strands_worker and self.strands_worker.isRunning():
+            self.strands_worker.abort()
+            self.strands_worker.wait() # Safely block for the cancellation point
+
+        current_context = self._build_context_snapshot() 
+        profanity_level = self._config.get("pet", {}).get("profanity_level", "moderate")
+
+        # Pull last 10 turns for context injection
+        recent_chat_raw = self._history.get_recent(10)
+        recent_chat = []
+        for item in recent_chat_raw:
+            if item.get("user_input"):
+                recent_chat.append({"role": "user", "content": item["user_input"]})
+            if item.get("daemon_response"):
+                recent_chat.append({"role": "assistant", "content": item["daemon_response"]})
+
+        # Append current user query
+        recent_chat.append({"role": "user", "content": text})
+
+        self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level)
+        self.strands_worker.execution_complete.connect(self._on_response_ready)
+
+        # Handle failures gracefully to un-stick the FSM
+        def handle_failure(err):
+            logger.error("Strands error: %s", err)
+            self._fsm.transition_to(PetState.IDLE)
+            self._current_user_input = ""
+            self._autonomous_query_pending = False
+
+        self.strands_worker.execution_failed.connect(handle_failure)
+
+        # Force FSM into thinking state
         self._fsm.transition_to(PetState.THINKING)
-        self._dispatch_trigger(
-            mode="user_input",
-            user_input=text,
-            context_hint=context.get("active_window", ""),
-            apm=apm,
-            idle_seconds=0.0,
-            typing_content=typing,
-            is_autonomous=False,
-        )
+        self.strands_worker.start()
 
 
     def _on_opencode_result(self, text: str) -> None:
@@ -1818,7 +1840,7 @@ class PetWindow(QWidget):
             return False
         return True
 
-    def _on_autonomous_trigger(self, event=None):
+    def _on_autonomous_trigger_fired(self, event=None):
         try:
             mode = event.data.get("mode", "") if event and hasattr(event, "data") else ""
             if not self._should_fire_autonomous(mode):
@@ -1845,17 +1867,41 @@ class PetWindow(QWidget):
                 self._on_output_displayed(engaged=True)
                 return
 
-            # No local cache hit — trigger worker dispatch
+            # No local cache hit — trigger Strands worker dispatch
+            # 1. Safely halt any existing in-flight ReAct loop to prevent memory leaks/crashes
+            if hasattr(self, 'strands_worker') and self.strands_worker and self.strands_worker.isRunning():
+                self.strands_worker.abort()
+                self.strands_worker.wait() # Safely block for the cancellation point
+                
+            current_context = self._build_context_snapshot() 
+            profanity_level = self._config.get("pet", {}).get("profanity_level", "moderate")
+            
+            # 2. Pull last 10 turns for context injection
+            recent_chat_raw = self._history.get_recent(10)
+            recent_chat = []
+            for item in recent_chat_raw:
+                if item.get("user_input"):
+                    recent_chat.append({"role": "user", "content": item["user_input"]})
+                if item.get("daemon_response"):
+                    recent_chat.append({"role": "assistant", "content": item["daemon_response"]})
+            
+            self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level)
+            self.strands_worker.execution_complete.connect(self._on_response_ready)
+            
+            # 3. Handle failures gracefully to un-stick the FSM
+            def handle_failure(err):
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error("Strands error: %s", err)
+                self._fsm.transition_to(PetState.IDLE)
+                self._autonomous_query_pending = False
+
+            self.strands_worker.execution_failed.connect(handle_failure)
+            
+            # Force FSM into tracking state
             self._autonomous_query_pending = True
-            self._dispatch_trigger(
-                mode=mode,
-                user_input="",
-                context_hint="",
-                apm=self._current_apm,
-                idle_seconds=self._idle_seconds,
-                typing_content=self._typing_buffer.get_context() if self._typing_buffer else "",
-                is_autonomous=True,
-            )
+            self._fsm.transition_to(PetState.AUTONOMOUS_THINKING)
+            self.strands_worker.start()
         except Exception:
             import logging
             logger = logging.getLogger(__name__)
@@ -2043,9 +2089,12 @@ class PetWindow(QWidget):
         logger.info("_on_response_ready: %d items", len(items))
         self._autonomous_query_pending = False
         self._session_active = True
-        if self._opencode_worker is not None:
+        if getattr(self, "_opencode_worker", None) is not None:
             self._opencode_worker.deleteLater()
             self._opencode_worker = None
+        if getattr(self, "strands_worker", None) is not None:
+            self.strands_worker.deleteLater()
+            self.strands_worker = None
         if not items:
             self._fire_deferred_trigger()
             return
@@ -2053,6 +2102,15 @@ class PetWindow(QWidget):
         self._current_user_input = ""
         is_user = bool(user_input)
         was_autonomous = self._last_mode != "user_input"
+
+        # Publish response ready event to the EventBus
+        if getattr(self, "_events", None) is not None:
+            self._events.publish(Event(
+                type=EventType.LLM_RESPONSE_READY,
+                source="strands_worker",
+                data={"items": items}
+            ))
+
         self._dispatch_structured(items[0], force=is_user, user_input=user_input)
         for item in items[1:]:
             self._response_manager.add_items([item])

@@ -23,6 +23,7 @@ class TestMasterTickDelegation:
             self.pw._fsm = MagicMock()
             self.pw._behavior = MagicMock()
             self.pw._idle_seconds = 0
+            self.pw._screen_time_tick = 0
             self.pw._last_master_tick_time = time.monotonic() - 1.0
 
     def test_delegates_to_behavior_tick(self):

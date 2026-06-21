@@ -39,15 +39,54 @@ class StrandsAutonomousWorker(QThread):
     def run(self):
         logger.info("Initiating Strands background orchestration layer")
         try:
+            import urllib.request
+            import time
+
+            # Wait up to 5 seconds for MCP server on port 4097 to be ready
+            mcp_ready = False
+            for i in range(10):
+                if self._is_aborted:
+                    logger.info("Strands worker aborted during startup waiting for MCP server")
+                    return
+                try:
+                    with urllib.request.urlopen("http://127.0.0.1:4097/health", timeout=1.0) as response:
+                        if response.status == 200:
+                            mcp_ready = True
+                            break
+                except Exception:
+                    pass
+                time.sleep(0.5)
+            if not mcp_ready:
+                logger.warning("MCP server at port 4097 is not ready, proceeding anyway")
+
             mcp_client = MCPClient(lambda: sse_client("http://127.0.0.1:4097/sse"))
             
             with mcp_client:
                 tools = mcp_client.list_tools_sync()
                 
-                memory = SlidingWindowConversationManager(max_tokens=4000)
+                # Format history to avoid "unsupported type" crashes
+                formatted_history = []
                 for turn in self.chat_history:
-                    memory.add_message(role=turn["role"], content=turn["content"])
-                
+                    role = turn["role"]
+                    content = turn["content"]
+                    # If content is a string, wrap it in a ContentBlock list
+                    if isinstance(content, str):
+                        formatted_contents = [{"text": content}]
+                    elif isinstance(content, list):
+                        formatted_contents = []
+                        for block in content:
+                            if isinstance(block, dict) and "text" in block:
+                                formatted_contents.append(block)
+                            elif isinstance(block, str):
+                                formatted_contents.append({"text": block})
+                    else:
+                        formatted_contents = [{"text": str(content)}]
+                        
+                    formatted_history.append({
+                        "role": role,
+                        "content": formatted_contents
+                    })
+
                 self.agent = Agent(
                     system_prompt=(
                         "You are Kenny, the anxious, roasting desktop pet. Run autonomously in the background. "
@@ -57,7 +96,8 @@ class StrandsAutonomousWorker(QThread):
                     ),
                     tools=tools,
                     model=self.model,
-                    conversation_manager=memory
+                    messages=formatted_history,
+                    conversation_manager=SlidingWindowConversationManager()
                 )
                 
                 # Instrument the agent to record Prometheus metrics
