@@ -2109,3 +2109,23 @@ Shutdown: _finalize_quit() → save_session() → disk
 - tests/test_user_query_dispatch.py (new)
 
 **Test results:** All unit tests and regression tests passed.
+
+
+---
+
+### Phase 67 — Strands Integration Crash and Timeout Fix (2026-06-21)
+**Branch:** master
+
+**What was built:**
+- Restored Strands Agents SDK integration in `src/pet_window.py` for user queries and autonomous responses.
+- Resolved `content_type=... | unsupported type` crashes in Strands models block formatting by mapping string-based conversation history entries into structured `ContentBlock` lists.
+- Resolved MCP client connection initialization timeouts by introducing a health endpoint wait ping loop inside `StrandsAutonomousWorker.run()` before establishing the `sse_client` session.
+- Fixed `AttributeError: 'PetWindow' object has no attribute '_events'` in unit tests by adding a `getattr` check on `self._events`.
+- Resolved `AttributeError: 'PetWindow' object has no attribute '_screen_time_tick'` in `tests/test_master_tick.py` by initializing `_screen_time_tick` in the setup method.
+
+**Files changed:**
+- `src/pet_window.py`
+- `src/strands_worker.py`
+- `tests/test_master_tick.py`
+
+**Test results:** All unit tests and behavior integration tests passed.
