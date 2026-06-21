@@ -67,3 +67,17 @@ def test_emit_toast(qtbot):
     bridge.emit_toast("System Alert", "Your APM is 0")
     assert len(received) == 1
     assert received[0] == ("System Alert", "Your APM is 0")
+
+
+def test_emit_action_triggered(qtbot):
+    bridge = FSMActionBridge()
+    received = []
+
+    def slot(name, duration_ms, params):
+        received.append((name, duration_ms, params))
+
+    bridge.action_triggered.connect(slot)
+    bridge.emit_action_triggered("shake", 1000, {"intensity": 5})
+    assert len(received) == 1
+    assert received[0] == ("shake", 1000, {"intensity": 5})
+

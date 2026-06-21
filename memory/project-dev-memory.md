@@ -6,8 +6,8 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-21 (ActionLayer Phase 73 Task 2)
-**Current branch:** `master`
+**Date updated:** 2026-06-21 (ActionLayer Phase 73 Task 4)
+**Current branch:** `task-73-bridge-signal`
 **Test count:** 697 passed, 1 skipped across 54 test files
 **Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54 → Phase 59 → Latest fixes
 
@@ -2339,3 +2339,16 @@ Shutdown: _finalize_quit() → save_session() → disk
 **Test results:** Full suite 694 passed, 1 skipped in 15.06s.
 
 
+### Phase 73 — Action Palette (Task 4: FSMActionBridge Signal) (2026-06-21)
+**Branch:** `task-73-bridge-signal` (committed)
+
+**What was done:**
+- Added `action_triggered = pyqtSignal(str, int, dict)` signal to `FSMActionBridge` inside `src/fsm_bridge.py`.
+- Added helper method `emit_action_triggered(self, name, duration_ms, params)` to `FSMActionBridge` inside `src/fsm_bridge.py`.
+- Added `test_emit_action_triggered` unit test in `tests/test_fsm_bridge.py` to cover the new signal.
+
+**Files changed:**
+- `src/fsm_bridge.py` (modified)
+- `tests/test_fsm_bridge.py` (modified)
+
+**Test results:** 7 tests passed inside `tests/test_fsm_bridge.py`.

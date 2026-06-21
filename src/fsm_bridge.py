@@ -13,6 +13,7 @@ class FSMActionBridge(QObject):
     toast_request = pyqtSignal(str, str)  # title, message
     summarize_requested = pyqtSignal(str, str) # providerID, modelID
     reminder_request = pyqtSignal(str, object) # action, data
+    action_triggered = pyqtSignal(str, int, dict)  # name, duration_ms, params
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -27,3 +28,6 @@ class FSMActionBridge(QObject):
 
     def emit_summarize_requested(self, provider_id: str, model_id: str) -> None:
         self.summarize_requested.emit(provider_id, model_id)
+
+    def emit_action_triggered(self, name: str, duration_ms: int, params: dict) -> None:
+        self.action_triggered.emit(name, duration_ms, params)
