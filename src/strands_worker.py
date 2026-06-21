@@ -109,7 +109,7 @@ class StrandsAutonomousWorker(QThread):
                         success=event.success,
                         duration=event.duration_seconds
                     )
-                self.agent.hooks.add_listener(AfterToolCallEvent, record_metrics)
+                self.agent.hooks.add_callback(AfterToolCallEvent, record_metrics)
                 
                 # Execute the single-shot ReAct worker
                 raw_result = self.agent(f"Current system state: {json.dumps(self.context)}")
