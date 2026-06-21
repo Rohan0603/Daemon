@@ -6,8 +6,6 @@ from typing import Optional, Tuple
 from src.constants import (
     CHASE_ENTER_RADIUS_PX, CHASE_EXIT_RADIUS_PX,
     APM_HYPER_THRESHOLD, SLEEP_IDLE_SECONDS,
-    SHAKE_DURATION_MS, BOUNCE_DURATION_MS,
-    SPIN_DURATION_MS, LOOK_AWAY_DURATION_MS,
     MIN_CHASE_DURATION_MS,
 )
 
@@ -24,10 +22,6 @@ class PetState(Enum):
     DRAGGED            = auto()
     FALLING            = auto()
     AUTONOMOUS_THINKING = auto()
-    SHAKING            = auto()
-    BOUNCING           = auto()
-    SPINNING           = auto()
-    LOOK_AWAY          = auto()
 
 
 @dataclass
@@ -45,7 +39,6 @@ class FSMContext:
     hyper_cooldown_seconds: float
     state_elapsed_ms: int
     autonomous_query_pending: bool
-    triggered_action: Optional[str] = None
     edge: str = "bottom"      # "bottom" | "left" | "top" | "right"
     facing: str = "right"     # direction along edge
 
@@ -100,13 +93,13 @@ class PetFSM:
             ):
                 return PetState.CHASE
 
-        # Priority 4: HYPER (triggered_action="hyper" forces entry)
+        # Priority 4: HYPER
         if cur == PetState.HYPER:
             if ctx.hyper_cooldown_seconds >= 10.0:
                 pass
             else:
                 return PetState.HYPER
-        elif ctx.triggered_action == "hyper" or (
+        elif (
             ctx.apm > APM_HYPER_THRESHOLD and ctx.hyper_sustained_seconds >= 3.0
         ):
             return PetState.HYPER
@@ -133,45 +126,9 @@ class PetFSM:
             else:
                 return PetState.DEVASTATED
 
-        # Priority 8: SHAKING
-        if ctx.triggered_action == "shake":
-            return PetState.SHAKING
-        if cur == PetState.SHAKING:
-            if ctx.state_elapsed_ms >= SHAKE_DURATION_MS:
-                pass
-            else:
-                return PetState.SHAKING
-
-        # Priority 9: BOUNCING
-        if ctx.triggered_action == "bounce":
-            return PetState.BOUNCING
-        if cur == PetState.BOUNCING:
-            if ctx.state_elapsed_ms >= BOUNCE_DURATION_MS:
-                pass
-            else:
-                return PetState.BOUNCING
-
-        # Priority 10: SPINNING
-        if ctx.triggered_action == "spin":
-            return PetState.SPINNING
-        if cur == PetState.SPINNING:
-            if ctx.state_elapsed_ms >= SPIN_DURATION_MS:
-                pass
-            else:
-                return PetState.SPINNING
-
         # Priority 11: AUTONOMOUS_THINKING
         if ctx.autonomous_query_pending:
             return PetState.AUTONOMOUS_THINKING
-
-        # Priority 12: LOOK_AWAY
-        if ctx.triggered_action == "look_away":
-            return PetState.LOOK_AWAY
-        if cur == PetState.LOOK_AWAY:
-            if ctx.state_elapsed_ms >= LOOK_AWAY_DURATION_MS:
-                pass
-            else:
-                return PetState.LOOK_AWAY
 
         # Priority 13: PERIMETER
         if ctx.wander_due and cur == PetState.IDLE:
@@ -187,3 +144,4 @@ class PetFSM:
 
         # Priority 15: IDLE (default)
         return PetState.IDLE
+

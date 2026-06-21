@@ -2,8 +2,6 @@ import pytest
 from dataclasses import dataclass
 from src.pet_fsm import PetFSM, PetState, FSMContext
 from src.constants import (
-    SHAKE_DURATION_MS, BOUNCE_DURATION_MS,
-    SPIN_DURATION_MS, LOOK_AWAY_DURATION_MS,
     MIN_CHASE_DURATION_MS,
 )
 
@@ -218,60 +216,3 @@ def test_autonomous_thinking_exits_when_flag_cleared():
     result = fsm.update(33, ctx)
     assert result == PetState.IDLE
 
-
-def test_triggered_action_hyper_enters_hyper():
-    fsm = PetFSM()
-    ctx = make_context(triggered_action="hyper")
-    assert fsm.update(33, ctx) == PetState.HYPER
-
-
-def test_triggered_action_shake_enters_shaking():
-    fsm = PetFSM()
-    ctx = make_context(triggered_action="shake")
-    assert fsm.update(33, ctx) == PetState.SHAKING
-
-
-def test_triggered_action_bounce_enters_bouncing():
-    fsm = PetFSM()
-    ctx = make_context(triggered_action="bounce")
-    assert fsm.update(33, ctx) == PetState.BOUNCING
-
-
-def test_triggered_action_spin_enters_spinning():
-    fsm = PetFSM()
-    ctx = make_context(triggered_action="spin")
-    assert fsm.update(33, ctx) == PetState.SPINNING
-
-
-def test_triggered_action_look_away_enters_look_away():
-    fsm = PetFSM()
-    ctx = make_context(triggered_action="look_away")
-    assert fsm.update(33, ctx) == PetState.LOOK_AWAY
-
-
-def test_shaking_exits_after_duration():
-    fsm = PetFSM()
-    fsm.current_state = PetState.SHAKING
-    ctx = make_context(state_elapsed_ms=SHAKE_DURATION_MS + 1)
-    assert fsm.update(33, ctx) == PetState.IDLE
-
-
-def test_bouncing_exits_after_duration():
-    fsm = PetFSM()
-    fsm.current_state = PetState.BOUNCING
-    ctx = make_context(state_elapsed_ms=BOUNCE_DURATION_MS + 1)
-    assert fsm.update(33, ctx) == PetState.IDLE
-
-
-def test_spinning_exits_after_duration():
-    fsm = PetFSM()
-    fsm.current_state = PetState.SPINNING
-    ctx = make_context(state_elapsed_ms=SPIN_DURATION_MS + 1)
-    assert fsm.update(33, ctx) == PetState.IDLE
-
-
-def test_look_away_exits_after_duration():
-    fsm = PetFSM()
-    fsm.current_state = PetState.LOOK_AWAY
-    ctx = make_context(state_elapsed_ms=LOOK_AWAY_DURATION_MS + 1)
-    assert fsm.update(33, ctx) == PetState.IDLE

@@ -5,8 +5,8 @@ from src.pet_fsm import PetFSM, PetState
 def test_transition_to_changes_state():
     fsm = PetFSM()
     assert fsm.current_state == PetState.IDLE
-    fsm.transition_to(PetState.SHAKING)
-    assert fsm.current_state == PetState.SHAKING
+    fsm.transition_to(PetState.HYPER)
+    assert fsm.current_state == PetState.HYPER
 
 
 def test_transition_to_logs_via_callback():

@@ -2318,3 +2318,24 @@ Shutdown: _finalize_quit() → save_session() → disk
 **Test results:** Full suite 697 passed, 1 skipped in 14.99s.
 
 
+### Phase 73 — Action Palette (Task 3: FSM Migration) (2026-06-21)
+**Branch:** `task-73-fsm-migration` (committed)
+
+**What was done:**
+- Removed 4 states from `PetState` enum (`SHAKING`, `BOUNCING`, `SPINNING`, `LOOK_AWAY`) and the `triggered_action` field from `FSMContext` (and constants import) inside `src/pet_fsm.py`.
+- Deleted the 4 priority evaluation blocks for these states in `PetFSM._evaluate()`.
+- Created `tests/test_fsm_migration.py` containing 6 migration tests verifying the absence of these states and the `triggered_action` field.
+- Cleaned up `tests/test_fsm.py` to remove references to the removed states and testing of triggered actions.
+- Cleaned up `tests/test_pet_fsm.py`, `src/pet_renderer.py`, and `src/pet_window.py` to eliminate references to these removed states and `triggered_action`.
+
+**Files changed:**
+- `src/pet_fsm.py` (modified)
+- `src/pet_renderer.py` (modified)
+- `src/pet_window.py` (modified)
+- `tests/test_fsm.py` (modified)
+- `tests/test_fsm_migration.py` (new)
+- `tests/test_pet_fsm.py` (modified)
+
+**Test results:** Full suite 694 passed, 1 skipped in 15.06s.
+
+

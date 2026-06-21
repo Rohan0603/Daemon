@@ -86,11 +86,6 @@ class PetRenderer:
                 self._draw_overlay(painter, ctx, overlay)
 
     def _state_offset(self, ctx: RenderContext) -> tuple[float, float]:
-        t = ctx.state_elapsed_ms / 1000.0
-        if ctx.state == PetState.SHAKING:
-            return math.sin(t * math.pi * 15) * 5, 0.0
-        if ctx.state == PetState.BOUNCING:
-            return 0.0, -abs(math.sin(t * math.pi * 2)) * 12
         return 0.0, 0.0
 
     def _state_transform(self, ctx: RenderContext):
@@ -152,23 +147,7 @@ class PetRenderer:
         if state == PetState.AUTONOMOUS_THINKING:
             return 1.0, 1.0, 0.0
 
-        if state == PetState.SHAKING:
-            t = ctx.anim_tick
-            rotation = 6.0 * math.sin(t * 0.9)
-            return 1.0, 1.0, rotation
 
-        if state == PetState.BOUNCING:
-            t = ctx.state_elapsed_ms / 1000.0
-            sx = 1.0 + 0.05 * abs(math.sin(t * math.pi * 2))
-            return sx, 1.0, 0.0
-
-        if state == PetState.SPINNING:
-            t = ctx.state_elapsed_ms / 1000.0
-            rotation = t * 360.0
-            return 1.0, 1.0, rotation
-
-        if state == PetState.LOOK_AWAY:
-            return 1.0, 1.0, -4.0
 
         if getattr(ctx, 'prepare_jump_elapsed_ms', 0.0) > 0:
             ms = ctx.prepare_jump_elapsed_ms
@@ -215,12 +194,7 @@ class PetRenderer:
             return QColor("#9B7EC8")  # muted purple
         if state == PetState.SLEEP:
             return QColor(BODY_BLUE)
-        if state == PetState.SHAKING:
-            return QColor("#E87722")  # orange panic
-        if state == PetState.SPINNING:
-            return QColor(ACCENT_YELLOW)  # yellow mind-blown
-        if state == PetState.LOOK_AWAY:
-            return QColor(BODY_BLUE)
+
         if ctx.animator:
             return ctx.animator.get_body_color(QColor(BODY_BLUE))
         return QColor(BODY_BLUE)
@@ -258,20 +232,7 @@ class PetRenderer:
             return
 
         pet_cx = ctx.pet_x + PET_WIDTH / 2
-        if state == PetState.LOOK_AWAY:
-            # Look away from cursor
-            cursor_angle = math.pi if ctx.cursor_x > pet_cx else 0.0
-            max_offset = 1.5
-            for ex in (-6, 6):
-                painter.setBrush(QBrush(QColor(EYE_WHITE)))
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.drawEllipse(QPointF(ex, eye_y), 4, 4)
-                painter.setBrush(QBrush(QColor(EYE_PUPIL)))
-                painter.drawEllipse(
-                    QPointF(ex + max_offset * math.cos(cursor_angle), eye_y + max_offset * math.sin(cursor_angle)),
-                    2, 2,
-                )
-            return
+
 
         # Default case: apply eye_modifier from Animator
         eye_mod = ctx.animator.get_eye_modifier() if ctx.animator else {}
@@ -477,29 +438,7 @@ class PetRenderer:
                     sy = py + PET_HEIGHT // 2 - jump_y + int(25 * math.sin(rad))
                     painter.drawEllipse(QPointF(sx, sy), 3, 3)
 
-        if state == PetState.SHAKING:
-            c = QColor(ACCENT_RED)
-            c.setAlpha(180)
-            painter.setPen(QPen(c, 1))
-            for i in range(4):
-                angle = math.radians(i * 90 + t * 5)
-                x1 = px + PET_WIDTH // 2 + int(22 * math.cos(angle))
-                y1 = py + PET_HEIGHT // 2 + int(22 * math.sin(angle))
-                x2 = px + PET_WIDTH // 2 + int(30 * math.cos(angle))
-                y2 = py + PET_HEIGHT // 2 + int(30 * math.sin(angle))
-                painter.drawLine(x1, y1, x2, y2)
 
-        if state == PetState.SPINNING:
-            c = QColor(ACCENT_YELLOW)
-            c.setAlpha(200)
-            painter.setPen(QPen(c, 2))
-            for i in range(6):
-                angle = math.radians(i * 60 + t * 3)
-                x1 = px + PET_WIDTH // 2 + int(18 * math.cos(angle))
-                y1 = py + PET_HEIGHT // 2 + int(18 * math.sin(angle))
-                x2 = px + PET_WIDTH // 2 + int(28 * math.cos(angle))
-                y2 = py + PET_HEIGHT // 2 + int(28 * math.sin(angle))
-                painter.drawLine(x1, y1, x2, y2)
 
         painter.restore()
 

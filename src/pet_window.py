@@ -1126,7 +1126,6 @@ class PetWindow(QWidget):
             hyper_sustained_seconds=self._hyper_sustained,
             hyper_cooldown_seconds=self._hyper_cooldown,
             state_elapsed_ms=self._state_elapsed_ms,
-            triggered_action=triggered_action,
         )
 
     def _scaled_cursor_pos(self) -> tuple[int, int]:
