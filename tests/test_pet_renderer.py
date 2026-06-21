@@ -148,3 +148,153 @@ def test_mouth_shape_all_emotions_paint(qapp):
             assert profile.mouth_shape in valid_shapes, f"{emotion}: invalid mouth_shape '{profile.mouth_shape}'"
         finally:
             painter.end()
+
+
+def test_action_stack_opacity(qapp):
+    from unittest.mock import MagicMock
+    from src.pet_renderer import PetRenderer, RenderContext
+    from src.pet_fsm import PetState
+    from src.action_layer import ActiveAction
+
+    renderer = PetRenderer()
+    renderer._draw_body = MagicMock()
+    renderer._draw_eyes = MagicMock()
+    renderer._draw_mouth = MagicMock()
+
+    mock_painter = MagicMock()
+
+    action = ActiveAction(name="vanish", duration_ms=1000, elapsed_ms=200)
+    ctx = RenderContext(
+        state=PetState.IDLE, pet_x=10, pet_y=10,
+        anim_tick=0, hyper_color_index=0, fall_velocity=0,
+        wander_direction=1, bubble_text="", scale=1.0,
+        drag_velocity_x=0, action_stack=[action],
+    )
+
+    renderer.render(mock_painter, ctx)
+    mock_painter.setOpacity.assert_called_with(0.5)
+
+
+def test_action_stack_grow_shrink(qapp):
+    from unittest.mock import MagicMock
+    from src.pet_renderer import PetRenderer, RenderContext
+    from src.pet_fsm import PetState
+    from src.action_layer import ActiveAction
+
+    renderer = PetRenderer()
+    renderer._draw_body = MagicMock()
+    renderer._draw_eyes = MagicMock()
+    renderer._draw_mouth = MagicMock()
+
+    mock_painter = MagicMock()
+
+    action = ActiveAction(name="grow", duration_ms=1000, elapsed_ms=500)
+    ctx = RenderContext(
+        state=PetState.IDLE, pet_x=10, pet_y=10,
+        anim_tick=0, hyper_color_index=0, fall_velocity=0,
+        wander_direction=1, bubble_text="", scale=1.0,
+        drag_velocity_x=0, action_stack=[action],
+    )
+
+    renderer.render(mock_painter, ctx)
+    mock_painter.scale.assert_called_with(1.3, 1.3)
+
+
+def test_action_stack_spin(qapp):
+    from unittest.mock import MagicMock
+    from src.pet_renderer import PetRenderer, RenderContext
+    from src.pet_fsm import PetState
+    from src.action_layer import ActiveAction
+
+    renderer = PetRenderer()
+    renderer._draw_body = MagicMock()
+    renderer._draw_eyes = MagicMock()
+    renderer._draw_mouth = MagicMock()
+
+    mock_painter = MagicMock()
+
+    action = ActiveAction(name="spin", duration_ms=1000, elapsed_ms=250)
+    ctx = RenderContext(
+        state=PetState.IDLE, pet_x=10, pet_y=10,
+        anim_tick=0, hyper_color_index=0, fall_velocity=0,
+        wander_direction=1, bubble_text="", scale=1.0,
+        drag_velocity_x=0, action_stack=[action],
+    )
+
+    renderer.render(mock_painter, ctx)
+    mock_painter.rotate.assert_called_with(90.0)
+
+
+def test_action_stack_rainbow(qapp):
+    from unittest.mock import MagicMock
+    from src.pet_renderer import PetRenderer, RenderContext
+    from src.pet_fsm import PetState
+    from src.action_layer import ActiveAction
+    from PyQt6.QtGui import QColor
+    from src.constants import BODY_BLUE
+
+    renderer = PetRenderer()
+    renderer._draw_body = MagicMock()
+    renderer._draw_eyes = MagicMock()
+    renderer._draw_mouth = MagicMock()
+
+    mock_painter = MagicMock()
+
+    action = ActiveAction(name="rainbow", duration_ms=1000, elapsed_ms=500)
+    ctx = RenderContext(
+        state=PetState.IDLE, pet_x=10, pet_y=10,
+        anim_tick=0, hyper_color_index=0, fall_velocity=0,
+        wander_direction=1, bubble_text="", scale=1.0,
+        drag_velocity_x=0, action_stack=[action],
+    )
+
+    renderer.render(mock_painter, ctx)
+    
+    base_color = QColor(BODY_BLUE)
+    h, s, v, a = base_color.getHsvF()
+    expected_h = ((h * 360.0 + 180.0) % 360.0) / 360.0
+    expected_color = QColor.fromHsvF(expected_h, s, v, a)
+    
+    call_args = renderer._draw_body.call_args[0]
+    called_color = call_args[1]
+    assert abs(called_color.hueF() - expected_color.hueF()) < 0.01
+
+
+def test_action_stack_look_away(qapp):
+    from unittest.mock import MagicMock
+    from src.pet_renderer import PetRenderer, RenderContext
+    from src.pet_fsm import PetState
+    from src.action_layer import ActiveAction
+    from src.constants import PET_WIDTH, PET_HEIGHT
+    from PyQt6.QtCore import QPointF
+
+    renderer = PetRenderer()
+    mock_painter = MagicMock()
+
+    action = ActiveAction(name="look_away", duration_ms=1000, elapsed_ms=500)
+    ctx = RenderContext(
+        state=PetState.IDLE, pet_x=100, pet_y=100,
+        anim_tick=0, hyper_color_index=0, fall_velocity=0,
+        wander_direction=1, bubble_text="", scale=1.0,
+        drag_velocity_x=0, action_stack=[action],
+        cursor_x=300, cursor_y=400,
+    )
+
+    dx = 300 - (100 + PET_WIDTH / 2)
+    dy = 400 - (100 + PET_HEIGHT / 2)
+    dist = max(1.0, (dx**2 + dy**2)**0.5)
+    expected_offset_x = -dx / dist * 8
+    expected_offset_y = -dy / dist * 8
+
+    renderer._draw_eyes(mock_painter, ctx)
+
+    ellipse_calls = [call[0] for call in mock_painter.drawEllipse.call_args_list]
+    assert len(ellipse_calls) == 4
+    
+    left_pupil_center = ellipse_calls[1][0]
+    right_pupil_center = ellipse_calls[3][0]
+    
+    assert abs(left_pupil_center.x() - (-6 + expected_offset_x)) < 0.01
+    assert abs(left_pupil_center.y() - (-11 + expected_offset_y)) < 0.01
+    assert abs(right_pupil_center.x() - (6 + expected_offset_x)) < 0.01
+    assert abs(right_pupil_center.y() - (-11 + expected_offset_y)) < 0.01

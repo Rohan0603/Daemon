@@ -6,9 +6,9 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-21 (ActionLayer Phase 73 Task 4)
-**Current branch:** `task-73-bridge-signal`
-**Test count:** 697 passed, 1 skipped across 54 test files
+**Date updated:** 2026-06-21 (ActionLayer Phase 73 Task 6)
+**Current branch:** `task-73-renderer-compositing`
+**Test count:** 705 passed, 1 skipped across 54 test files
 **Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54 → Phase 59 → Latest fixes
 
 ---
@@ -2352,3 +2352,21 @@ Shutdown: _finalize_quit() → save_session() → disk
 - `tests/test_fsm_bridge.py` (modified)
 
 **Test results:** 7 tests passed inside `tests/test_fsm_bridge.py`.
+
+
+### Phase 73 — Action Palette (Task 6: Renderer — action stack compositing) (2026-06-21)
+**Branch:** `task-73-renderer-compositing` (committed)
+
+**What was done:**
+- Added `action_stack` field to `RenderContext` to hold the list of currently active expression actions.
+- Modified `PetRenderer._draw_pet()` to iterate over `ctx.action_stack`, query `ActionLayer.get_transform()`, and accumulate scale, rotation, translation offset, opacity, and hue shifts.
+- Applied accumulated opacity, translation, rotation, and scale transformations to the `painter` matrix.
+- Applied accumulated hue shifts to the body color of the pet.
+- Modified `PetRenderer._draw_eyes()` to check for `look_away` actions and compute pupil offsets opposite to the cursor direction, bypassing default cursor-tracking offsets.
+- Added test coverage in `tests/test_pet_renderer.py` for opacity, grow/shrink (scale), spin (rotation), rainbow (hue shifts), and look_away (pupil aversion) action stack rendering behavior.
+
+**Files changed:**
+- `src/pet_renderer.py` (modified)
+- `tests/test_pet_renderer.py` (modified)
+
+**Test results:** Full suite 705 passed, 1 skipped.

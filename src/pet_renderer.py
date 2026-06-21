@@ -46,6 +46,7 @@ class RenderContext:
     takeoff_elapsed_ms: float = 0.0
     title_land_elapsed_ms: float = 0.0
     prepare_jump_elapsed_ms: float = 0.0
+    action_stack: list = field(default_factory=list)
 
 
 class PetRenderer:
@@ -60,17 +61,42 @@ class PetRenderer:
     def _draw_pet(self, painter: QPainter, ctx: RenderContext) -> None:
         painter.save()
 
+        from src.action_layer import ActionLayer
+
+        expr_sx = 1.0; expr_sy = 1.0; expr_rot = 0.0
+        expr_ox = 0.0; expr_oy = 0.0; expr_opacity = 1.0
+        expr_hue = None
+
+        for action in ctx.action_stack:
+            tr = ActionLayer.get_transform(action)
+            expr_sx      *= tr.sx
+            expr_sy      *= tr.sy
+            expr_rot     += tr.rot
+            expr_ox      += tr.ox
+            expr_oy      += tr.oy
+            expr_opacity *= tr.opacity
+            if tr.hue_shift is not None:
+                expr_hue = tr.hue_shift
+
+        if expr_opacity < 1.0:
+            painter.setOpacity(expr_opacity)
+
         cx = ctx.pet_x + PET_WIDTH / 2
         cy = ctx.pet_y + PET_HEIGHT / 2
         ox, oy = self._state_offset(ctx)
-        painter.translate(cx + ox, cy + oy)
+        painter.translate(cx + ox + expr_ox, cy + oy + expr_oy)
 
         scale_x, scale_y, rotation = self._state_transform(ctx)
-        if rotation != 0:
-            painter.rotate(rotation)
-        painter.scale(scale_x, scale_y)
+        if (rotation + expr_rot) != 0:
+            painter.rotate(rotation + expr_rot)
+        painter.scale(scale_x * expr_sx, scale_y * expr_sy)
 
         body_color = self._body_color(ctx)
+        if expr_hue is not None:
+            from PyQt6.QtGui import QColor
+            h, s, v, a = body_color.getHsvF()
+            new_h = ((h * 360.0 + expr_hue) % 360.0) / 360.0
+            body_color = QColor.fromHsvF(new_h, s, v, a)
 
         self._draw_body(painter, body_color, ctx.state)
         self._draw_eyes(painter, ctx)
@@ -233,7 +259,6 @@ class PetRenderer:
 
         pet_cx = ctx.pet_x + PET_WIDTH / 2
 
-
         # Default case: apply eye_modifier from Animator
         eye_mod = ctx.animator.get_eye_modifier() if ctx.animator else {}
         
@@ -244,8 +269,20 @@ class PetRenderer:
         if "pupil_color_override" in eye_mod and eye_mod["pupil_color_override"]:
             pupil_color = QColor(eye_mod["pupil_color_override"])
             
-        pupil_offset_x = eye_mod.get("pupil_offset_x", 0.0)
         brow_angle = eye_mod.get("brow_angle", 0.0)
+
+        look_away_active = any(a.name == "look_away" for a in ctx.action_stack)
+        if look_away_active:
+            # avert pupils opposite cursor direction
+            dx = ctx.cursor_x - (ctx.pet_x + PET_WIDTH / 2)
+            dy = ctx.cursor_y - (ctx.pet_y + PET_HEIGHT / 2)
+            dist = max(1.0, (dx**2 + dy**2)**0.5)
+            # Push pupils in opposite direction capped at ±8px
+            pupil_offset_x = -dx / dist * 8
+            pupil_offset_y = -dy / dist * 8
+        else:
+            pupil_offset_x = eye_mod.get("pupil_offset_x", 0.0)
+            pupil_offset_y = 0.0
 
         # Draw left (-6) and right (6) eye
         for ex in (-6, 6):
@@ -260,13 +297,17 @@ class PetRenderer:
             painter.setBrush(QBrush(pupil_color))
             pupil_r = 2 * pupil_scale
             
-            # Cursor tracking
-            eye_y_screen = ctx.pet_y + PET_HEIGHT // 2 + eye_y
-            cursor_angle = math.atan2(ctx.cursor_y - eye_y_screen, ctx.cursor_x - pet_cx)
-            max_offset = 1.5
-            
-            pupil_center_x = ex + max_offset * math.cos(cursor_angle) + pupil_offset_x
-            pupil_center_y = eye_y + max_offset * math.sin(cursor_angle)
+            if look_away_active:
+                pupil_center_x = ex + pupil_offset_x
+                pupil_center_y = eye_y + pupil_offset_y
+            else:
+                # Cursor tracking
+                eye_y_screen = ctx.pet_y + PET_HEIGHT // 2 + eye_y
+                cursor_angle = math.atan2(ctx.cursor_y - eye_y_screen, ctx.cursor_x - pet_cx)
+                max_offset = 1.5
+                
+                pupil_center_x = ex + max_offset * math.cos(cursor_angle) + pupil_offset_x
+                pupil_center_y = eye_y + max_offset * math.sin(cursor_angle)
             
             if pupil_shape == "heart":
                 path = QPainterPath()
