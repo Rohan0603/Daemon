@@ -6,9 +6,9 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-21 (Deprecation warning fixes + doc refresh)
+**Date updated:** 2026-06-21 (ActionLayer Phase 73 Task 2)
 **Current branch:** `master`
-**Test count:** 688 passed, 1 skipped across 53 test files
+**Test count:** 697 passed, 1 skipped across 54 test files
 **Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54 → Phase 59 → Latest fixes
 
 ---
@@ -2299,4 +2299,22 @@ Shutdown: _finalize_quit() → save_session() → disk
 - Verified other free model options (`mimo-v2.5-free`, `north-mini-code-free`) return the same rate limit error (IP-based limit), while models like `minimax-m3-free` and `qwen3.6-plus-free` returned `401 ModelError` due to expired promotion.
 - Tested paid model options (`gemini-3.5-flash`, etc.) which returned `401 CreditsError` (no payment method).
 - The user chose to keep the current configuration and wait for the Cloudflare/Zen API rate limit cooldown (approximately 10 hours).
+
+---
+
+### Phase 73 — Action Palette (Task 2: ActionLayer) (2026-06-21)
+**Branch:** `master` (squash-merged)
+
+**What was built:**
+- Created `src/action_layer.py` containing `ActionLayer`, `ActiveAction`, `ActionTransform`, and math-based transforms for all 24 layered expression actions.
+- Created `tests/test_action_layer.py` with 9 tests covering trigger behavior, expiration, stack capacity eviction, snapshotting, parameter storage, and ticks.
+- Integrated `ACTION_STACK_MAX` and the 24 action durations into `src/constants.py`.
+
+**Files changed:**
+- `src/action_layer.py` (new)
+- `tests/test_action_layer.py` (new)
+- `src/constants.py` (modified)
+
+**Test results:** Full suite 697 passed, 1 skipped in 14.99s.
+
 
