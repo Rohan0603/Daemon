@@ -6,7 +6,7 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-20 (Phase 60 — Test Suite Optimization)
+**Date updated:** 2026-06-21 (Bubble Char Limit Enforcement)
 **Current branch:** `master`
 **Test count:** 703 across 53 test files
 **Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54 → Phase 59
@@ -2041,7 +2041,7 @@ Shutdown: _finalize_quit() → save_session() → disk
 
 ---
 
-### Phase 64 � Screen Time, Reminders, Diff Tool, Test Optimization (2026-06-20)
+### Phase 64 � Screen Time, Reminders, Diff Tool, Test Optimization (2026-06-20)
 **Branch:** `master`
 
 **What was built:**
@@ -2179,3 +2179,92 @@ Shutdown: _finalize_quit() → save_session() → disk
 - 	ests/test_strands_worker.py
 
 **Test results:** All 52 tests passed.
+
+
+---
+
+### Phase 71 — Strands Direct API Gateway Routing (2026-06-21)
+**Branch:** master
+
+**What was built:**
+- Fixed the API routing crash where the Strands worker sent chat completion requests locally to port 4096 (which does not support `/v1/chat/completions` and returned fallback HTML dashboard code instead of JSON).
+- Configured `StrandsAutonomousWorker` to dynamically resolve the configured LLM API provider, API key, and model ID from `daemon_config.json`, pointing directly to the official `opencode-zen` API gateway (`https://opencode.ai/zen/v1`) or OpenRouter (`https://openrouter.ai/api/v1`) as an OpenAI-compatible endpoint.
+- Updated `tests/test_strands_worker.py` to test configuration injection.
+- Added `"fall"` to the set of valid keyword actions in `tests/test_constants.py`.
+- Added `"SCREEN_TIME_THRESHOLD_REACHED"` to expected events in `tests/test_events.py` to fix unit test failures.
+
+**Files changed:**
+- [src/strands_worker.py](file:///C:/Users/ponna/Project/Daemon/src/strands_worker.py)
+- [tests/test_strands_worker.py](file:///C:/Users/ponna/Project/Daemon/tests/test_strands_worker.py)
+- [tests/test_constants.py](file:///C:/Users/ponna/Project/Daemon/tests/test_constants.py)
+- [tests/test_events.py](file:///C:/Users/ponna/Project/Daemon/tests/test_events.py)
+
+**Test results:** Targeted test suites passed successfully.
+
+### Phase 72 — Strands AfterToolCallEvent Metrics Crash Fix (2026-06-21)
+
+**Problem:** `record_metrics()` hook callback in `src/strands_worker.py` accessed `event.tool.name`, `event.success`, and `event.duration_seconds` — none of which exist on the Strands SDK `AfterToolCallEvent` dataclass. This caused `AttributeError` crashes every time the Strands agent completed a tool call, cascading into MCP session teardown and "Connection to the MCP server was closed" errors.
+
+**Root cause:** The `AfterToolCallEvent` was refactored in an SDK update. The correct attributes are:
+- `event.tool_use["name"]` instead of `event.tool.name`
+- `event.result["status"]` / `event.exception is None` for success
+- No `duration_seconds` field exists — the SDK doesn't expose timing info on this event
+
+**Fix:**
+- Changed attribute access from `event.tool.name` → `event.tool_use["name"]`
+- Changed `success=` → `allowed=` with `event.exception is None`
+- Changed `duration=` → `duration_seconds=0.0` (no timing available from event)
+- Fixed keyword arguments to match `record_mcp_tool_call(tool_name, duration_seconds, allowed)` signature
+
+**Files changed:**
+- [src/strands_worker.py](file:///C:/Users/ponna/Project/Daemon/src/strands_worker.py)
+
+**Test results:** 66 passed, 1 skipped (test_observability, test_strands_worker, test_mcp_server)
+
+### fix-4: Bulletproof instrumentation hook (2026-06-21)
+
+**Root cause:** `AfterToolCallEvent.tool` does not exist in the Strands SDK. The correct attribute is `event.tool_use["name"]` (a dict, not an object). Also `event.success` → `event.exception is None`, and `event.duration_seconds` doesn't exist on the event.
+
+**Fix:**
+- Changed `event.tool.name` → `event.tool_use["name"]`
+- Changed `event.success` → `event.exception is None`
+- Changed `event.duration_seconds` → `0.0` (no timing available from event)
+- Wrapped entire callback in try/except so instrumentation can never block tool execution
+- Verified `record_mcp_tool_call(tool_name, duration_seconds, allowed)` signature matches in both `observability.py` and `mcp_server.py`
+
+**Files changed:**
+- [src/strands_worker.py](file:///C:/Users/ponna/Project/Daemon/src/strands_worker.py)
+
+**Test results:** 8 passed, 1 skipped (test_strands_worker, test_observability)
+|---
+
+### Phase 65 — Test Suite Optimization (2026-06-21)
+**Branch:** `master`
+
+**What was done:**
+- Reduced full test suite execution from >120s to 11.17s (688 passed, 1 skipped)
+- Removed redundant/stub-only tests: `tests/test_pet_window.py`, `tests/test_behavior_integration.py`
+- Replaced `tests/test_council_additions.py` with 2 lightweight unit tests in `tests/test_pet_window_unit.py`
+- Rewrote heavy tests to pure-unit (no QApplication/PetWindow initialization):
+  - `tests/test_master_tick.py` — tests delegation to BehaviorController only
+  - `tests/test_user_query_dispatch.py` — tests `_on_response_ready` dispatch logic via mocked PetWindow
+  - `tests/test_mcp_server.py` — rewrote MCP log/summarize tests to call `MCPHandler.do_POST()` directly with in-memory BytesIO, eliminating actual HTTP server startup
+- Fixed mock setup issues in `tests/test_sleep_timers.py` (added `_idle_seconds`, `_dispatch_trigger`, proper `PetState.SLEEP` comparison)
+- Added config SSOT tests: `tests/test_config_ssot.py` — verifies constants are patched by `load_config` and no hardcoded behavioral values remain in `src/constants.py`
+- Added config autocreation tests: `tests/test_config_autocreate.py` — verifies default config file creation, non-overwrite of existing files, and flat-to-nested migration
+- All sleep/boredom/session reuse coverage already present in existing unit tests (`test_sleep_timers.py`, `test_trigger_boredom_fsm.py`, `test_session_reuse.py`) and verified passing
+
+**Files changed:**
+- `pytest.ini` — added `--timeout=30` performance gate
+- `tests/test_pet_window.py` — deleted
+- `tests/test_behavior_integration.py` — deleted
+- `tests/test_council_additions.py` — deleted
+- `tests/test_pet_window_unit.py` — created (2 tests)
+- `tests/test_master_tick.py` — rewritten
+- `tests/test_user_query_dispatch.py` — rewritten
+- `tests/test_mcp_server.py` — optimized log/summarize tests
+- `tests/test_sleep_timers.py` — fixed mocking
+- `tests/test_config_ssot.py` — created
+- `tests/test_config_autocreate.py` — created
+
+**Test results:** Full suite 688 passed, 1 skipped in 11.17s (under 30s gate)
