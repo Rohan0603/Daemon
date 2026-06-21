@@ -357,7 +357,26 @@ _CONSENT_TOOL_MAP: dict[str, str] = {
 }
 
 
+import threading
+_sse_handlers_lock = threading.Lock()
+
 class MCPHandler(BaseHTTPRequestHandler):
+    _active_sse_handlers = set()
+
+    @classmethod
+    def broadcast_sse_message(cls, message_dict):
+        payload = f"event: message\ndata: {json.dumps(message_dict)}\n\n".encode("utf-8")
+        with _sse_handlers_lock:
+            handlers = list(cls._active_sse_handlers)
+        for handler in handlers:
+            try:
+                handler.wfile.write(payload)
+                handler.wfile.flush()
+                logger.debug("Broadcasted SSE message to handler %s", handler)
+            except Exception as e:
+                logger.debug("Failed to write to SSE stream: %s", e)
+                with _sse_handlers_lock:
+                    cls._active_sse_handlers.discard(handler)
 
     @property
     def fsm_bridge(self):
@@ -464,6 +483,7 @@ class MCPHandler(BaseHTTPRequestHandler):
             if response is not None:
                 if "id" in msg:
                     response["id"] = msg["id"]
+                MCPHandler.broadcast_sse_message(response)
                 self._send_json(response)
             else:
                 self._send_json({})
@@ -497,6 +517,10 @@ class MCPHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(f"event: endpoint\ndata: /message\n\n".encode())
         self.wfile.flush()
+
+        with _sse_handlers_lock:
+            MCPHandler._active_sse_handlers.add(self)
+
         # Keep connection alive with periodic keepalive comments
         try:
             while True:
@@ -506,6 +530,9 @@ class MCPHandler(BaseHTTPRequestHandler):
                 time.sleep(15)
         except (BrokenPipeError, ConnectionResetError, OSError):
             pass
+        finally:
+            with _sse_handlers_lock:
+                MCPHandler._active_sse_handlers.discard(self)
 
     def _handle_metrics(self):
         """Return Prometheus-format metrics for scraping."""
