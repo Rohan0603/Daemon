@@ -24,8 +24,10 @@ class StrandsAutonomousWorker(QThread):
         
         # Map Strands to the port 4096 OpenCode server
         self.model = OpenAIModel(
-            api_key="opencode-local",
-            base_url="http://127.0.0.1:4096/v1",
+            client_args={
+                "api_key": "opencode-local",
+                "base_url": "http://127.0.0.1:4096/v1",
+            },
             model_id="opencode-default"
         )
 
