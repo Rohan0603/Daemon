@@ -1405,19 +1405,44 @@ class PetWindow(QWidget):
             return
 
         context = get_active_window_title()
-        typing = self._typing_buffer.get_context() if self._typing_buffer else ""
-        apm = self._apm_worker.apm if self._apm_worker else 0
         logger.info("Starting user query: '%s', active window: '%s'", text[:40], context)
-        self._fsm.current_state = PetState.THINKING
-        self._dispatch_trigger(
-            mode="user_input",
-            user_input=text,
-            context_hint=context,
-            apm=apm,
-            idle_seconds=0.0,
-            typing_content=typing,
-            is_autonomous=False,
-        )
+        self._current_user_input = text
+        self._last_mode = "user_input"
+
+        # Safely halt any existing in-flight ReAct loop to prevent memory leaks/crashes
+        if hasattr(self, 'strands_worker') and self.strands_worker and self.strands_worker.isRunning():
+            self.strands_worker.abort()
+            self.strands_worker.wait() # Safely block for the cancellation point
+
+        current_context = self._behavior.build_context_snapshot() 
+        profanity_level = self._config.get("pet", {}).get("profanity_level", "moderate")
+
+        # Pull last 10 turns for context injection
+        recent_chat_raw = self._history.get_recent(10)
+        recent_chat = []
+        for item in recent_chat_raw:
+            if item.get("user_input"):
+                recent_chat.append({"role": "user", "content": item["user_input"]})
+            if item.get("daemon_response"):
+                recent_chat.append({"role": "assistant", "content": item["daemon_response"]})
+
+        # Append current user query
+        recent_chat.append({"role": "user", "content": text})
+
+        self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level)
+        self.strands_worker.execution_complete.connect(self._on_strands_response_ready)
+
+        # Handle failures gracefully to un-stick the FSM
+        def handle_failure(err):
+            logger.error("Strands error: %s", err)
+            self._fsm.transition_to(PetState.IDLE)
+            self._current_user_input = None
+
+        self.strands_worker.execution_failed.connect(handle_failure)
+
+        # Force FSM into thinking state
+        self._fsm.transition_to(PetState.THINKING)
+        self.strands_worker.start()
 
 
     def _on_opencode_result(self, text: str) -> None:
@@ -1738,7 +1763,7 @@ class PetWindow(QWidget):
         for item in items[1:]:
             self._response_manager.add_items([item])
 
-    def _dispatch_structured(self, item: dict, force: bool = False) -> None:
+    def _dispatch_structured(self, item: dict, force: bool = False, user_input: str = "") -> None:
         thought = item.get("thought", "")
         dialogue = item.get("dialogue", "")
         print(f"DEBUG: _dispatch_structured: thought='{thought}', dialogue='{dialogue}'")
@@ -1775,7 +1800,7 @@ class PetWindow(QWidget):
             self._show_bubble(dialogue)
             # Dynamic GCD: base 8s + 1s per 30 chars
             self._gcd_expiry_timestamp = time.time() + 8.0 + (len(dialogue) / 30.0)
-        self._history.add_entry("", dialogue, "idle")
+        self._history.add_entry(user_input, dialogue, "idle")
         self._last_daemon_action = "idle"
         self.interaction_count += 1
 
@@ -1873,6 +1898,9 @@ class PetWindow(QWidget):
     def _on_strands_response_ready(self, items: list):
         self._autonomous_query_pending = False
 
+        user_input = getattr(self, "_current_user_input", "")
+        self._current_user_input = ""
+
         if items:
             # Publish to the decoupled Behavior logic layer via EventBus
             # (Requires registering a listener for LLM_RESPONSE_READY in BehaviorController)
@@ -1882,7 +1910,8 @@ class PetWindow(QWidget):
                 data={"items": items}
             ))
             # Fallback for immediate UI dispatch if EventBus refactor is deferred:
-            self._dispatch_structured(items[0])
+            is_user = bool(user_input)
+            self._dispatch_structured(items[0], force=is_user, user_input=user_input)
             
         # If surplus items are generated, prime your thought pools
         if len(items) > 1:
