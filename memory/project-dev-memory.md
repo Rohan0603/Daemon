@@ -2062,3 +2062,32 @@ Shutdown: _finalize_quit() → save_session() → disk
 - `requirements.txt`
 
 **Test results:** Config, screen_time, and other tests passing.
+
+
+---
+
+### Phase 65 - Strands Agents SDK Integration (2026-06-21)
+**Branch:** master
+
+**What was built:**
+- Completed Strands Agents SDK integration replacing manual ReAct framework with a clean PyQt6 QThread pipeline (StrandsAutonomousWorker).
+- Wired the background worker safely into the behavior engine (pet_window.py) while preserving the critical thought pool caching and FSM local bypass mechanisms.
+- Cleaned up obsolete codebase blocks: pruned regex-based JSON fallbacks from opencode_worker.py and dropped schema definition instructions from context_manager.py.
+- Instrumented the strands agent to dispatch events directly to our EventBus and log tool latency/execution metrics to Prometheus via record_mcp_tool_call.
+- Verified and fixed import paths for SlidingWindowConversationManager (exported from strands.agent.conversation_manager).
+- Ran complete regression testing confirming that 119 tests pass successfully with zero regressions on master.
+
+**Files changed:**
+- requirements.txt
+- src/strands_worker.py (new)
+- src/pet_window.py
+- src/context_manager.py
+- src/opencode_worker.py
+- src/history.py
+- src/llm_session_persistence.py
+- tests/test_behavior_integration.py
+- tests/test_context_manager.py
+- tests/test_history.py
+- tests/test_llm_session_persistence.py
+
+**Test results:** 119 tests passed, 1 warning.
