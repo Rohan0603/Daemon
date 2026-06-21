@@ -2161,3 +2161,21 @@ Shutdown: _finalize_quit() → save_session() → disk
 - `src/strands_worker.py`
 
 **Test results:** All unit tests and behavior integration tests passed.
+
+
+---
+
+### Phase 70 - Strands OpenAIModel client_args Fix (2026-06-21)
+**Branch:** master
+
+**What was built:**
+- Fixed UserWarning: Invalid configuration parameters: ['api_key', 'base_url'] on Strands worker startup.
+- Fixed root cause of 404 API errors where requests were routed to https://api.openai.com instead of the local port 4096 OpenCode server due to incorrectly passing pi_key and ase_url as top-level parameters to OpenAIModel.
+- Configured OpenAIModel to pass pi_key and ase_url within the client_args dictionary parameter.
+- Added a dedicated test suite 	ests/test_strands_worker.py to verify worker initialization configurations and robustness of JSON extraction parsing.
+
+**Files changed:**
+- src/strands_worker.py
+- 	ests/test_strands_worker.py
+
+**Test results:** All 52 tests passed.
