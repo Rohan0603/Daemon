@@ -56,6 +56,7 @@ from src.diary_store import DiaryStore
 from src.event_worker import EventStreamWorker
 from src.context_manager import ContextManager
 from src.response_manager import AutonomousResponseManager
+from src.action_layer import ActionLayer
 
 
 from src.fsm_bridge import FSMActionBridge
@@ -230,6 +231,8 @@ class PetWindow(QWidget):
         self._diary_path = brain_path
 
         self._diary_store = DiaryStore(self._diary_path)
+        self._action_layer = ActionLayer()
+        self._fsm_bridge.action_triggered.connect(self._on_mcp_expression_action)
         self._mcp_server = MCPServer(self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, config=self._config)
         self._write_coalescer = WriteCoalescer(
             memory=self._memory, history=self._history,
@@ -377,7 +380,7 @@ class PetWindow(QWidget):
         self._boot_timer.setInterval(500)
         self._boot_timer.timeout.connect(self._on_boot_check_auth)
         self._boot_timer.start()
-        self._mcp_server.start()
+        self._mcp_server.start(self._action_layer)
 
         # Wire EventBus subscriber for autonomous triggers from BehaviorController
         self._events.subscribe(
@@ -648,6 +651,7 @@ class PetWindow(QWidget):
             return
         self._force_quit = True
         logger.info("Initiating Ghost Mode shutdown sequence...")
+        self._action_layer.clear()
         self._events.publish(Event(
             type=EventType.PET_SHUTDOWN_STARTED,
             source="pet_window",
@@ -1030,6 +1034,7 @@ class PetWindow(QWidget):
                 self._state_elapsed_ms = 0
                 # Handle SLEEP state entry
                 if new_state == PetState.SLEEP and old_state != PetState.SLEEP:
+                    self._action_layer.clear()
                     self._events.publish(Event(
                         type=EventType.PET_SLEEP_STARTED,
                         source="pet_window",
@@ -1070,6 +1075,8 @@ class PetWindow(QWidget):
                     self._last_boredom_fsm_time = time.time()
                     self._boredom_timer_ms = BOREDOM_TIMEOUT_SEC * 1000
 
+            self._action_layer.tick(FSM_TICK_MS)
+            self._apply_action_positions()
             self._apply_physics(new_state, FSM_TICK_MS, current_rect)
             self._animator.update(FSM_TICK_MS, self._pet_x, self._pet_y)
             self.update()
@@ -1128,6 +1135,14 @@ class PetWindow(QWidget):
             hyper_cooldown_seconds=self._hyper_cooldown,
             state_elapsed_ms=self._state_elapsed_ms,
         )
+
+    @property
+    def _pet_width(self) -> int:
+        return int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0))
+
+    @property
+    def _pet_height(self) -> int:
+        return int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0))
 
     def _scaled_cursor_pos(self) -> tuple[int, int]:
         pos = self.mapFromGlobal(self.cursor().pos())
@@ -1191,11 +1206,11 @@ class PetWindow(QWidget):
         elif state == PetState.DRAGGED:
             self._fall_velocity = 0.0
 
-    def _tick_perimeter(self) -> None:
+    def _tick_perimeter(self, speed_multiplier: float = 1.0) -> None:
         scr = QApplication.primaryScreen().availableGeometry()
         edge = self._perimeter_edge
         facing = self._perimeter_facing
-        speed = int(WANDER_SPEED_PX * self._pet_speed_multiplier)
+        speed = int(WANDER_SPEED_PX * self._pet_speed_multiplier * speed_multiplier)
 
         if edge == "bottom":
             dx = speed if facing == "right" else -speed
@@ -1351,6 +1366,7 @@ class PetWindow(QWidget):
                 takeoff_elapsed_ms=takeoff_elapsed_ms,
                 title_land_elapsed_ms=title_land_elapsed_ms,
                 prepare_jump_elapsed_ms=prepare_jump_elapsed_ms,
+                action_stack=self._action_layer.get_active(),
             )
             self._renderer.render(painter, ctx)
             self._bubble_rect = ctx.bubble_rect
@@ -2206,6 +2222,46 @@ class PetWindow(QWidget):
             if target_y is not None:
                 self._fsm._ctx.target_y = int(target_y)
             self._fsm.transition_to(pet_state)
+
+    def _on_mcp_expression_action(self, name: str, duration_ms: int, params: dict) -> None:
+        """Slot: MCP layer='expression' -> ActionLayer."""
+        self._action_layer.trigger(name, duration_ms or None, params)
+
+    def _apply_action_positions(self) -> None:
+        """Apply position-affecting actions (jump, float, dash, strut, teleport)."""
+        import math
+        import random
+        for action in self._action_layer.get_active():
+            t = action.elapsed_ms
+            d = action.duration_ms
+            p = min(1.0, t / max(d, 1))
+
+            if action.name == "jump":
+                dy = -math.sin(p * math.pi) * 40
+                self._pet_y += dy
+
+            elif action.name == "float":
+                dy = -math.sin(t * math.pi / 1000) * 8
+                self._pet_y += dy
+
+            elif action.name == "dash":
+                facing = getattr(self, "_perimeter_facing", "right")
+                dx = math.sin(p * math.pi) * 60 * (1 if facing == "right" else -1)
+                self._pet_x += dx
+
+            elif action.name == "strut":
+                # Walk at 60% PERIMETER speed
+                self._tick_perimeter(speed_multiplier=0.6)
+
+            elif action.name == "teleport":
+                # At midpoint (opacity ≈ 0), reposition once
+                if t >= 350 and not action._position_applied:
+                    action._position_applied = True
+                    screen = self.screen().availableGeometry()
+                    rx = random.randint(0, max(0, screen.width() - self._pet_width))
+                    ry = random.randint(0, max(0, screen.height() - self._pet_height))
+                    self._pet_x = rx
+                    self._pet_y = ry
 
     def _on_toast_requested(self, title: str, message: str):
         if self._tray_icon and self._tray_icon.isVisible():
