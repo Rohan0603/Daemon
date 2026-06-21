@@ -1,0 +1,59 @@
+tests/test_active_window.py: ============================== 4 passed in 0.06s ==============================
+tests/test_animator.py: ============================= 62 passed in 0.23s ==============================
+tests/test_ast_mapper.py: ============================== 7 passed in 0.12s ==============================
+tests/test_behavior_controller.py: ============================= 40 passed in 0.63s ==============================
+tests/test_behavior_integration.py: ======================== 8 passed, 1 warning in 2.10s =========================
+tests/test_brain_load.py: ============================== 1 passed in 0.56s ==============================
+tests/test_brain_schema.py: ============================= 20 passed in 0.09s ==============================
+tests/test_codebase_awareness_e2e.py: ============================== 4 passed in 0.38s ==============================
+tests/test_config.py: ============================== 6 passed in 0.09s ==============================
+tests/test_config_autocreate.py: ============================== 3 passed in 0.08s ==============================
+tests/test_config_ssot.py: ============================== 2 passed in 0.06s ==============================
+tests/test_constants.py: ============================== 4 passed in 0.06s ==============================
+tests/test_context_manager.py: ============================= 13 passed in 0.09s ==============================
+tests/test_council_additions.py: ======================== 15 passed, 1 warning in 9.54s ========================
+tests/test_data_consolidation.py: ============================== 3 passed in 0.07s ==============================
+tests/test_data_viewer_dialog.py: ============================== 1 passed in 0.09s ==============================
+tests/test_diary_store.py: ============================= 18 passed in 0.16s ==============================
+tests/test_event_worker.py: ============================== 1 passed in 0.13s ==============================
+tests/test_events.py: ============================= 22 passed in 0.09s ==============================
+tests/test_firebase_auth.py: ============================= 16 passed in 0.22s ==============================
+tests/test_firebase_crud.py: ============================= 13 passed in 0.54s ==============================
+tests/test_fsm.py: ============================= 32 passed in 0.13s ==============================
+tests/test_fsm_bridge.py: ============================== 6 passed in 0.09s ==============================
+tests/test_gcd.py: ======================== 4 passed, 1 warning in 1.86s =========================
+tests/test_history.py: ============================= 26 passed in 0.20s ==============================
+tests/test_hysteresis.py: ============================== 2 passed in 0.06s ==============================
+tests/test_llm_session_persistence.py: ======================== 24 passed, 1 warning in 0.24s ========================
+tests/test_lock.py: ============================== 4 passed in 0.10s ==============================
+tests/test_log_context.py: ============================== 5 passed in 0.06s ==============================
+tests/test_logging_setup.py: ============================== 9 passed in 0.16s ==============================
+tests/test_login_dialog.py: ============================== 9 passed in 0.27s ==============================
+tests/test_master_tick.py: ======================== 5 passed, 1 warning in 1.95s =========================
+tests/test_mcp_server.py: ============================= 58 passed in 2.05s ==============================
+tests/test_memory.py: ============================= 28 passed in 0.22s ==============================
+tests/test_memory_manager.py: ============================= 38 passed in 0.69s ==============================
+tests/test_multi_pet.py: ============================== 2 passed in 0.06s ==============================
+tests/test_observability.py: =================== 6 passed, 1 skipped, 1 warning in 0.34s ===================
+tests/test_opencode_serve_manager.py: ============================= 14 passed in 0.93s ==============================
+tests/test_opencode_worker.py: ======================== 31 passed, 1 warning in 0.33s ========================
+tests/test_persistence.py: ============================= 11 passed in 0.13s ==============================
+tests/test_pet_fsm.py: ============================== 3 passed in 0.06s ==============================
+tests/test_pet_renderer.py: ============================== 9 passed in 0.14s ==============================
+tests/test_pet_window.py: ============================ no tests ran in 0.04s ============================
+tests/test_plugin_system.py: ============================= 17 passed in 0.15s ==============================
+tests/test_response_manager.py: ============================= 10 passed in 0.15s ==============================
+tests/test_response_pool.py: ============================== 6 passed in 0.07s ==============================
+tests/test_screen_reader.py: ============================= 11 passed in 0.11s ==============================
+tests/test_screen_time.py: ======================== 3 passed, 1 warning in 2.26s =========================
+tests/test_security.py: ============================= 10 passed in 0.06s ==============================
+tests/test_session_reuse.py: ======================== 1 passed, 1 warning in 2.00s =========================
+tests/test_settings_dialog.py: ============================== 7 passed in 0.56s ==============================
+tests/test_sleep_timers.py: ======================== 1 passed, 1 warning in 1.91s =========================
+tests/test_strands_worker.py: ============================== 2 passed in 1.58s ==============================
+tests/test_thought_log_dialog.py: ============================== 5 passed in 0.15s ==============================
+tests/test_trigger_boredom_fsm.py: ======================== 2 passed, 1 warning in 1.89s =========================
+tests/test_tts_worker.py: ============================= 10 passed in 0.12s ==============================
+tests/test_typing_buffer.py: ============================= 14 passed in 0.55s ==============================
+tests/test_user_query_dispatch.py: ======================== 2 passed, 1 warning in 1.90s =========================
+tests/test_write_coalescer.py: ============================= 17 passed in 0.17s ==============================
