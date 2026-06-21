@@ -1,10 +1,10 @@
 import pytest
 from unittest.mock import MagicMock, patch
-from PyQt6.QtWidgets import QWidget
 from src.pet_window import PetWindow
-from src.pet_fsm import PetState
+from PyQt6.QtWidgets import QWidget
 
 pytestmark = pytest.mark.usefixtures("app")
+
 
 class TestUserQueryDispatch:
     def setup_method(self):
@@ -12,33 +12,36 @@ class TestUserQueryDispatch:
             QWidget.__init__(self)
         with patch.object(PetWindow, '__init__', mock_init):
             self.pw = PetWindow()
-            self.pw._last_mode = "user_input"
-            self.pw._current_user_input = "hi"
-            self.pw._dispatch_structured = MagicMock()
-            
-            # Setup response manager mock with threshold and remaining values
-            self.pw._response_manager = MagicMock()
-            self.pw._response_manager.remaining.return_value = 10
-            self.pw._response_manager.thought_pool = MagicMock()
-            self.pw._response_manager.thought_pool._threshold = 5
-            
-            self.pw._opencode_worker = MagicMock()
-            self.pw._fire_deferred_trigger = MagicMock()
+        self.pw._last_mode = "user_input"
+        self.pw._current_user_input = "hi"
+        self.pw._dispatch_structured = MagicMock()
+        self.pw._response_manager = MagicMock()
+        self.pw._response_manager.remaining.return_value = 10
+        self.pw._response_manager.thought_pool = MagicMock()
+        self.pw._response_manager.thought_pool._threshold = 5
+        self.pw._opencode_worker = None
+        self.pw.strands_worker = None
+        self.pw._fire_deferred_trigger = MagicMock()
+        self.pw._fsm = MagicMock()
+        self.pw._fsm.current_state = "IDLE"
+        self.pw._events = None
+        self.pw._boredom_timer_ms = 0
 
     def test_on_response_ready_with_user_input(self):
-        items = [{"thought": "t", "dialogue": "d", "type": "idle_thought"}]
-        self.pw._on_response_ready(items)
-        
-        # Verify that _dispatch_structured is called with force=True and user_input="hi"
-        self.pw._dispatch_structured.assert_called_once_with(items[0], force=True, user_input="hi")
-        # Verify that current user input is cleared
+        self.pw._on_response_ready([{"thought": "t", "dialogue": "d", "type": "idle_thought"}])
+        self.pw._dispatch_structured.assert_called_once_with(
+            {"thought": "t", "dialogue": "d", "type": "idle_thought"},
+            force=True,
+            user_input="hi",
+        )
         assert self.pw._current_user_input == ""
 
     def test_on_response_ready_with_autonomous_input(self):
         self.pw._last_mode = "boredom"
         self.pw._current_user_input = ""
-        items = [{"thought": "t", "dialogue": "d", "type": "idle_thought"}]
-        self.pw._on_response_ready(items)
-        
-        # Verify that _dispatch_structured is called with force=False and user_input=""
-        self.pw._dispatch_structured.assert_called_once_with(items[0], force=False, user_input="")
+        self.pw._on_response_ready([{"thought": "t", "dialogue": "d", "type": "idle_thought"}])
+        self.pw._dispatch_structured.assert_called_once_with(
+            {"thought": "t", "dialogue": "d", "type": "idle_thought"},
+            force=False,
+            user_input="",
+        )
