@@ -1414,7 +1414,7 @@ class PetWindow(QWidget):
             self.strands_worker.abort()
             self.strands_worker.wait() # Safely block for the cancellation point
 
-        current_context = self._behavior.build_context_snapshot() 
+        current_context = self._build_context_snapshot() 
         profanity_level = self._config.get("pet", {}).get("profanity_level", "moderate")
 
         # Pull last 10 turns for context injection
@@ -1861,7 +1861,7 @@ class PetWindow(QWidget):
                 self.strands_worker.abort()
                 self.strands_worker.wait() # Safely block for the cancellation point
                 
-            current_context = self._behavior.build_context_snapshot() 
+            current_context = self._build_context_snapshot() 
             profanity_level = self._config.get("pet", {}).get("profanity_level", "moderate")
             
             # 2. Pull last 10 turns for context injection
@@ -2006,6 +2006,19 @@ class PetWindow(QWidget):
             for entry in _seed_diary_entries:
                 self._diary_store.add_diary_entry(entry, int(time.time()))
             logger.info("Diary seeded (%d entries)", len(_seed_diary_entries))
+    def _build_context_snapshot(self) -> dict:
+        context = get_active_window_title() or "unknown"
+        typing = self._typing_buffer.get_context() if self._typing_buffer else ""
+        apm = self._apm_worker.apm if self._apm_worker else 0
+        screen_text = ScreenReader.get_foreground_text() or ""
+        
+        return {
+            "active_window": context,
+            "apm": apm,
+            "idle_seconds": getattr(self, "_idle_seconds", 0.0),
+            "typing_content": typing,
+            "screen_text": screen_text[:500]  # truncate to prevent prompt ballooning
+        }
 
     def _dispatch_trigger(self, mode: str, user_input: str = "",
                           context_hint: str = "", apm: int = 0,
