@@ -40,8 +40,16 @@ def _validate_read_extension(file_path: str) -> bool:
     return ext.lower() in ALLOWED_READ_EXTENSIONS
 
 
-VALID_ACTIONS = {"idle", "wander", "shake", "spin", "hyper", "bounce",
-                 "look_away", "celebrate", "devastated", "fall", "chase"}
+FSM_ACTIONS = frozenset({
+    "idle", "wander", "hyper", "celebrate", "devastated", "fall", "chase"
+})
+EXPRESSION_ACTIONS = frozenset({
+    "float", "jump", "grow", "shrink", "pulse", "glitch", "rainbow",
+    "flip", "teleport", "wave", "wobble", "dash", "melt", "inflate",
+    "nod", "headshake", "tremble", "strut", "flail", "vanish",
+    "shake", "bounce", "spin", "look_away",
+})
+VALID_ACTIONS = FSM_ACTIONS | EXPRESSION_ACTIONS
 
 MCP_TOOLS = [
     {
@@ -54,10 +62,17 @@ MCP_TOOLS = [
                     "type": "string",
                     "enum": sorted(VALID_ACTIONS)
                 },
+                "layer": {
+                    "type": "string",
+                    "enum": ["fsm", "expression"]
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
                 "target_x": {"type": "integer"},
                 "target_y": {"type": "integer"}
             },
-            "required": ["action"]
+            "required": ["action", "layer"]
         }
     },
     {
@@ -363,6 +378,15 @@ _sse_handlers_lock = threading.Lock()
 class MCPHandler(BaseHTTPRequestHandler):
     _active_sse_handlers = set()
 
+    def __init__(self, request, client_address, server, fsm_bridge=None, memory=None, diary=None, history=None, config=None, action_layer=None):
+        self._fsm_bridge = fsm_bridge or getattr(server, "fsm_bridge", None)
+        self._memory = memory or getattr(server, "memory", None)
+        self._diary = diary or getattr(server, "diary_store", None)
+        self._history = history or getattr(server, "history", None)
+        self._config = config or getattr(server, "config", None)
+        self._action_layer = action_layer or getattr(server, "action_layer", None)
+        super().__init__(request, client_address, server)
+
     @classmethod
     def broadcast_sse_message(cls, message_dict):
         payload = f"event: message\ndata: {json.dumps(message_dict)}\n\n".encode("utf-8")
@@ -604,6 +628,32 @@ class MCPHandler(BaseHTTPRequestHandler):
     def _handle_tools_list(self):
         return {"jsonrpc": "2.0", "id": 1, "result": {"tools": MCP_TOOLS}}
 
+    def _handle_change_visual_state(self, params: dict) -> dict:
+        action = params.get("action")
+        layer = params.get("layer")
+        duration_ms = params.get("duration_ms")
+
+        # Validations
+        if action not in VALID_ACTIONS:
+            return {"error": {"code": -32602, "message": f"Invalid action: {action}"}}
+
+        if layer not in ("fsm", "expression"):
+            return {"error": {"code": -32602, "message": f"Invalid layer: {layer}"}}
+
+        if layer == "fsm":
+            if action not in FSM_ACTIONS:
+                return {"error": {"code": -32602, "message": f"Action '{action}' is not valid for fsm layer"}}
+            if self._fsm_bridge:
+                self._fsm_bridge.fsm_action_requested.emit(action)
+
+        elif layer == "expression":
+            if action not in EXPRESSION_ACTIONS:
+                return {"error": {"code": -32602, "message": f"Action '{action}' is not valid for expression layer"}}
+            if self._action_layer:
+                self._action_layer.trigger(action, duration_ms, {})
+
+        return {"result": {"content": [{"type": "text", "text": "ok"}]}}
+
     def _handle_tools_call(self, params):
         if not params:
             logger.debug("MCP tools/call: missing params")
@@ -630,12 +680,10 @@ class MCPHandler(BaseHTTPRequestHandler):
             allowed, err = self._is_tool_allowed(name)
             if not allowed:
                 return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32001, "message": err}})
-            action = args.get("action")
-            if action not in VALID_ACTIONS:
-                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Invalid action: {action}"}})
-            if self.fsm_bridge:
-                self.fsm_bridge.emit_request(action, args.get("target_x"), args.get("target_y"))
-            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": "ok"}]}})
+            res = self._handle_change_visual_state(args)
+            if "error" in res:
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": res["error"]})
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": res.get("result")})
 
         elif name == "read_clipboard":
             allowed, err = self._is_tool_allowed(name)
@@ -959,7 +1007,7 @@ class MCPServer:
     def server_address(self):
         return self._server.server_address if self._server else (self._host, self._port)
 
-    def start(self):
+    def start(self, action_layer=None):
         global _BOOT_TIME
         _BOOT_TIME = time.monotonic()
         consent = {}
@@ -976,6 +1024,7 @@ class MCPServer:
         self._server.memory = self._memory
         self._server.diary_store = self._diary_store
         self._server.consent = consent
+        self._server.action_layer = action_layer
         self._port = self._server.server_address[1]
         self._thread = Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()

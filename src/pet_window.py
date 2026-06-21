@@ -213,6 +213,7 @@ class PetWindow(QWidget):
         self._fsm_bridge.request.connect(self._on_mcp_fsm_action)
         self._fsm_bridge.toast_request.connect(self._on_toast_requested)
         self._fsm_bridge.reminder_request.connect(self._on_reminder_request)
+        self._fsm_bridge.fsm_action_requested.connect(lambda action: self._on_mcp_fsm_action(action, None, None))
         self._reminders = {}
         if hasattr(self._fsm_bridge, "summarize_requested"):
             self._fsm_bridge.summarize_requested.connect(self._handle_summarize_request)

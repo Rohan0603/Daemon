@@ -9,6 +9,7 @@ def _handler(bridge=None, memory=None, diary_store=None):
     handler = object.__new__(MCPHandler)
     handler.server = MagicMock()
     handler.server.fsm_bridge = bridge if bridge is not None else MagicMock()
+    handler.server.action_layer = MagicMock()
     handler.server.memory = memory
     handler.server.diary_store = diary_store
     handler.server.consent = {
@@ -20,6 +21,12 @@ def _handler(bridge=None, memory=None, diary_store=None):
         "allow_window_management": True,
         "allow_keyboard_injection": True,
     }
+    handler._fsm_bridge = handler.server.fsm_bridge
+    handler._action_layer = handler.server.action_layer
+    handler._memory = memory
+    handler._diary = diary_store
+    handler._history = None
+    handler._config = {"consent": handler.server.consent}
     return handler
 
 
@@ -166,21 +173,21 @@ def test_tools_call_valid_action():
     handler = _handler()
     response = handler._handle_tools_call({
         "name": "change_visual_state",
-        "arguments": {"action": "shake"}
+        "arguments": {"action": "shake", "layer": "expression"}
     })
     assert response["jsonrpc"] == "2.0"
     assert response["result"]["content"][0]["text"] == "ok"
-    handler.fsm_bridge.emit_request.assert_called_once_with("shake", None, None)
+    handler.server.action_layer.trigger.assert_called_once_with("shake", None, {})
 
 
 def test_tools_call_with_coords():
     handler = _handler()
     response = handler._handle_tools_call({
         "name": "change_visual_state",
-        "arguments": {"action": "chase", "target_x": 500, "target_y": 300}
+        "arguments": {"action": "chase", "layer": "fsm", "target_x": 500, "target_y": 300}
     })
     assert response["result"]["content"][0]["text"] == "ok"
-    handler.fsm_bridge.emit_request.assert_called_once_with("chase", 500, 300)
+    handler.server.fsm_bridge.fsm_action_requested.emit.assert_called_once_with("chase")
 
 
 def test_tools_call_invalid_action():
@@ -219,7 +226,7 @@ def test_tools_call_fsm_transition_with_no_bridge():
     handler = _handler(bridge=None)
     response = handler._handle_tools_call({
         "name": "change_visual_state",
-        "arguments": {"action": "idle"}
+        "arguments": {"action": "idle", "layer": "fsm"}
     })
     assert response["result"]["content"][0]["text"] == "ok"
 
@@ -511,9 +518,16 @@ def _consent_handler(overrides: dict[str, bool] | None = None, bridge=None):
     handler = object.__new__(MCPHandler)
     handler.server = MagicMock()
     handler.server.fsm_bridge = bridge if bridge is not None else MagicMock()
+    handler.server.action_layer = MagicMock()
     handler.server.memory = None
     handler.server.diary_store = None
     handler.server.consent = consent
+    handler._fsm_bridge = handler.server.fsm_bridge
+    handler._action_layer = handler.server.action_layer
+    handler._memory = None
+    handler._diary = None
+    handler._history = None
+    handler._config = {"consent": consent}
     return handler
 
 
@@ -521,7 +535,7 @@ def test_consent_block_change_visual_state():
     handler = _consent_handler()
     response = handler._handle_tools_call({
         "name": "change_visual_state",
-        "arguments": {"action": "shake"}
+        "arguments": {"action": "shake", "layer": "expression"}
     })
     assert "error" in response
     assert response["error"]["code"] == -32001
@@ -533,10 +547,10 @@ def test_consent_allow_change_visual_state():
     handler = _consent_handler({"allow_intrusive_animations": True})
     response = handler._handle_tools_call({
         "name": "change_visual_state",
-        "arguments": {"action": "shake"}
+        "arguments": {"action": "shake", "layer": "expression"}
     })
     assert "result" in response
-    handler.fsm_bridge.emit_request.assert_called_once_with("shake", None, None)
+    handler.server.action_layer.trigger.assert_called_once_with("shake", None, {})
 
 
 def test_consent_block_read_clipboard():
@@ -601,7 +615,7 @@ def test_consent_parse_raw_blocks_gated_tool():
                                    "allow_browser_redirection")}
     body = json.dumps({
         "method": "tools/call",
-        "params": {"name": "change_visual_state", "arguments": {"action": "shake"}},
+        "params": {"name": "change_visual_state", "arguments": {"action": "shake", "layer": "expression"}},
         "id": 1,
     })
     response = MCPHandler.parse_raw(body, consent)
@@ -616,7 +630,7 @@ def test_consent_parse_raw_allows_with_permission():
                                   "allow_browser_redirection")}
     body = json.dumps({
         "method": "tools/call",
-        "params": {"name": "change_visual_state", "arguments": {"action": "shake"}},
+        "params": {"name": "change_visual_state", "arguments": {"action": "shake", "layer": "expression"}},
         "id": 1,
     })
     response = MCPHandler.parse_raw(body, consent)

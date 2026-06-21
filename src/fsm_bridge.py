@@ -14,6 +14,7 @@ class FSMActionBridge(QObject):
     summarize_requested = pyqtSignal(str, str) # providerID, modelID
     reminder_request = pyqtSignal(str, object) # action, data
     action_triggered = pyqtSignal(str, int, dict)  # name, duration_ms, params
+    fsm_action_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
