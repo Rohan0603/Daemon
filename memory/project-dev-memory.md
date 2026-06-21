@@ -2146,3 +2146,18 @@ Shutdown: _finalize_quit() → save_session() → disk
 - `src/mcp_server.py`
 
 **Test results:** All unit tests and behavior integration tests passed.
+
+
+---
+
+### Phase 69 — Strands Hook Registry Fix (2026-06-21)
+**Branch:** master
+
+**What was built:**
+- Fixed `'HookRegistry' object has no attribute 'add_listener'` crash inside `src/strands_worker.py`.
+- Replaced the incorrect call to `agent.hooks.add_listener` with the correct `agent.hooks.add_callback` method exposed by the installed `strands` SDK version to instrument tool call metrics.
+
+**Files changed:**
+- `src/strands_worker.py`
+
+**Test results:** All unit tests and behavior integration tests passed.
