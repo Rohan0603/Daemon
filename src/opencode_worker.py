@@ -45,6 +45,7 @@ class OpencodeWorker(QThread):
         self._abort = False
         self._config = config if config is not None else load_config()
         self._session_state = session_state
+        self._last_raw_response = ""
 
     def abort(self) -> None:
         self._abort = True
@@ -189,6 +190,7 @@ class OpencodeWorker(QThread):
         if self._abort:
             return
         if raw:
+            self._last_raw_response = raw  # preserve for summary/diary handlers
             logger.debug("RECV raw (first 1000): %s", raw[:1000])
             self._used_api = True
             self.path_used.emit("api")

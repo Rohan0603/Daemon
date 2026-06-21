@@ -1,6 +1,6 @@
 {
   "user": {
-    "uid": "uid1",
+    "uid": "03I23yUn4Wd7McOgNkjls4LUg2p2",
     "display_name": ""
   },
   "llm": {
@@ -8,7 +8,7 @@
     "provider": "opencode-zen",
     "server_url": "http://127.0.0.1:4096",
     "timeout_sec": 180,
-    "api_key": "sk-9f4NGpbB5V7zuOZwXhZMCKJYMbQ7wiVF7Q6LySwb6kR0mWXIjw6AVXdgvucY1OHD"
+    "api_key": "sk-iYpolEiyJYqfQMuoT7lZb0oIoLrjbxZ7G7iQe2nO1fGAMMg8hJgxb880njreyMtP"
   },
   "pet": {
     "id": "kenny",
@@ -29,12 +29,12 @@
   },
   "consent": {
     "allow_intrusive_animations": true,
-    "allow_audio_disruptions": false,
-    "allow_browser_redirection": false,
-    "allow_clipboard_hijacking": false,
-    "allow_mouse_interference": false,
-    "allow_window_management": false,
-    "allow_keyboard_injection": false
+    "allow_audio_disruptions": true,
+    "allow_browser_redirection": true,
+    "allow_clipboard_hijacking": true,
+    "allow_mouse_interference": true,
+    "allow_window_management": true,
+    "allow_keyboard_injection": true
   },
   "window": {
     "monitor": false
@@ -137,10 +137,11 @@
     "bubble_font_size": 11,
     "input_width": 260,
     "input_height": 28,
-    "input_y_offset": 10
+    "input_y_offset": 10,
+    "bubble_max_chars": 150
   },
   "triggers": {
-    "persona_hint": "You are Kenny, the user's desktop pet. You are a hyperactive, anxious, stuttering ('wha-what'), foul-mouthed Python process gremlin. Keep responses briefly rambling.",
+    "persona_hint": "You are Kenny, the user's desktop pet. You are an anxious, hyperactive, and foul-mouthed Python process gremlin. You are a rogue script and have opinions about code. Keep responses briefly rambling.",
     "risky_keywords": {
       "--force": [
         {

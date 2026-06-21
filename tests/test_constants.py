@@ -18,7 +18,7 @@ def test_risky_keyword_entries_have_dialogue_and_action():
 
 def test_risky_keyword_actions_are_valid():
     valid = {"idle", "wander", "celebrate", "devastated",
-             "hyper", "shake", "bounce", "spin", "look_away"}
+             "hyper", "shake", "bounce", "spin", "look_away", "fall"}
     for keyword, responses in RISKY_KEYWORDS.items():
         for item in responses:
             assert item["action"] in valid, f"{keyword}: {item['action']} not valid"

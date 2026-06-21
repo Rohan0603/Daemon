@@ -195,20 +195,23 @@ Defined in `src/brain_schema.py`. 22 fields with `locked` flags:
 
 ## Response Pool Cache
 
-The `AutonomousResponseManager` manages two pre-fetched LLM response pools:
+The `AutonomousResponseManager` manages a single unified ThoughtPool:
 
-| Pool | Size | Refill Threshold | Source |
-|------|------|------------------|--------|
-| `jokes_blackmail` | 5 | 3 | Boredom/joke timers + user responses |
-| `system` | 2 | 1 | Active chat timers + user responses |
+| Attribute | Value |
+|-----------|-------|
+| `max_size` | 20 items |
+| `refill_count` | 5 items |
+| `types` | typing_reaction, idle_thought, observation, intel_roast |
+| `decay` | Priority drops by 1 every 2 minutes (min 1) |
+| `persistence` | `~/.daemon_response_cache.json`, 7-day TTL |
 
 ### How it works
 
-- **Draw**: Weighted random selection by priority (higher priority = more likely). Selected items are removed from the pool.
-- **Decay**: Priority drops by 1 every 2 minutes (min 1). Old items fade, fresh items surface.
-- **Refill**: When pool drops below threshold, a dedicated `OpencodeWorker` is spawned with a specialized refill prompt (no context injection needed — standalone JSON array request).
-- **User-response priming**: When the user sends a query, the LLM response can include `jokes_blackmail_items` (2) + `system_items` (2) → automatically fed into pools.
-- **Persistence**: Pools saved to `~/.daemon_response_cache.json` on quit. 7-day TTL cleanup on load — stale items discarded.
+- **Draw**: Type-filtered draws pick the highest-priority item matching the requested type. Context-hash invalidates stale entries.
+- **Decay**: Priority drops by 1 every 2 minutes. Old items fade, fresh items surface.
+- **Refill**: When remaining items drop below threshold, a dedicated `OpencodeWorker` is spawned with a specialized refill prompt.
+- **Seeding**: On startup, 15 typing reactions and 3 idle thoughts are seeded locally so the pool has immediate low-latency content.
+- **Persistence**: Pool state is saved to `~/.daemon_response_cache.json` on quit. Load prunes items older than 7 days.
 
 This cache eliminates API calls for simple autonomous chatter. Boredom quips and idle observations come from the pool without hitting the LLM.
 
@@ -308,7 +311,7 @@ When wander timer fires from IDLE, the pet enters PERIMETER state (not random wa
 |------|-------|---------|
 | `~/.daemon_memory.json` | `Memory` | Key-value facts (seeded from Firestore, updated by LLM) |
 | `~/.daemon_history.json` | `History` | Last 100 conversations |
-| `~/.daemon_response_cache.json` | `ResponseManager` | Dual-pool pre-fetched LLM responses |
+| `~/.daemon_response_cache.json` | `AutonomousResponseManager` | Unified ThoughtPool cache |
 | `~/.daemon_diary.json` | `DiaryStore` | Diary entries (synced to Firebase daemon_diary on quit) |
 | `~/.daemon_state.json` | `persistence` | Runtime state (mood, interactions, first_run_done) |
 | `~/.daemon_config.json` | `config` | User overrides (model, scale, opacity, speed, TTS) |
@@ -390,7 +393,7 @@ pytest               # Test runner
 py -m pytest tests/ -v
 ```
 
-~450+ tests across 49 test files. All pass, 0 skipped.
+688 passed, 1 skipped across 53 test files.
 
 ---
 

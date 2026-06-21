@@ -14,7 +14,7 @@ class StrandsAutonomousWorker(QThread):
     execution_complete = pyqtSignal(list)
     execution_failed = pyqtSignal(str)
 
-    def __init__(self, context: dict, chat_history: list, profanity_level: str = "moderate"):
+    def __init__(self, context: dict, chat_history: list, profanity_level: str = "moderate", config: dict | None = None):
         super().__init__()
         self.context = context
         self.chat_history = chat_history  # [{"role": "user"/"assistant", "content": "..."}]
@@ -22,13 +22,27 @@ class StrandsAutonomousWorker(QThread):
         self.agent = None
         self._is_aborted = False
         
-        # Map Strands to the port 4096 OpenCode server
+        from src.config import load_config
+        self.config = config if config is not None else load_config()
+        llm_cfg = self.config.get("llm", {})
+        provider = llm_cfg.get("provider", "opencode-zen")
+        api_key = llm_cfg.get("api_key", "")
+        model_id = llm_cfg.get("model_id", "deepseek-v4-flash-free")
+        
+        base_url = "https://opencode.ai/zen/v1"
+        if provider == "openrouter":
+            base_url = "https://openrouter.ai/api/v1"
+        elif provider == "opencode-go":
+            base_url = "https://opencode.ai/go/v1"
+        elif provider == "opencode-zen" or provider == "opencode":
+            base_url = "https://opencode.ai/zen/v1"
+            
         self.model = OpenAIModel(
             client_args={
-                "api_key": "opencode-local",
-                "base_url": "http://127.0.0.1:4096/v1",
+                "api_key": api_key,
+                "base_url": base_url,
             },
-            model_id="opencode-default"
+            model_id=model_id
         )
 
     def abort(self):
@@ -102,15 +116,19 @@ class StrandsAutonomousWorker(QThread):
                     conversation_manager=SlidingWindowConversationManager()
                 )
                 
-                # Instrument the agent to record Prometheus metrics
+                # Instrument the agent to record Prometheus metrics.
+                # This is a read-only observer — must never block tool execution.
                 from strands.hooks import AfterToolCallEvent
                 def record_metrics(event: AfterToolCallEvent):
-                    from src.observability import record_mcp_tool_call
-                    record_mcp_tool_call(
-                        name=event.tool.name,
-                        success=event.success,
-                        duration=event.duration_seconds
-                    )
+                    try:
+                        from src.observability import record_mcp_tool_call
+                        record_mcp_tool_call(
+                            tool_name=event.tool_use["name"],
+                            duration_seconds=0.0,
+                            allowed=event.exception is None
+                        )
+                    except Exception:
+                        pass  # instrumentation must never crash the pipeline
                 self.agent.hooks.add_callback(AfterToolCallEvent, record_metrics)
                 
                 # Execute the single-shot ReAct worker
@@ -130,12 +148,23 @@ class StrandsAutonomousWorker(QThread):
                 self.execution_failed.emit(str(e))
 
     def _clean_and_parse_json(self, text: str) -> list:
+        from src.constants import BUBBLE_MAX_CHARS
+
         cleaned = text.strip()
         cleaned = re.sub(r'^```[a-z]*\n?(.*?)\n?```$', r'\1', cleaned, flags=re.DOTALL).strip()
         try:
             result = json.loads(cleaned)
             if isinstance(result, dict):
                 result = [result]
+            # Truncate every parsed dialogue field to the configured char limit
+            for item in result:
+                if isinstance(item, dict) and "dialogue" in item and len(item["dialogue"]) > BUBBLE_MAX_CHARS:
+                    item["dialogue"] = item["dialogue"][:BUBBLE_MAX_CHARS - 3] + "..."
             return result
         except json.JSONDecodeError:
-            return [{"thought": "Strands payload parsing failure", "dialogue": text, "priority": 1}]
+            # Model returned free-form text instead of structured JSON.
+            # Use a sensible fallback: "observation" is a valid thought type
+            # that the dispatch pipeline can work with, and the raw text
+            # becomes the bubble dialogue.
+            truncated = text if len(text) <= BUBBLE_MAX_CHARS else text[:BUBBLE_MAX_CHARS - 3] + "..."
+            return [{"thought": "observation", "dialogue": truncated, "priority": 1}]

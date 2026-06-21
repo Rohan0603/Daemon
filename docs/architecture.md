@@ -520,5 +520,5 @@ scripts/
 .opencode/
   skills/kenny/SKILL.md                # Kenny persona + action matrix + output contract
 data/                                  # All local storage (gitignored)
-tests/                                 # ~450+ tests across 49 test files
+tests/                                 # 688 passed, 1 skipped across 53 test files
 ```

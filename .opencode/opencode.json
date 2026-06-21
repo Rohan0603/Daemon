@@ -8,6 +8,9 @@
     }
   },
   "agent": {
+    "build": {
+      "model": "opencode/deepseek-v4-flash-free"
+    },
     "title": {
       "model": "opencode/deepseek-v4-flash-free"
     }

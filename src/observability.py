@@ -349,8 +349,8 @@ def trace_function(name: Optional[str] = None, attributes: Optional[Dict[str, An
                         span.set_attribute("function.error", str(e))
                     raise
 
-        import asyncio
-        if asyncio.iscoroutinefunction(func):
+        import inspect
+        if inspect.iscoroutinefunction(func):
             return async_wrapper  # type: ignore
         return wrapper  # type: ignore
 

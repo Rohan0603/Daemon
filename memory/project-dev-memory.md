@@ -6,10 +6,10 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-21 (Bubble Char Limit Enforcement)
+**Date updated:** 2026-06-21 (Deprecation warning fixes + doc refresh)
 **Current branch:** `master`
-**Test count:** 703 across 53 test files
-**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54 → Phase 59
+**Test count:** 688 passed, 1 skipped across 53 test files
+**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54 → Phase 59 → Latest fixes
 
 ---
 
@@ -374,7 +374,7 @@ The daemon uses a **two-phase context injection** pattern:
 
 ### Response Pool Cache
 
-Two pre-fetched LLM response pools with priority-weighted random draw and 2-minute decay. Eliminates API calls for routine autonomous chatter.
+Single unified ThoughtPool with type filtering (typing_reaction, idle_thought, observation, intel_roast), spatial TTL, and priority decay. Eliminates API calls for routine autonomous chatter.
 
 ### Engagement Tracker
 
@@ -2268,3 +2268,35 @@ Shutdown: _finalize_quit() → save_session() → disk
 - `tests/test_config_autocreate.py` — created
 
 **Test results:** Full suite 688 passed, 1 skipped in 11.17s (under 30s gate)
+
+---
+
+### Phase 67 — Deprecation Warning Fixes + Doc Refresh (2026-06-21)
+**Branch:** `master`
+
+**What was done:**
+- Suppressed `OpencodeWorker` deprecation warning in `src/pet_window.py` with a targeted `warnings.filterwarnings` call
+- Replaced deprecated `asyncio.iscoroutinefunction` with `inspect.iscoroutinefunction` in `src/observability.py` to fix Python 3.16 compatibility warning
+- Updated README.md, AGENTS.md, docs/architecture.md, and memory/project-dev-memory.md with current test results (688 passed, 1 skipped, 53 files) and accurate ThoughtPool architecture
+
+**Files changed:**
+- `src/pet_window.py` — added `import warnings` + targeted deprecation filter
+- `src/observability.py` — switched to `inspect.iscoroutinefunction`
+- `README.md` — updated Response Pool Cache section, test counts, and storage table
+- `AGENTS.md` — updated Python version and test count
+- `docs/architecture.md` — updated test count
+- `memory/project-dev-memory.md` — updated snapshot and Response Pool Cache description
+
+**Test results:** Full suite 688 passed, 1 skipped, 0 warnings in 11.02s
+
+---
+
+### Phase 72b — API Rate Limit Diagnosis & Cooldown Wait (2026-06-21)
+**Branch:** `master` (no code changes)
+
+**What was done:**
+- Diagnosed API call errors returning Cloudflare `429 Too Many Requests` (specifically `FreeUsageLimitError` from OpenCode Zen API gateway).
+- Verified other free model options (`mimo-v2.5-free`, `north-mini-code-free`) return the same rate limit error (IP-based limit), while models like `minimax-m3-free` and `qwen3.6-plus-free` returned `401 ModelError` due to expired promotion.
+- Tested paid model options (`gemini-3.5-flash`, etc.) which returned `401 CreditsError` (no payment method).
+- The user chose to keep the current configuration and wait for the Cloudflare/Zen API rate limit cooldown (approximately 10 hours).
+

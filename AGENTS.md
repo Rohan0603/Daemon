@@ -24,8 +24,8 @@ Transparent always-on-top Windows desktop companion built with PyQt6. Named **Da
 **Git root:** `C:\Users\ponna\Project\Daemon`
 **Python:** use `py` (not `python` or `python3`) — Windows py launcher
 **Tests:** `py -m pytest tests/ -v`
-**Stack:** Python 3.11+, PyQt6, pynput, ctypes (Win32), requests, comtypes, Pillow, pyttsx3
-**Test count:** ~617 across 49 test files
+**Stack:** Python 3.14, PyQt6, pynput, ctypes (Win32), requests, comtypes, Pillow, pyttsx3
+**Test count:** 688 passed, 1 skipped across 53 test files
 
 ---
 

@@ -22,6 +22,7 @@ class TestEventType:
             "MCP_TOOL_CALLED", "MCP_TOOL_BLOCKED",
             "PET_SLEEP_STARTED", "PET_SLEEP_ENDED", "PET_BOOT_COMPLETED", "PET_SHUTDOWN_STARTED",
             "AUTH_SUCCESS", "AUTH_FAILURE", "TOKEN_REFRESHED", "AUTH_CLEARED",
+            "SCREEN_TIME_THRESHOLD_REACHED",
         }
         actual = {e.name for e in EventType}
         assert actual == expected

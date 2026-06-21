@@ -7,6 +7,7 @@ import re
 import sys
 import threading
 import time
+import warnings
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtWidgets import QWidget, QApplication, QLineEdit, QSystemTrayIcon, QMenu, QDialog
@@ -25,7 +26,7 @@ from src.constants import (
     DEBUG,
     SILENCE_THRESHOLD, ENGAGED_THRESHOLD, BASE_INTERVAL_SEC,
     MAX_BACKOFF_SEC, BACKOFF_MULTIPLIER,
-    BUBBLE_QUEUE_MAX_SIZE,
+    BUBBLE_QUEUE_MAX_SIZE, BUBBLE_MAX_CHARS,
     SHORT_BUBBLE_DURATION_MS, SHORT_BUBBLE_CHAR_LIMIT,
     SQUASH_STRETCH_DURATION_MS, PERIMETER_FALL_CHANCE,
     RISKY_KEYWORDS,
@@ -41,6 +42,7 @@ from src.click_through import ClickThroughManager
 from src.apm_worker import APMWorker
 from src.typing_buffer import TypingBuffer
 from src.context_menu import PetContextMenu
+warnings.filterwarnings("ignore", category=DeprecationWarning, message="OpencodeWorker is deprecated.*")
 from src.opencode_worker import OpencodeWorker
 from src.strands_worker import StrandsAutonomousWorker
 from src.llm_session_persistence import load_session, save_session, LLMSessionState
@@ -707,9 +709,24 @@ class PetWindow(QWidget):
         self._summary_worker.start()
 
     def _on_summary_ready(self, items: list[dict]) -> None:
-        if items and "content" in items[0]:
-            import time
-            summary = items[0]["content"]
+        import time
+
+        # Extract summary from structured response (dialogue), raw content key,
+        # or fall back to the raw LLM response preserved on the worker
+        summary = ""
+        if items:
+            if "content" in items[0]:
+                summary = items[0]["content"]
+            elif "dialogue" in items[0]:
+                summary = items[0]["dialogue"]
+
+        # If no usable structured content, check raw response on worker
+        if not summary:
+            worker = getattr(self, "_summary_worker", None)
+            if worker and hasattr(worker, "_last_raw_response") and worker._last_raw_response:
+                summary = worker._last_raw_response.strip()[:500]
+
+        if summary:
             # Save to DiaryStore
             if hasattr(self, '_diary_store'):
                 self._diary_store.add_diary_entry(summary, int(time.time()))
@@ -717,7 +734,9 @@ class PetWindow(QWidget):
             if hasattr(self, '_firebase_mem') and self._firebase_mem and hasattr(self, '_diary_store'):
                 self._firebase_mem.push_pending_diaries(self._diary_store)
             logger.info("Session summarized and saved.")
-            
+        else:
+            logger.debug("Summary: no usable content from response")
+
         if hasattr(self, "_summary_on_complete") and self._summary_on_complete:
             if hasattr(self, '_shutdown_timer') and self._shutdown_timer.isActive():
                 self._shutdown_timer.stop()
@@ -1777,6 +1796,9 @@ class PetWindow(QWidget):
     def _dispatch_structured(self, item: dict, force: bool = False, user_input: str = "") -> None:
         thought = item.get("thought", "")
         dialogue = item.get("dialogue", "")
+        # Hard-cap bubble text to configured char limit (150 default)
+        if len(dialogue) > BUBBLE_MAX_CHARS:
+            dialogue = dialogue[:BUBBLE_MAX_CHARS - 3] + "..."
         print(f"DEBUG: _dispatch_structured: thought='{thought}', dialogue='{dialogue}'")
         logger.info("_dispatch_structured: dialogue='%s'", dialogue)
 
@@ -2090,11 +2112,33 @@ class PetWindow(QWidget):
         self._autonomous_query_pending = False
         self._session_active = True
         if getattr(self, "_opencode_worker", None) is not None:
-            self._opencode_worker.deleteLater()
+            w = self._opencode_worker
             self._opencode_worker = None
+            if w.isRunning():
+                if not hasattr(self, '_zombie_workers'):
+                    self._zombie_workers = set()
+                self._zombie_workers.add(w)
+                def _cleanup_oc(w=w):
+                    if hasattr(self, '_zombie_workers'):
+                        self._zombie_workers.discard(w)
+                w.finished.connect(_cleanup_oc)
+                w.finished.connect(w.deleteLater)
+            else:
+                w.deleteLater()
         if getattr(self, "strands_worker", None) is not None:
-            self.strands_worker.deleteLater()
+            w = self.strands_worker
             self.strands_worker = None
+            if w.isRunning():
+                if not hasattr(self, '_zombie_workers'):
+                    self._zombie_workers = set()
+                self._zombie_workers.add(w)
+                def _cleanup_sw(w=w):
+                    if hasattr(self, '_zombie_workers'):
+                        self._zombie_workers.discard(w)
+                w.finished.connect(_cleanup_sw)
+                w.finished.connect(w.deleteLater)
+            else:
+                w.deleteLater()
         if not items:
             self._fire_deferred_trigger()
             return
@@ -2106,7 +2150,7 @@ class PetWindow(QWidget):
         # Publish response ready event to the EventBus
         if getattr(self, "_events", None) is not None:
             self._events.publish(Event(
-                type=EventType.LLM_RESPONSE_READY,
+                type=EventType.LLM_RESPONSE_RECEIVED,
                 source="strands_worker",
                 data={"items": items}
             ))
