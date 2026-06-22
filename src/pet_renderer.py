@@ -537,8 +537,8 @@ class PetRenderer:
         bubble_w = min(BUBBLE_MAX_WIDTH, max(fm.horizontalAdvance(l) for l in lines) + 2 * BUBBLE_PADDING)
         bubble_h = line_h * len(lines) + 2 * BUBBLE_PADDING
 
-        bx = ctx.pet_x + PET_WIDTH // 2 - bubble_w // 2
-        by = ctx.pet_y - bubble_h - 12
+        bx = int(ctx.pet_x + PET_WIDTH // 2 - bubble_w // 2)
+        by = int(ctx.pet_y - bubble_h - 12)
 
         sr = ctx.screen_rect
         below = False
@@ -548,16 +548,16 @@ class PetRenderer:
             if bx + bubble_w > sr.right():
                 bx = sr.right() - bubble_w
             if by < sr.top():
-                by = ctx.pet_y + PET_HEIGHT + 12
+                by = int(ctx.pet_y + PET_HEIGHT + 12)
                 below = True
 
-        ctx.bubble_rect = QRect(bx, by, bubble_w, bubble_h)
+        ctx.bubble_rect = QRect(bx, by, int(bubble_w), int(bubble_h))
 
         painter.setBrush(QBrush(QColor(BUBBLE_BG)))
         painter.setPen(QPen(QColor(BUBBLE_BORDER), 1))
-        painter.drawRoundedRect(bx, by, bubble_w, bubble_h, BUBBLE_CORNER_RADIUS, BUBBLE_CORNER_RADIUS)
+        painter.drawRoundedRect(bx, by, int(bubble_w), int(bubble_h), BUBBLE_CORNER_RADIUS, BUBBLE_CORNER_RADIUS)
 
-        tail_cx = ctx.pet_x + PET_WIDTH // 2
+        tail_cx = int(ctx.pet_x + PET_WIDTH // 2)
         painter.setBrush(QBrush(QColor(BUBBLE_BG)))
         painter.setPen(Qt.PenStyle.NoPen)
         if below:
@@ -568,15 +568,15 @@ class PetRenderer:
             ])
         else:
             tail = QPolygon([
-                QPoint(tail_cx - 4, by + bubble_h),
-                QPoint(tail_cx + 4, by + bubble_h),
-                QPoint(tail_cx, by + bubble_h + 6),
+                QPoint(tail_cx - 4, by + int(bubble_h)),
+                QPoint(tail_cx + 4, by + int(bubble_h)),
+                QPoint(tail_cx, by + int(bubble_h) + 6),
             ])
         painter.drawPolygon(tail)
 
         painter.setPen(QPen(QColor(BUBBLE_TEXT_COLOR)))
         for i, line in enumerate(lines):
-            painter.drawText(bx + BUBBLE_PADDING, by + BUBBLE_PADDING + (i + 1) * line_h, line)
+            painter.drawText(bx + BUBBLE_PADDING, by + BUBBLE_PADDING + (i + 1) * int(line_h), line)
 
     @staticmethod
     def _wrap_text(text: str, fm: QFontMetrics, max_width: int) -> list:

@@ -298,3 +298,33 @@ def test_action_stack_look_away(qapp):
     assert abs(left_pupil_center.y() - (-11 + expected_offset_y)) < 0.01
     assert abs(right_pupil_center.x() - (6 + expected_offset_x)) < 0.01
     assert abs(right_pupil_center.y() - (-11 + expected_offset_y)) < 0.01
+
+
+def test_bubble_rendering_with_floats(qapp):
+    from src.pet_renderer import PetRenderer, RenderContext
+    from src.pet_fsm import PetState
+    from PyQt6.QtGui import QPainter, QImage
+    from PyQt6.QtCore import QRect
+
+    renderer = PetRenderer()
+    
+    img = QImage(800, 600, QImage.Format.Format_ARGB32)
+    painter = QPainter(img)
+    
+    ctx = RenderContext(
+        state=PetState.IDLE,
+        pet_x=100.5,
+        pet_y=200.7,
+        anim_tick=0,
+        hyper_color_index=0,
+        fall_velocity=0.0,
+        wander_direction=1,
+        bubble_text="Hello world float test text",
+        scale=1.0,
+        screen_rect=QRect(0, 0, 800, 600)
+    )
+
+    try:
+        renderer.render(painter, ctx)
+    finally:
+        painter.end()
