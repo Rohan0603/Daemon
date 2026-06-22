@@ -2484,5 +2484,49 @@ Shutdown: _finalize_quit() → save_session() → disk
 
 **Test results:** Full suite 731 passed, 1 skipped in 30.20s.
 
+### fix-6: Robust JSON Parsing & Preamble Extraction in Strands Worker (2026-06-22)
+**Branch:** `master` (squash-merged)
+
+**What was done:**
+- Fixed issues where raw JSON code or model preambles showed up in the speech bubble when JSON parsing failed.
+- Enhanced `extract_dialogue_stream()` in [src/strands_worker.py](file:///C:/Users/ponna/Project/Daemon/src/strands_worker.py) to ignore conversational preambles/markdown formatting at the start of a stream, wait for JSON markers, and parse dialogue on-the-fly.
+- Upgraded `_clean_and_parse_json()` in [src/strands_worker.py](file:///C:/Users/ponna/Project/Daemon/src/strands_worker.py) to extract JSON blocks using bracket/code fence searches, strip preambles/postambles, and attempt direct `json.loads`.
+- Implemented dual-stage regex recovery on JSON decode failure in `_clean_and_parse_json`: first searches line-by-line using greedy patterns to handle unescaped quotes inside multi-line JSON values; falls back to non-greedy pattern searches over the entire block. Displays a user-friendly segfault message instead of raw JSON if dialogue cannot be recovered.
+- Added comprehensive unit tests in [tests/test_strands_worker.py](file:///C:/Users/ponna/Project/Daemon/tests/test_strands_worker.py) to cover preamble streams, recovery from invalid JSON strings (unescaped quotes), broken structures, and clean text streams.
+- Fixed `test_bubble_rendering_with_floats` inside [tests/test_pet_renderer.py](file:///C:/Users/ponna/Project/Daemon/tests/test_pet_renderer.py) by passing `drag_velocity_x=0.0`.
+
+**Files changed:**
+- [src/strands_worker.py](file:///C:/Users/ponna/Project/Daemon/src/strands_worker.py)
+- [tests/test_strands_worker.py](file:///C:/Users/ponna/Project/Daemon/tests/test_strands_worker.py)
+- [tests/test_pet_renderer.py](file:///C:/Users/ponna/Project/Daemon/tests/test_pet_renderer.py)
+
+**Test results:** Full suite 732 passed, 1 skipped in 25.84s.
+
+### fix-7: Log Audit Phase 1+2 — Crash Fixes & Stability (2026-06-22)
+**Branch:** `task-74-log-audit-phase1` → squash-merged to `master`
+
+**What was done:**
+- **t1:** Fixed `QRect(float, float)` TypeError in `_get_click_geometry` by casting coordinates to `int` in `pet_window.py:410`
+- **t2:** Fixed `drawLine(float, float)` crash in PERIMETER speedlines by casting to `int` in `pet_renderer.py:463`
+- **t3:** Removed `DEBUG | printed full thought...` print from `_dispatch_structured` in `pet_window.py`
+- **t4:** Added `crash_dump.log` rotation on boot (rename to `.old` before new session) in `daemon.py`
+- **t5:** Wired `History` into MCPServer `_handle_query_memory` for `type=history` lookups
+- **t6:** Added module-level `_parse_pool_response()` and `_POOL_FORBIDDEN_FIELDS` for robust JSON parsing of pool refill responses (markdown fence stripping, preamble removal, field filtering)
+- **t7:** Added `warnings.filterwarnings` at module level in `strands_worker.py` to suppress `reasoningContent` warnings from DeepSeek models
+- **t8:** FSM `_handle_change_visual_state` error response includes sorted list of valid actions for the requested layer
+- **t9:** Added `_stopped` flag + early-return guard in `ClickThroughManager._poll()` to prevent poll-storm on shutdown
+- **t10:** Removed premature `DATA | brain = 0` log line from `_on_boot_check_auth` startup
+- **t11:** Added `_interpolate_prompt()` method with `{name}`, `{role}`, and `{window}` placeholder support to `strands_worker.py`
+- **t12:** Added `build_single_stage_refill_prompt()` classmethod with Kenny persona, APM context, and JSON schema reminder to `opencode_worker.py`
+- **t13:** Added `BUBBLE_QUEUE_TTL_SECS=300` constant; `_show_bubble` discards items older than TTL
+- **t14:** SLEEP entry handler clears bubble queue, resets boredom timer, and clears action layer
+- **t15:** Added `HISTORY_MAX_ENTRIES=100` constant; `History.append()` enforces cap
+
+**Files changed:**
+- `daemon.py`, `src/pet_window.py`, `src/pet_renderer.py`, `src/mcp_server.py`, `src/click_through.py`, `src/opencode_worker.py`, `src/strands_worker.py`, `src/constants.py`, `src/history.py`
+- New: `tests/test_click_through.py`, `tests/test_daemon.py`
+- Modified: `tests/test_pet_renderer.py`, `tests/test_mcp_server.py`, `tests/test_opencode_worker.py`, `tests/test_pet_window_unit.py`, `tests/test_strands_worker.py`, `tests/test_history.py`
+
+**Test results:** Full suite 752 passed, 1 skipped in 27.77s.
 
 
