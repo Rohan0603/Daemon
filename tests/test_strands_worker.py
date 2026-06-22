@@ -43,14 +43,34 @@ def test_clean_and_parse_json():
     assert len(res) == 1
     assert res[0]["dialogue"] == "hello"
     
-    # 4. Invalid JSON (should return fallback)
-    text_invalid = 'invalid json data'
+    # 4. JSON inside preamble and postamble
+    text_preamble = 'Some greeting preamble here...\n```json\n[{"thought": "test", "dialogue": "preamble_hello", "type": "observation"}]\n```\nSome signature footer.'
+    res = worker._clean_and_parse_json(text_preamble)
+    assert len(res) == 1
+    assert res[0]["dialogue"] == "preamble_hello"
+
+    # 5. Invalid JSON syntax but regex recovery succeeds (trailing comma / unescaped quote in thought)
+    text_bad_json = '[{\n  "thought": "I\'m thinking "crazy" thoughts",\n  "dialogue": "recovered_hello",\n  "type": "observation",\n}]'
+    res = worker._clean_and_parse_json(text_bad_json)
+    assert len(res) == 1
+    assert res[0]["dialogue"] == "recovered_hello"
+    assert "crazy" in res[0]["thought"]
+
+    # 6. JSON-like block completely broken (returns segfault fallback)
+    text_broken_json = '{"thought": "broken", "type": "observation"'  # missing dialogue entirely
+    res = worker._clean_and_parse_json(text_broken_json)
+    assert len(res) == 1
+    assert "segfaulted" in res[0]["dialogue"]
+    assert "JSON Parse Error" in res[0]["dialogue"]
+
+    # 7. Invalid JSON (no JSON delimiters at all, should return raw text as fallback)
+    text_invalid = 'just clean free-form text response from the model'
     res = worker._clean_and_parse_json(text_invalid)
     assert len(res) == 1
     assert res[0]["thought"] == "observation"
-    assert res[0]["dialogue"] == "invalid json data"
+    assert res[0]["dialogue"] == "just clean free-form text response from the model"
 
-    # 5. Over-150 char dialogue in JSON parsed form → truncated
+    # 8. Over-150 char dialogue in JSON parsed form → truncated
     long_dialogue = "x" * 200
     text_long = f'[{{"thought": "test", "dialogue": "{long_dialogue}", "type": "observation"}}]'
     res = worker._clean_and_parse_json(text_long)
@@ -59,7 +79,7 @@ def test_clean_and_parse_json():
     assert res[0]["dialogue"].endswith("..."), "Should end with ellipsis when truncated"
     assert res[0]["dialogue"] == "x" * 147 + "..."
 
-    # 6. Over-150 char fallback text → truncated
+    # 9. Over-150 char fallback text → truncated
     text_very_long = "z" * 500
     res = worker._clean_and_parse_json(text_very_long)
     assert len(res) == 1
@@ -158,6 +178,14 @@ def test_extract_dialogue_stream():
     assert extract_dialogue_stream('raw text') == "raw text"
     assert extract_dialogue_stream('[{"dialogue": "hello \\"world\\"\\nline') == 'hello "world"\nline'
     assert extract_dialogue_stream('[{"dialogue": "hello \\') == "hello "
+    
+    # Preamble test
+    assert extract_dialogue_stream('Sure! Here is your response:\n[{"thought": "...", "dialogue": "hello preamble') == "hello preamble"
+    # Markdown block test
+    assert extract_dialogue_stream('```json\n[{"thought": "...", "dialogue": "hello md') == "hello md"
+    # Markdown generic block test
+    assert extract_dialogue_stream('```\n{"thought": "...", "dialogue": "hello md generic') == "hello md generic"
+
 
 
 @patch("src.strands_worker.StrandsSession")
@@ -192,3 +220,38 @@ Line 2."""
     assert "---" not in system_prompt
     assert "name: kenny" not in system_prompt
     assert "description: test" not in system_prompt
+
+
+def test_warning_filter_suppresses_reasoning_content(qapp):
+    """warnings.filterwarnings should suppress 'reasoningContent' messages."""
+    import warnings
+    from src.strands_worker import _install_warning_filters
+
+    # Should not raise
+    _install_warning_filters()
+
+    # Verify suppression works — must use the exact message that triggers the filter
+    with warnings.catch_warnings(record=True) as w:
+        warnings.warn(
+            "reasoningContent is not supported in multi-turn conversations",
+            UserWarning,
+        )
+        assert len(w) == 0
+
+
+def test_placeholder_interpolation(qapp):
+    """Must interpolate {{pet_id}}, {{persona_name}}, {{chattiness}} etc."""
+    from src.strands_worker import StrandsAutonomousWorker
+
+    context = {"active_window": "code", "apm": 10}
+    config = {"pet": {"id": "daemon", "persona_name": "Kenny", "chattiness": 0.8}}
+    worker = StrandsAutonomousWorker(context, [], config=config, mode="autonomous")
+
+    result = worker._interpolate_prompt(
+        "Hi {{pet_id}}, you are {{persona_name}} with chattiness {{chattiness}} and apm {{apm}}"
+    )
+    assert "daemon" in result
+    assert "Kenny" in result
+    assert "0.8" in result
+    assert "10" in result
+    assert "{{" not in result

@@ -280,3 +280,16 @@ def test_history_storage_backend_interface(tmp_path):
     # test all_entries
     assert len(hist.all_entries()) == 2
 
+
+def test_history_cap_enforced(tmp_path):
+    """add_entry must not allow more than HISTORY_MAX_ENTRIES items."""
+    from src.history import History
+    from src.constants import HISTORY_MAX_ENTRIES
+    path = str(tmp_path / "hist_cap.json")
+    h = History(path=path)
+    for i in range(HISTORY_MAX_ENTRIES + 20):
+        h.add_entry(f"user {i}", f"assistant {i}", "idle")
+    # Should be capped at HISTORY_MAX_ENTRIES
+    assert h.count() == HISTORY_MAX_ENTRIES, f"Expected {HISTORY_MAX_ENTRIES}, got {h.count()}"
+
+

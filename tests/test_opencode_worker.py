@@ -366,3 +366,57 @@ class TestEdgeCaseSessionLifecycle:
             worker.send("system context")
         assert len(session_ids) == 1
         assert session_ids[0] == "send_new_ses"
+
+
+# ── Pool refill JSON parse fixes ──────────────────────────────────────
+
+
+def test_parse_pool_response_handles_markdown_fence():
+    """Must strip markdown fences from pool refill responses."""
+    from src.opencode_worker import _parse_pool_response
+
+    text = '''```json
+[{"thought": "t1", "dialogue": "d1", "type": "observation"}]
+```'''
+    result = _parse_pool_response(text)
+    assert len(result) == 1
+    assert result[0]["thought"] == "t1"
+
+
+def test_parse_pool_response_handles_preamble():
+    """Must skip preamble before JSON array."""
+    from src.opencode_worker import _parse_pool_response
+
+    text = """Here are my thoughts on the system:
+
+[{"thought": "thinking", "dialogue": "hello", "type": "observation"}]"""
+    result = _parse_pool_response(text)
+    assert len(result) == 1
+    assert result[0]["dialogue"] == "hello"
+
+
+def test_parse_pool_response_strips_forbidden_fields():
+    """Must strip fields not in schema: action, priority, target_fsm."""
+    from src.opencode_worker import _parse_pool_response
+
+    text = '''[{"thought": "t", "dialogue": "d", "type": "observation", "action": "nod", "priority": 3, "target_fsm": "CELEBRATE"}]'''
+    result = _parse_pool_response(text)
+    assert len(result) == 1
+    assert "action" not in result[0]
+    assert "priority" not in result[0]
+    assert "target_fsm" not in result[0]
+    assert result[0]["thought"] == "t"
+
+
+def test_parse_pool_response_rejects_empty_list():
+    """Empty array must return empty list without error."""
+    from src.opencode_worker import _parse_pool_response
+    result = _parse_pool_response("[]")
+    assert result == []
+
+
+def test_parse_pool_response_rejects_non_array():
+    """Non-array valid JSON must return empty list."""
+    from src.opencode_worker import _parse_pool_response
+    result = _parse_pool_response('{"type": "observation", "thought": "t"}')
+    assert result == []

@@ -30,6 +30,7 @@ class ClickThroughManager:
         self._timer.setInterval(CLICK_THROUGH_POLL_MS)
         self._timer.timeout.connect(self._poll)
         self._timer.start()
+        self._stopped = False
 
         self.enable_click_through()
         self._prev_cursor_over = False
@@ -55,9 +56,12 @@ class ClickThroughManager:
         logger.debug("Click-through disabled for HWND %d", self._hwnd)
 
     def stop(self) -> None:
+        self._stopped = True
         self._timer.stop()
 
     def _poll(self) -> None:
+        if self._stopped:
+            return
         cursor = QCursor.pos()
         geom: QRect = self._get_geometry()
 

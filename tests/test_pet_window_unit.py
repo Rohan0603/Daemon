@@ -42,3 +42,62 @@ def test_recall_memory_opens_dialog(app, tmp_path):
             assert "TestUser" in content
             assert "Python" in content
             mock_instance.exec.assert_called_once()
+
+
+@pytest.mark.fast
+def test_bubble_queue_discards_stale_items(app, monkeypatch):
+    from src.constants import BUBBLE_QUEUE_TTL_SECS
+    import time as _real_time
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MCPServer"):
+        window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
+        BASE = 1000.0
+        monkeypatch.setattr("time.time", lambda: BASE)
+        window._bubble_timer_ms = 5000
+        window._show_bubble("stale message")
+        assert len(window._bubble_queue) == 1
+
+        monkeypatch.setattr("time.time", lambda: BASE + BUBBLE_QUEUE_TTL_SECS + 1)
+        window._bubble_text = ""
+        window._bubble_timer_ms = 0
+        now = BASE + BUBBLE_QUEUE_TTL_SECS + 1
+        fresh = [(t, ts) for t, ts in window._bubble_queue if now - ts <= BUBBLE_QUEUE_TTL_SECS]
+        assert len(fresh) == 0
+
+
+@pytest.mark.fast
+def test_bubble_queue_cleared_on_sleep_entry(app):
+    from src.pet_fsm import PetState
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MCPServer"), \
+         patch("src.pet_window.BehaviorController"):
+        window = PetWindow(opencode_enabled=False)
+        window._bubble_queue = [("msg1", 100.0), ("msg2", 200.0)]
+        window._bubble_timer_ms = 5000
+        # old_state will be IDLE (not SLEEP), so transition fires
+        window._fsm.current_state = PetState.IDLE
+        window._fsm.update = lambda dt, ctx: PetState.SLEEP
+        window._tick()
+        assert len(window._bubble_queue) == 0
+        assert window._bubble_text == ""
+
+
+@pytest.mark.fast
+def test_boredom_timer_reset_on_sleep_entry(app):
+    from src.pet_fsm import PetState
+    from src.constants import BOREDOM_TIMEOUT_SEC
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"), \
+         patch("src.pet_window.MCPServer"), \
+         patch("src.pet_window.BehaviorController"):
+        window = PetWindow(opencode_enabled=False)
+        window._boredom_timer_ms = 90000
+        window._fsm.current_state = PetState.IDLE
+        window._fsm.update = lambda dt, ctx: PetState.SLEEP
+        window._tick()
+        assert window._boredom_timer_ms == BOREDOM_TIMEOUT_SEC * 1000

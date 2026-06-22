@@ -660,20 +660,23 @@ class MCPHandler(BaseHTTPRequestHandler):
 
         # Validations
         if action not in VALID_ACTIONS:
-            return {"error": {"code": -32602, "message": f"Invalid action: {action}"}}
+            valid = sorted(VALID_ACTIONS)
+            return {"error": {"code": -32602, "message": f"Invalid action: {action}. Valid actions: {valid}"}}
 
         if layer not in ("fsm", "expression"):
             return {"error": {"code": -32602, "message": f"Invalid layer: {layer}"}}
 
         if layer == "fsm":
             if action not in FSM_ACTIONS:
-                return {"error": {"code": -32602, "message": f"Action '{action}' is not valid for fsm layer"}}
+                valid = sorted(FSM_ACTIONS)
+                return {"error": {"code": -32602, "message": f"Action '{action}' is not valid for fsm layer. Valid FSM actions: {valid}"}}
             if self._fsm_bridge:
                 self._fsm_bridge.fsm_action_requested.emit(action)
 
         elif layer == "expression":
             if action not in EXPRESSION_ACTIONS:
-                return {"error": {"code": -32602, "message": f"Action '{action}' is not valid for expression layer"}}
+                valid = sorted(EXPRESSION_ACTIONS)
+                return {"error": {"code": -32602, "message": f"Action '{action}' is not valid for expression layer. Valid expression actions: {valid}"}}
             if self._action_layer:
                 self._action_layer.trigger(action, duration_ms, {})
 
@@ -1038,7 +1041,7 @@ class MCPHandler(BaseHTTPRequestHandler):
 
 class MCPServer:
 
-    def __init__(self, fsm_bridge, memory=None, diary_store=None, host="127.0.0.1", port=4097, config: dict | None = None):
+    def __init__(self, fsm_bridge, memory=None, diary_store=None, history=None, host="127.0.0.1", port=4097, config: dict | None = None):
         self._config = config
         # Read MCP host/port from config if available
         if config and "mcp" in config:
@@ -1050,6 +1053,7 @@ class MCPServer:
         self._fsm_bridge = fsm_bridge
         self._memory = memory
         self._diary_store = diary_store
+        self._history = history
         self._server = None
         self._thread = None
 
@@ -1077,6 +1081,7 @@ class MCPServer:
         self._server.fsm_bridge = self._fsm_bridge
         self._server.memory = self._memory
         self._server.diary_store = self._diary_store
+        self._server.history = self._history
         self._server.consent = consent
         self._server.action_layer = action_layer
         self._port = self._server.server_address[1]

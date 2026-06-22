@@ -427,7 +427,7 @@ class PetRenderer:
     def _draw_state_overlay(self, painter: QPainter, ctx: RenderContext) -> None:
         state = ctx.state
         t = ctx.anim_tick
-        px, py = ctx.pet_x, ctx.pet_y
+        px, py = int(ctx.pet_x), int(ctx.pet_y)
         painter.save()
 
         if state == PetState.SLEEP:

@@ -117,8 +117,23 @@ def _release_lock(pet_id: str) -> None:
         pass
 
 
+def _rotate_crash_dump(crash_log: str | os.PathLike) -> None:
+    """Rotate crash_dump.log if it exceeds 1 MB on boot."""
+    try:
+        if os.path.getsize(crash_log) > 1024 * 1024:
+            bak = str(crash_log) + ".bak"
+            if os.path.exists(bak):
+                os.remove(bak)
+            os.rename(crash_log, bak)
+    except FileNotFoundError:
+        pass  # no crash dump to rotate
+    except Exception:
+        logger.exception("Failed to rotate crash_dump.log")
+
+
 def main() -> None:
     _ensure_ffmpeg_on_path()
+    _rotate_crash_dump(_CRASH_LOG)
     from src.config import load_config, flatten_config
     import src.constants as constants
 

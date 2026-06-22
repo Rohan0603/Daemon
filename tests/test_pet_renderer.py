@@ -320,6 +320,7 @@ def test_bubble_rendering_with_floats(qapp):
         fall_velocity=0.0,
         wander_direction=1,
         bubble_text="Hello world float test text",
+        drag_velocity_x=0.0,
         scale=1.0,
         screen_rect=QRect(0, 0, 800, 600)
     )
@@ -328,3 +329,37 @@ def test_bubble_rendering_with_floats(qapp):
         renderer.render(painter, ctx)
     finally:
         painter.end()
+
+
+def test_perimeter_speedlines_with_float_pet_coords():
+    """drawLine must not crash when pet coords are floats."""
+    from PyQt6.QtGui import QImage, QPainter
+    from PyQt6.QtCore import QRect
+    from src.pet_renderer import PetRenderer, RenderContext
+    from src.pet_fsm import PetState
+
+    img = QImage(400, 400, QImage.Format.Format_ARGB32)
+    painter = QPainter(img)
+
+    ctx = RenderContext(
+        state=PetState.PERIMETER,
+        pet_x=50,     # int in type-hint; floats cause drawLine crash
+        pet_y=100,
+        anim_tick=100,
+        hyper_color_index=0,
+        fall_velocity=0.0,
+        wander_direction=1,
+        bubble_text="",
+        drag_velocity_x=0.0,
+        scale=1.0,
+        cursor_x=0,
+        cursor_y=0,
+        state_elapsed_ms=0,
+        land_elapsed_ms=0,
+        edge="bottom",
+        facing="right",
+    )
+
+    # Must not raise TypeError
+    PetRenderer().render(painter, ctx)
+    painter.end()

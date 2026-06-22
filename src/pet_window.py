@@ -218,7 +218,7 @@ class PetWindow(QWidget):
         self._reminders = {}
         if hasattr(self._fsm_bridge, "summarize_requested"):
             self._fsm_bridge.summarize_requested.connect(self._handle_summarize_request)
-        self._bubble_queue: list[str] = []
+        self._bubble_queue: list[tuple[str, float]] = []
         self._bubble_text = ""
         self._bubble_timer_ms = 0
         brain_path = self._config.get("storage", {}).get("brain_path", BRAIN_PATH)
@@ -233,7 +233,7 @@ class PetWindow(QWidget):
         self._diary_store = DiaryStore(self._diary_path)
         self._action_layer = ActionLayer()
         self._fsm_bridge.action_triggered.connect(self._on_mcp_expression_action)
-        self._mcp_server = MCPServer(self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, config=self._config)
+        self._mcp_server = MCPServer(self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, history=self._history, config=self._config)
         self._write_coalescer = WriteCoalescer(
             memory=self._memory, history=self._history,
             memory_manager=self._firebase_mem,
@@ -242,7 +242,6 @@ class PetWindow(QWidget):
         self._memory._coalescer = self._write_coalescer
         self._history._coalescer = self._write_coalescer
         self._init_diary()
-        self._log_data_state("Startup")
 
         self._context_manager = ContextManager(
             memory=self._memory, history=self._history,
@@ -284,9 +283,9 @@ class PetWindow(QWidget):
 
         if not (initial_state or {}).get("first_run_done", False):
             self._bubble_queue = [
-                "Hey! I'm Kenny! Nice to meet ya.",
-                "Double-click me if you wanna ask opencode anything, alright?",
-                "Right-click me for options. D-d-don't click too hard though!",
+                ("Hey! I'm Kenny! Nice to meet ya.", 0.0),
+                ("Double-click me if you wanna ask opencode anything, alright?", 0.0),
+                ("Right-click me for options. D-d-don't click too hard though!", 0.0),
             ]
             self._greeting_timer = QTimer(self)
             self._greeting_timer.setSingleShot(True)
@@ -407,7 +406,7 @@ class PetWindow(QWidget):
             self._click_through = ClickThroughManager(hwnd, self._get_click_geometry)
 
     def _get_click_geometry(self) -> QRect:
-        rect = QRect(self._pet_x, self._pet_y, int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
+        rect = QRect(int(self._pet_x), int(self._pet_y), int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
         top_left = self.mapToGlobal(rect.topLeft())
         bottom_right = self.mapToGlobal(rect.bottomRight())
         rect = QRect(top_left, bottom_right)
@@ -639,7 +638,7 @@ class PetWindow(QWidget):
         
         # Build the visual trigger
         self._on_toast_requested("Reminder", msg)
-        self._bubble_queue.append(msg)
+        self._bubble_queue.append((msg, time.time()))
         self._show_next_bubble()
         
         # Transition state
@@ -753,6 +752,8 @@ class PetWindow(QWidget):
             StrandsSession.get_instance().close()
         except Exception:
             pass
+        if hasattr(self, '_click_through') and self._click_through is not None:
+            self._click_through.stop()
         self._mcp_server.stop()
         self._fsm_timer.stop()
         self._behavior_timer.stop()
@@ -965,13 +966,21 @@ class PetWindow(QWidget):
             if self._bubble_timer_ms > 0:
                 self._bubble_timer_ms -= FSM_TICK_MS
                 if self._bubble_timer_ms <= 0:
+                    from src.constants import BUBBLE_QUEUE_TTL_SECS
                     if self._bubble_queue:
-                        item = self._bubble_queue.pop(0)
-                        self._bubble_text = item
-                        duration = self._bubble_duration(item)
-                        self._bubble_timer_ms = duration
-                        # self._tts.enqueue(item)  # TTS paused
-                        logger.info("_bubble queue -> next: '%s' (%d remaining, %dms)", item, len(self._bubble_queue), duration)
+                            now = time.time()
+                            # Discard stale items past TTL
+                            fresh = [(t, ts) for t, ts in self._bubble_queue if now - ts <= BUBBLE_QUEUE_TTL_SECS]
+                            discarded = len(self._bubble_queue) - len(fresh)
+                            if discarded:
+                                logger.debug("Bubble TTL: discarded %d stale item(s)", discarded)
+                            self._bubble_queue = fresh
+                            if self._bubble_queue:
+                                item_text, _ = self._bubble_queue.pop(0)
+                                self._bubble_text = item_text
+                                duration = self._bubble_duration(item_text)
+                                self._bubble_timer_ms = duration
+                                logger.info("_bubble queue -> next: '%s' (%d remaining, %dms)", item_text, len(self._bubble_queue), duration)
                     else:
                         self._bubble_text = ""
                         self._bubble_timer_ms = 0
@@ -1039,6 +1048,8 @@ class PetWindow(QWidget):
                 self._state_elapsed_ms = 0
                 # Handle SLEEP state entry
                 if new_state == PetState.SLEEP and old_state != PetState.SLEEP:
+                    self._clear_bubble_queue()
+                    self._boredom_timer_ms = BOREDOM_TIMEOUT_SEC * 1000
                     self._action_layer.clear()
                     self._events.publish(Event(
                         type=EventType.PET_SLEEP_STARTED,
@@ -1568,14 +1579,15 @@ class PetWindow(QWidget):
 
     def _show_greeting_bubble(self) -> None:
         if self._bubble_queue:
-            self._show_bubble(self._bubble_queue.pop(0))
+            self._show_bubble(self._bubble_queue.pop(0)[0])
 
     def _show_bubble(self, text: str) -> None:
         if self._bubble_timer_ms > 0:
             if len(self._bubble_queue) >= BUBBLE_QUEUE_MAX_SIZE:
                 logger.debug("_show_bubble dropped (queue full): '%s'", text)
                 return
-            self._bubble_queue.append(text)
+            import time as _time
+            self._bubble_queue.append((text, _time.time()))
             logger.info("_show_bubble queued: '%s' (queue size: %d)", text, len(self._bubble_queue))
             return
         duration = self._bubble_duration(text)
@@ -1828,7 +1840,6 @@ class PetWindow(QWidget):
         # Hard-cap bubble text to configured char limit (150 default)
         if len(dialogue) > BUBBLE_MAX_CHARS:
             dialogue = dialogue[:BUBBLE_MAX_CHARS - 3] + "..."
-        print(f"DEBUG: _dispatch_structured: thought='{thought}', dialogue='{dialogue}'")
         logger.info("_dispatch_structured: dialogue='%s'", dialogue)
 
         # D2: Track consecutive parse failures for backoff

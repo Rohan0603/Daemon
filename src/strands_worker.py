@@ -2,6 +2,15 @@ import json
 import re
 from PyQt6.QtCore import QThread, pyqtSignal
 import structlog
+import warnings
+# DeepSeek models emit reasoning_content tokens in every assistant turn.
+# Strands SDK warns because it can't include them in multi-turn Chat Completions history.
+# This is expected behaviour for this model — suppress the warning.
+warnings.filterwarnings(
+    "ignore",
+    message="reasoningContent is not supported in multi-turn conversations",
+    category=UserWarning,
+)
 from strands import Agent
 from strands.models.openai import OpenAIModel
 from strands.tools.mcp import MCPClient
@@ -11,34 +20,64 @@ from mcp.client.sse import sse_client
 logger = structlog.get_logger()
 
 def extract_dialogue_stream(accumulated_text: str) -> str:
-    # First check if it doesn't look like JSON/markdown block
     stripped = accumulated_text.strip()
-    if stripped and not (stripped.startswith('[') or stripped.startswith('{') or stripped.startswith('`')):
-        return accumulated_text
+    if not stripped:
+        return ""
 
-    # Search for closed dialogue
-    match = re.search(r'"dialogue"\s*:\s*"((?:[^"\\]|\\.)*)"', accumulated_text)
-    if match:
-        try:
-            val = match.group(1)
-            if val.endswith('\\') and not val.endswith('\\\\'):
-                val = val[:-1]
-            return val.encode('utf-8').decode('unicode_escape', errors='ignore')
-        except Exception:
-            return match.group(1)
+    # Find the start of JSON array or object
+    json_start = -1
+    for i, char in enumerate(accumulated_text):
+        if char in ('[', '{'):
+            json_start = i
+            break
             
-    # Search for open dialogue
-    match_open = re.search(r'"dialogue"\s*:\s*"((?:[^"\\]|\\.|\\)*)$', accumulated_text)
-    if match_open:
-        try:
-            val = match_open.group(1)
-            if val.endswith('\\') and not val.endswith('\\\\'):
-                val = val[:-1]
-            return val.encode('utf-8').decode('unicode_escape', errors='ignore')
-        except Exception:
-            return match_open.group(1)
-            
-    return ""
+    if json_start != -1:
+        # Ignore preamble before JSON start
+        json_content = accumulated_text[json_start:]
+        
+        # Search for closed dialogue inside the JSON content
+        match = re.search(r'"dialogue"\s*:\s*"((?:[^"\\]|\\.)*)"', json_content)
+        if match:
+            try:
+                val = match.group(1)
+                if val.endswith('\\') and not val.endswith('\\\\'):
+                    val = val[:-1]
+                return val.encode('utf-8').decode('unicode_escape', errors='ignore')
+            except Exception:
+                return match.group(1)
+                
+        # Search for open dialogue inside the JSON content
+        match_open = re.search(r'"dialogue"\s*:\s*"((?:[^"\\]|\\.|\\)*)$', json_content)
+        if match_open:
+            try:
+                val = match_open.group(1)
+                if val.endswith('\\') and not val.endswith('\\\\'):
+                    val = val[:-1]
+                return val.encode('utf-8').decode('unicode_escape', errors='ignore')
+            except Exception:
+                return match_open.group(1)
+                
+        return ""  # We have JSON start, but dialogue key is not here yet
+
+    # No JSON delimiters found at all. Treat as free-form text.
+    if stripped.startswith('`'):
+        return ""
+        
+    return accumulated_text
+
+
+
+# No module-level _interpolate_prompt — it's an instance method on StrandsAutonomousWorker
+
+
+def _install_warning_filters() -> None:
+    """Install warning filters for known SDK warnings."""
+    import warnings
+    warnings.filterwarnings(
+        "ignore",
+        message="reasoningContent is not supported in multi-turn conversations",
+        category=UserWarning,
+    )
 
 
 class StrandsSession:
@@ -167,6 +206,18 @@ class StrandsAutonomousWorker(QThread):
             model_id=model_id
         )
 
+    def _interpolate_prompt(self, prompt: str) -> str:
+        """Replace {{placeholder}} tokens with config/context values."""
+        replacements = {
+            "pet_id":        str(self.config.get("pet", {}).get("id", "")),
+            "persona_name":  str(self.config.get("pet", {}).get("persona_name", "")),
+            "chattiness":    str(self.config.get("pet", {}).get("chattiness", "")),
+            "apm":           str(self.context.get("apm", "")),
+        }
+        for key, val in replacements.items():
+            prompt = prompt.replace("{{" + key + "}}", val)
+        return prompt
+
     def abort(self):
         """Called by PetWindow to gracefully halt the ReAct loop."""
         logger.info("Aborting background Strands worker...")
@@ -288,7 +339,33 @@ class StrandsAutonomousWorker(QThread):
         from src.constants import BUBBLE_MAX_CHARS
 
         cleaned = text.strip()
-        cleaned = re.sub(r'^```[a-z]*\n?(.*?)\n?```$', r'\1', cleaned, flags=re.DOTALL).strip()
+
+        # Extract JSON content from markdown code fences or preambles/postambles
+        # 1. Look for ```json ... ``` blocks
+        md_json = re.search(r'```json\s*(.*?)\s*```', cleaned, re.DOTALL)
+        if md_json:
+            cleaned = md_json.group(1).strip()
+        else:
+            # 2. Look for generic ``` ... ``` blocks
+            md_generic = re.search(r'```\s*(.*?)\s*```', cleaned, re.DOTALL)
+            if md_generic:
+                block = md_generic.group(1).strip()
+                # Use it if it starts with JSON indicators
+                if (block.startswith('[') and block.endswith(']')) or (block.startswith('{') and block.endswith('}')):
+                    cleaned = block
+            else:
+                # 3. Fallback to bracket/brace matching to strip preamble/postamble
+                first_bracket = cleaned.find('[')
+                first_brace = cleaned.find('{')
+                if first_bracket != -1 and (first_brace == -1 or first_bracket < first_brace):
+                    last_bracket = cleaned.rfind(']')
+                    if last_bracket != -1 and last_bracket > first_bracket:
+                        cleaned = cleaned[first_bracket:last_bracket+1].strip()
+                elif first_brace != -1:
+                    last_brace = cleaned.rfind('}')
+                    if last_brace != -1 and last_brace > first_brace:
+                        cleaned = cleaned[first_brace:last_brace+1].strip()
+
         try:
             result = json.loads(cleaned)
             if isinstance(result, dict):
@@ -298,10 +375,68 @@ class StrandsAutonomousWorker(QThread):
                 if isinstance(item, dict) and "dialogue" in item and len(item["dialogue"]) > BUBBLE_MAX_CHARS:
                     item["dialogue"] = item["dialogue"][:BUBBLE_MAX_CHARS - 3] + "..."
             return result
-        except json.JSONDecodeError:
-            # Model returned free-form text instead of structured JSON.
-            # Use a sensible fallback: "observation" is a valid thought type
-            # that the dispatch pipeline can work with, and the raw text
-            # becomes the bubble dialogue.
+        except json.JSONDecodeError as e:
+            logger.warning("JSON decode failed in Strands worker: %s", str(e))
+            
+            # If the response looks like JSON (starts with delimiter or contains markers)
+            # but failed parsing, try to extract dialogue via regex to avoid showing raw JSON to user.
+            is_json_like = (
+                cleaned.startswith('[') or 
+                cleaned.startswith('{') or 
+                '"dialogue"' in cleaned or 
+                '"thought"' in cleaned
+            )
+            if is_json_like:
+                dialogue_text = None
+                thought_text = None
+                
+                # 1. Try line-by-line greedy extraction first (for pretty-printed JSON)
+                for line in cleaned.splitlines():
+                    line = line.strip()
+                    m_dialogue = re.search(r'"dialogue"\s*:\s*"(.*)"\s*,?\s*$', line)
+                    if m_dialogue:
+                        dialogue_text = m_dialogue.group(1)
+                    m_thought = re.search(r'"thought"\s*:\s*"(.*)"\s*,?\s*$', line)
+                    if m_thought:
+                        thought_text = m_thought.group(1)
+                
+                # 2. Fallback to non-greedy extraction across whole text
+                if not dialogue_text:
+                    dialogue_matches = re.findall(r'"dialogue"\s*:\s*"((?:[^"\\]|\\.)*)"', cleaned)
+                    if dialogue_matches:
+                        dialogue_text = dialogue_matches[0]
+                if not thought_text:
+                    thought_matches = re.findall(r'"thought"\s*:\s*"((?:[^"\\]|\\.)*)"', cleaned)
+                    if thought_matches:
+                        thought_text = thought_matches[0]
+
+                if dialogue_text:
+                    try:
+                        dialogue_text = dialogue_text.encode('utf-8').decode('unicode_escape', errors='ignore')
+                    except Exception:
+                        pass
+                    
+                    if thought_text:
+                        try:
+                            thought_text = thought_text.encode('utf-8').decode('unicode_escape', errors='ignore')
+                        except Exception:
+                            pass
+                    else:
+                        thought_text = "Observation (JSON Parse Error Recovery)"
+                    
+                    truncated = dialogue_text if len(dialogue_text) <= BUBBLE_MAX_CHARS else dialogue_text[:BUBBLE_MAX_CHARS - 3] + "..."
+                    return [{"thought": thought_text, "dialogue": truncated, "priority": 1}]
+
+                # If we couldn't even extract dialogue via regex, return a user-friendly segfault message
+                # rather than raw JSON code.
+                return [{
+                    "thought": "Strands worker JSON parse failure",
+                    "dialogue": "Holy crap, my brain just segfaulted! (JSON Parse Error)",
+                    "type": "observation",
+                    "priority": 5
+                }]
+
+            # Truly free-form text: display directly in the bubble.
             truncated = text if len(text) <= BUBBLE_MAX_CHARS else text[:BUBBLE_MAX_CHARS - 3] + "..."
             return [{"thought": "observation", "dialogue": truncated, "priority": 1}]
+

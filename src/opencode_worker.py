@@ -13,6 +13,54 @@ from src.constants import MAX_RESPONSE_CHARS
 
 logger = logging.getLogger(__name__)
 
+_POOL_FORBIDDEN_FIELDS = {"action", "priority", "target_fsm", "target_x", "target_y", "duration_ms"}
+
+
+def _parse_pool_response(raw: str) -> list | None:
+    """Parse pool refill LLM output into a list of dicts. Returns None on failure."""
+    import json as _json
+    if not raw or not raw.strip():
+        return None
+
+    text = raw.strip()
+
+    # Strip markdown code fences (```json ... ``` or ``` ... ```)
+    if text.startswith("```"):
+        in_fence = False
+        inner_lines = []
+        for line in text.splitlines():
+            if line.startswith("```") and not in_fence:
+                in_fence = True
+                continue
+            if line.startswith("```") and in_fence:
+                break
+            if in_fence:
+                inner_lines.append(line)
+        text = "\n".join(inner_lines).strip()
+
+    # Find JSON array start — non-array responses are rejected
+    start = text.find("[")
+    if start == -1:
+        return []
+
+    # Find array end
+    end = text.rfind("]")
+    if end == -1:
+        return None
+    text = text[start:end + 1]
+
+    try:
+        items = _json.loads(text)
+        if not isinstance(items, list):
+            return []
+        # Remove forbidden fields silently
+        for item in items:
+            for field in _POOL_FORBIDDEN_FIELDS:
+                item.pop(field, None)
+        return items
+    except _json.JSONDecodeError:
+        return None
+
 
 class OpencodeWorker(QThread):
     response_ready = pyqtSignal(list)
@@ -63,6 +111,17 @@ class OpencodeWorker(QThread):
                 logger.debug("Cleaned up session %s on abort", self._session_id)
             except Exception as e:
                 logger.debug("Failed to clean up session on abort: %s", e)
+
+    @classmethod
+    def build_single_stage_refill_prompt(cls, window: str, apm: int, count: int) -> str:
+        """Build the single-stage refill prompt with Kenny persona and JSON schema reminder."""
+        return (
+            "You are Kenny \u2014 anxious Python process. Speak with stammers. RAM obsessed.\n"
+            f"Screen: {window}  APM: {apm}\n"
+            f"Generate {count} thoughts as a JSON array with each item having: "
+            '"thought", "dialogue", "type" (one of: typing_reaction, idle_thought, observation, intel_roast). '
+            'Keep dialogue under 150 chars. Use stammers like "Ugh", "Buh", "Like" when appropriate...\n'
+        )
 
     def _post_message(self, payload: dict, is_refill: bool = False) -> str | None:
         session_id = self._session_id

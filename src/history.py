@@ -4,6 +4,7 @@ import time
 from typing import TYPE_CHECKING
 from src.brain_store import BrainStore
 from src.storage_backend import StorageBackend
+from src.constants import HISTORY_MAX_ENTRIES
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,8 @@ class History(StorageBackend):
             "action": action or "idle",
         }
         self._entries.append(entry)
+        while len(self._entries) > HISTORY_MAX_ENTRIES:
+            self._entries.pop(0)
         effective = coalescer if coalescer is not None else self._coalescer
         if effective is not None:
             effective.mark_dirty("history")
@@ -94,6 +97,8 @@ class History(StorageBackend):
             "action": "idle",
         }
         self._turns.append(entry)
+        while len(self._turns) > HISTORY_MAX_ENTRIES:
+            self._turns.pop(0)
         self._dirty = True
         effective = self._coalescer
         if effective is not None:
@@ -111,6 +116,8 @@ class History(StorageBackend):
     def set(self, key: str, value) -> bool:
         if isinstance(value, dict):
             self._turns.append(value)
+            while len(self._turns) > HISTORY_MAX_ENTRIES:
+                self._turns.pop(0)
             self._dirty = True
             effective = self._coalescer
             if effective is not None:

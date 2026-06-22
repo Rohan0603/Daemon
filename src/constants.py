@@ -6,6 +6,8 @@ STORAGE_DIR.mkdir(exist_ok=True)
 
 CONFIG_PATH = STORAGE_DIR / 'daemon_config.json'
 MAX_RESPONSE_CHARS = 4000
+BUBBLE_QUEUE_TTL_SECS = 25
+HISTORY_MAX_ENTRIES = 100
 DEBUG: bool = False
 
 SETTINGS_SCALE_MIN: float = 0.5
