@@ -149,6 +149,83 @@ class TestPluginRegistry:
         triggered = registry.get_ready_behavior_triggers({})
         assert len(triggered) == 0
 
+    def test_register_brain_field(self, registry):
+        # Register a valid brain field
+        registry.register_brain_field(
+            field_name="custom_mood_scale",
+            field_type="float",
+            default=0.5,
+            locked=False,
+            plugin_name="mood_tracker"
+        )
+        fields = registry.get_brain_fields()
+        assert "custom_mood_scale" in fields
+        assert fields["custom_mood_scale"] == {
+            "type": "float",
+            "locked": False,
+            "default": 0.5,
+            "plugin": "mood_tracker"
+        }
+
+    def test_register_brain_field_invalid_type(self, registry):
+        # Invalid type should raise ValueError
+        with pytest.raises(ValueError) as excinfo:
+            registry.register_brain_field(
+                field_name="custom_invalid",
+                field_type="invalid_type",
+                default=None
+            )
+        assert "Invalid field_type 'invalid_type'" in str(excinfo.value)
+
+    def test_register_brain_field_locked(self, registry):
+        registry.register_brain_field(
+            field_name="secret_key",
+            field_type="str",
+            default="init",
+            locked=True,
+            plugin_name="auth"
+        )
+        fields = registry.get_brain_fields()
+        assert fields["secret_key"]["locked"] is True
+
+    def test_plugin_brain_schema_merge(self, registry):
+        import src.brain_schema as _bs
+
+        # Save original schema and defaults
+        orig_schema = dict(_bs.BRAIN_SCHEMA)
+        orig_defaults = dict(_bs.DEFAULT_BRAIN)
+
+        try:
+            registry.register_brain_field(
+                field_name="plugin_mood_indicator",
+                field_type="str",
+                default="neutral",
+                locked=False,
+                plugin_name="mood_indicator_plugin"
+            )
+
+            # Merge logic (simulated from daemon.py)
+            from src.brain_schema import load_brain_schema
+            loaded_schema = load_brain_schema()
+            loaded_schema.update(registry.get_brain_fields())
+            _bs.BRAIN_SCHEMA = loaded_schema
+            _bs.DEFAULT_BRAIN = {k: v["default"] for k, v in loaded_schema.items()}
+
+            # Verify custom field exists in BRAIN_SCHEMA and DEFAULT_BRAIN
+            assert "plugin_mood_indicator" in _bs.BRAIN_SCHEMA
+            assert _bs.DEFAULT_BRAIN["plugin_mood_indicator"] == "neutral"
+
+            # Verify apply_brain_update supports the new field
+            from src.brain_schema import apply_brain_update
+            update = {"plugin_mood_indicator": "happy", "user_name": "ignore_locked_field"}
+            applied = apply_brain_update(update)
+            assert applied.get("plugin_mood_indicator") == "happy"
+
+        finally:
+            # Restore original state
+            _bs.BRAIN_SCHEMA = orig_schema
+            _bs.DEFAULT_BRAIN = orig_defaults
+
 
 class TestPluginManager:
     """Test PluginManager with a temporary plugins directory."""

@@ -3,6 +3,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING
 from src.brain_store import BrainStore
+from src.storage_backend import StorageBackend
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +12,7 @@ if TYPE_CHECKING:
 
 _MAX_FACTS = 50
 
-class Memory:
+class Memory(StorageBackend):
     def __init__(self, path: str | None = None,
                  coalescer: "WriteCoalescer | None" = None) -> None:
         self._brain = BrainStore.get_instance(path)
@@ -74,3 +75,27 @@ class Memory:
 
     def _load(self) -> None:
         self._brain._load()
+
+    def get(self, key: str):
+        with self._lock:
+            return self._facts.get(key)
+
+    def set(self, key: str, value) -> bool:
+        self.remember(key, value)
+        return True
+
+    def query(self, filter_fn=None, limit: int = 50) -> list[dict]:
+        with self._lock:
+            entries = []
+            for k, v in self._facts.items():
+                entry = {"id": k, "content": str(v), "timestamp": ""}
+                if filter_fn is None or filter_fn(entry):
+                    entries.append(entry)
+            return entries[:limit]
+
+    def all_entries(self) -> list[dict]:
+        return self.query()
+
+    def count(self) -> int:
+        with self._lock:
+            return len(self._facts)

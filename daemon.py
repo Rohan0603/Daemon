@@ -234,6 +234,16 @@ def main() -> None:
     plugin_manager.discover()
     plugin_manager.load_all()
     apply_plugin_profiles(plugin_registry)
+
+    # Merge plugin-contributed brain fields into loaded schema
+    from src.brain_schema import load_brain_schema
+    _loaded_schema = load_brain_schema()
+    _loaded_schema.update(plugin_registry.get_brain_fields())
+    # Patch module-level BRAIN_SCHEMA so apply_brain_update sees new fields
+    import src.brain_schema as _bs
+    _bs.BRAIN_SCHEMA = _loaded_schema
+    _bs.DEFAULT_BRAIN = {k: v["default"] for k, v in _loaded_schema.items()}
+
     logger.info("Loaded %d plugin(s)", len(plugin_manager.loaded_plugins))
 
     if os.name == "nt":

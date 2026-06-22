@@ -232,3 +232,35 @@ class TestMemoryEdgeCases:
         assert lines[0] == "## What Daemon remembers about you:"
         assert lines[1] == "- name: Daemon"
         assert lines[2] == "- color: blue"
+
+
+def test_memory_storage_backend_interface(tmp_path):
+    from src.memory import Memory
+    from src.storage_backend import StorageBackend
+    
+    path = str(tmp_path / "mem.json")
+    mem = Memory(path=path)
+    
+    assert isinstance(mem, StorageBackend)
+    
+    # test count
+    assert mem.count() == 0
+    
+    # test set/get
+    assert mem.set("user_profession", "coder") is True
+    assert mem.get("user_profession") == "coder"
+    assert mem.count() == 1
+    
+    # test query
+    results = mem.query()
+    assert len(results) == 1
+    assert results[0] == {"id": "user_profession", "content": "coder", "timestamp": ""}
+    
+    # test query with filter
+    results_filter = mem.query(filter_fn=lambda x: x["id"] == "user_profession")
+    assert len(results_filter) == 1
+    results_filter_empty = mem.query(filter_fn=lambda x: x["id"] == "nonexistent")
+    assert len(results_filter_empty) == 0
+    
+    # test all_entries
+    assert mem.all_entries() == [{"id": "user_profession", "content": "coder", "timestamp": ""}]

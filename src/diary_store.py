@@ -4,6 +4,7 @@ import logging
 import time
 import unicodedata
 from src.brain_store import BrainStore
+from src.storage_backend import StorageBackend
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +26,7 @@ def _migrate_entry(entry: str | dict) -> dict:
 def _migrate_entries(entries: list) -> list[dict]:
     return [_migrate_entry(e) for e in entries]
 
-class DiaryStore:
+class DiaryStore(StorageBackend):
     def __init__(self, path: str, max_entries: int = MAX_DIARY_ENTRIES) -> None:
         self._brain = BrainStore.get_instance(path)
         self._max_entries = max_entries
@@ -85,3 +86,37 @@ class DiaryStore:
 
     def prune(self, entries: list[dict]) -> list[dict]:
         return entries[-self._max_entries:]
+
+    @property
+    def _entries(self):
+        return self._diary_entries
+
+    def add(self, text: str) -> bool:
+        return self.add_diary_entry(text)
+
+    def get(self, key: str) -> dict | None:
+        for entry in self._entries:
+            if entry.get("hash") == key:
+                return entry
+        return None
+
+    def set(self, key: str, value) -> bool:
+        return self.add(str(value))
+
+    def query(self, filter_fn=None, limit: int = 50) -> list[dict]:
+        entries = []
+        for e in self._entries:
+            entry = {
+                "id": e.get("hash", ""),
+                "content": e.get("text", e.get("content", "")),
+                "timestamp": e.get("timestamp", ""),
+            }
+            if filter_fn is None or filter_fn(entry):
+                entries.append(entry)
+        return entries[-limit:] if limit > 0 else []
+
+    def all_entries(self) -> list[dict]:
+        return self.query(limit=len(self._entries))
+
+    def count(self) -> int:
+        return len(self._entries)

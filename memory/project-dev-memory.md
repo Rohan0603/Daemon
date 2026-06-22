@@ -2370,3 +2370,64 @@ Shutdown: _finalize_quit() → save_session() → disk
 - `tests/test_pet_renderer.py` (modified)
 
 **Test results:** Full suite 705 passed, 1 skipped.
+
+
+### Phase 73 — Action Palette (Task 8: SKILL.md update) (2026-06-21)
+**Branch:** `task-73-skill-update` (committed)
+
+**What was done:**
+- Modified `.opencode/skills/kenny/SKILL.md` to append documentation for expression actions (`layer="expression"`), including emotion expressions, physical reactions, body language, visual flair, stacking combos, and hard rules.
+
+**Files changed:**
+- `.opencode/skills/kenny/SKILL.md` (modified)
+
+
+### Phase 74 — Dynamic Brain Schema (Tasks A1-A2) (2026-06-21)
+**Branch:** `task-74-brain-memory-generalization` (committed)
+
+**What was done:**
+- Created `data/brain_schema.json` with all 33 fields from `src/brain_schema.py` mapping field types `"string" -> "str"`, `"list" -> "list"`, `"map" -> "dict"`, `"int" -> "int"`.
+- Modified `src/brain_schema.py` to dynamically load brain schema from `data/brain_schema.json`.
+- Updated `apply_brain_update` signature to accept optional `schema: dict | None` param and strictly validate type updates dynamically.
+- Whitelisted `data/brain_schema.json` in `.gitignore`.
+- Created `tests/test_brain_schema_dynamic.py` verifying dynamic schema loading, locked fields, invalid types, and updates.
+- Adapted `tests/test_brain_schema.py` to support `str` and `dict` type checking aliases.
+
+**Files changed:**
+- `data/brain_schema.json` (created)
+- `src/brain_schema.py` (modified)
+- `.gitignore` (modified)
+- `tests/test_brain_schema_dynamic.py` (created)
+- `tests/test_brain_schema.py` (modified)
+
+**Task A3 — PluginRegistry brain field registration (2026-06-21)**
+**Branch:** `task-74-a3-plugin-brain-fields` (committed)
+
+**What was done:**
+- Modified `src/plugin_registry.py` to support dynamic registration (`register_brain_field`) and retrieval (`get_brain_fields`) of plugin-contributed brain schema fields.
+- Modified `daemon.py` to merge plugin-contributed brain fields into the loaded `BRAIN_SCHEMA` and `DEFAULT_BRAIN` at boot.
+- Added tests in `tests/test_plugin_system.py` verifying dynamic brain fields registration, validation of types/locked parameters, and dynamic merging.
+
+**Files changed:**
+- `src/plugin_registry.py` (modified)
+- `daemon.py` (modified)
+- `tests/test_plugin_system.py` (modified)
+
+**Test results:** Full suite 715 passed, 1 skipped.
+
+
+### Phase 74 — Storage Interface (Task B1) (2026-06-21)
+**Branch:** `task-74-b1-storage-backend` (committed)
+
+**What was done:**
+- Created [src/storage_backend.py](file:///C:/Users/ponna/Project/Daemon/src/storage_backend.py) containing `StorageBackend` abstract base class defining unified interface with methods `get`, `set`, `query`, `all_entries`, and `count`.
+- Created [tests/test_storage_backend.py](file:///C:/Users/ponna/Project/Daemon/tests/test_storage_backend.py) with unit tests verifying ABC properties and abstract method constraints.
+
+**Files changed:**
+- [src/storage_backend.py](file:///C:/Users/ponna/Project/Daemon/src/storage_backend.py) (created)
+- [tests/test_storage_backend.py](file:///C:/Users/ponna/Project/Daemon/tests/test_storage_backend.py) (created)
+
+**Test results:** Full suite 718 passed, 1 skipped.
+
+
+

@@ -3,6 +3,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 from src.brain_store import BrainStore
+from src.storage_backend import StorageBackend
 
 logger = logging.getLogger(__name__)
 
@@ -10,11 +11,12 @@ if TYPE_CHECKING:
     from src.write_coalescer import WriteCoalescer
 
 
-class History:
+class History(StorageBackend):
     def __init__(self, path: str | None = None,
                  coalescer: "WriteCoalescer | None" = None) -> None:
         self._brain = BrainStore.get_instance(path)
         self._coalescer = coalescer
+        self._dirty = False
 
     @property
     def _entries(self):
@@ -69,9 +71,6 @@ class History:
             lines.append(f'- You: "{user}" ? Daemon: "{daemon}"')
         return "\n".join(lines)
 
-    def count(self) -> int:
-        return len(self._entries)
-
     def save(self) -> None:
         self._save()
 
@@ -80,3 +79,70 @@ class History:
 
     def _load(self) -> None:
         self._brain._load()
+
+    @property
+    def _turns(self):
+        return self._entries
+
+    def add(self, role: str, content: str) -> None:
+        entry = {
+            "timestamp": time.time(),
+            "role": role,
+            "content": content,
+            "user_input": content if role == "user" else "",
+            "daemon_response": content if role != "user" else "",
+            "action": "idle",
+        }
+        self._turns.append(entry)
+        self._dirty = True
+        effective = self._coalescer
+        if effective is not None:
+            effective.mark_dirty("history")
+        else:
+            self._save()
+
+    def get(self, key: str) -> dict | None:
+        try:
+            idx = int(key)
+            return self._turns[idx]
+        except (IndexError, ValueError):
+            return None
+
+    def set(self, key: str, value) -> bool:
+        if isinstance(value, dict):
+            self._turns.append(value)
+            self._dirty = True
+            effective = self._coalescer
+            if effective is not None:
+                effective.mark_dirty("history")
+            else:
+                self._save()
+        else:
+            self.add(role="user", content=str(value))
+        return True
+
+    def query(self, filter_fn=None, limit: int = 50) -> list[dict]:
+        entries = []
+        for i, t in enumerate(self._turns):
+            role = t.get('role', '')
+            content = t.get('content', '')
+            if not role and not content:
+                user_val = t.get('user_input')
+                daemon_val = t.get('daemon_response')
+                if user_val is not None or daemon_val is not None:
+                    role = "user" if user_val else "daemon"
+                    content = user_val if user_val else daemon_val
+            entry = {
+                "id": str(i),
+                "content": f"{role}: {content}",
+                "timestamp": t.get("timestamp", ""),
+            }
+            if filter_fn is None or filter_fn(entry):
+                entries.append(entry)
+        return entries[-limit:] if limit > 0 else []
+
+    def all_entries(self) -> list[dict]:
+        return self.query(limit=len(self._turns))
+
+    def count(self) -> int:
+        return len(self._turns)

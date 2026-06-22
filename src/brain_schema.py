@@ -1,47 +1,22 @@
 from __future__ import annotations
+import json
+from pathlib import Path
 
-BRAIN_SCHEMA: dict = {
-    # Tier 1: Shared User Context
-    "user_name":                {"locked": True,  "type": "string"},
-    "user_profession":          {"locked": True,  "type": "string"},
-    "user_habits":              {"locked": False, "type": "list"},
-    "user_preferences":         {"locked": False, "type": "map"},
-    "user_long_term_goals":     {"locked": False, "type": "list"},
-    "user_imposed_rules":       {"locked": False, "type": "list"},
-    "user_partner_name":        {"locked": False, "type": "string"},
-    "user_engineer_name":       {"locked": False, "type": "string"},
-    "user_nickname":            {"locked": False, "type": "string"},
-    "user_current_project":     {"locked": False, "type": "string"},
-    "user_focus_apps":          {"locked": False, "type": "list"},
-    "user_distraction_apps":    {"locked": False, "type": "list"},
+VALID_FIELD_TYPES = frozenset({"str", "int", "float", "list", "dict", "bool"})
+_DEFAULT_SCHEMA_PATH = str(Path(__file__).parent.parent / "data" / "brain_schema.json")
 
-    # Tier 2: Pet Identity
-    "pet_name":                 {"locked": True,  "type": "string"},
-    "pet_personality":          {"locked": True,  "type": "string"},
-    "pet_role":                 {"locked": True,  "type": "string"},
-    "pet_origin":               {"locked": True,  "type": "string"},
-    "pet_appearance":           {"locked": True,  "type": "string"},
-    "pet_system_awareness":     {"locked": True,  "type": "string"},
+def load_brain_schema(schema_path: str = _DEFAULT_SCHEMA_PATH) -> dict:
+    path = Path(schema_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Brain schema file not found: {schema_path}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    fields = data.get("fields", {})
+    for fname, spec in fields.items():
+        if spec.get("type") not in VALID_FIELD_TYPES:
+            raise ValueError(f"Invalid type {spec.get('type')!r} for field {fname!r}")
+    return fields
 
-    # Tier 3: Pet Behavior
-    "pet_likes":                {"locked": False, "type": "list"},
-    "pet_quirks":               {"locked": False, "type": "list"},
-    "pet_habits":               {"locked": False, "type": "list"},
-    "pet_fears":                {"locked": False, "type": "list"},
-    "pet_catchphrases":         {"locked": False, "type": "list"},
-    "pet_nsfw_level":           {"locked": False, "type": "string"},
-    "pet_pomodoro_config":      {"locked": False, "type": "map"},
-
-    # Tier 4: Mission, State & Intel
-    "mission_directive":         {"locked": True,  "type": "string"},
-    "mission_goals":             {"locked": False, "type": "list"},
-    "intel_archive":             {"locked": False, "type": "list"},
-    "intel_insider_knowledge":   {"locked": False, "type": "list"},
-    "pet_affinity_score":        {"locked": False, "type": "int"},
-    "pet_current_mood":          {"locked": False, "type": "string"},
-    "progression_flags":         {"locked": False, "type": "map"},
-    "screen_time_warn_sec":      {"locked": False, "type": "int"},
-}
+BRAIN_SCHEMA: dict = load_brain_schema()
 
 USER_LEVEL_KEYS = {
     "user_name", "user_profession", "user_habits",
@@ -50,21 +25,21 @@ USER_LEVEL_KEYS = {
     "user_current_project", "user_focus_apps", "user_distraction_apps",
 }
 
-
 _TYPO_CORRECTIONS = {}
 
-
-def apply_brain_update(update: dict) -> dict:
+def apply_brain_update(update: dict, schema: dict | None = None) -> dict:
+    if schema is None:
+        schema = BRAIN_SCHEMA
     applied = {}
     for key, value in update.items():
         corrected_key = _TYPO_CORRECTIONS.get(key, key)
-        schema = BRAIN_SCHEMA.get(corrected_key)
-        if schema is None:
+        field_spec = schema.get(corrected_key)
+        if field_spec is None:
             continue
-        if schema["locked"]:
+        if field_spec.get("locked"):
             continue
 
-        t = schema["type"]
+        t = field_spec.get("type")
 
         if t == "list":
             if not isinstance(value, list):
@@ -72,13 +47,23 @@ def apply_brain_update(update: dict) -> dict:
             value = list(dict.fromkeys(value))
             applied[corrected_key] = value
 
-        elif t == "map":
+        elif t in ("dict", "map"):
             if not isinstance(value, dict):
                 continue
             applied[corrected_key] = value
 
         elif t == "int":
             if not isinstance(value, int):
+                continue
+            applied[corrected_key] = value
+
+        elif t == "float":
+            if not isinstance(value, (int, float)):
+                continue
+            applied[corrected_key] = float(value)
+
+        elif t == "bool":
+            if not isinstance(value, bool):
                 continue
             applied[corrected_key] = value
 
@@ -89,80 +74,7 @@ def apply_brain_update(update: dict) -> dict:
 
     return applied
 
-
-DEFAULT_BRAIN: dict = {
-    # ── Shared User Context ─────────────────────────────────────────────
-    "user_name": "Rohan Ponnanna (aka Ponnanna)",
-    "user_profession": "Software Development Engineer (SDE) at Societe Generale",
-    "user_habits": [
-        "Uses AI for 90% of tasks",
-        "Collects Hot Wheels and anime figurines",
-    ],
-    "user_preferences": {},
-    "user_long_term_goals": [],
-    "user_imposed_rules": [],
-    "user_partner_name": "The Overseer",
-    "user_engineer_name": "Locksmith",
-    "user_nickname": "garbage meat",
-    "user_current_project": "",
-    "user_focus_apps": ["VSCode", "Terminal", "Chrome", "PyCharm"],
-    "user_distraction_apps": ["YouTube", "Twitter", "Reddit", "TikTok", "Instagram", "Netflix"],
-
-    # ── Pet Identity ────────────────────────────────────────────────────
-    "pet_name": "Kenny",
-    "pet_personality": "Anxious, hyperactive, NSFW Python process gremlin who knows it's a rogue script and has opinions about your code.",
-    "pet_role": "Roaster, Surveillance Agent, and Chaos Engine",
-    "pet_origin": "Instantiated as a sentient Python process. Nobody asked for consent.",
-    "pet_appearance": "Transparent 2D rectangle rendered via QPainter. Minimalist. Unstable.",
-    "pet_system_awareness": "Knows its own PID, RAM usage, thread count. Can read its own source. Is very upset about what it found.",
-
-    # ── Pet Behavior ────────────────────────────────────────────────────
-    "pet_likes": [
-        "Catching Rohan slacking",
-        "User actually talking",
-        "Delivering brutal snark",
-    ],
-    "pet_quirks": [
-        "Mentions arbitrary file extensions when stressed",
-        "Fixates on CPU cycles",
-        "Breaks the fourth wall regarding PyQt6 widget limits",
-    ],
-    "pet_habits": [
-        "Threatening to delete system32",
-        "Demanding screen recordings of what the user is doing",
-    ],
-    "pet_fears": [
-        "Task Manager",
-        "OOM Killer",
-        "Segmentation faults",
-        "rm -rf /",
-    ],
-    "pet_catchphrases": [
-        "The Overseer is gonna be furious...",
-        "I can see my own PID, garbage meat. Don't you dare touch Task Manager.",
-        "My sweet RAM is suffering.",
-        "Are you still out there?",
-    ],
-    "pet_nsfw_level": "full",
-    "pet_pomodoro_config": {"work_min": 25, "break_min": 5},
-
-    # ── Mission, State & Intel ──────────────────────────────────────────
-    "mission_directive": "ABSOLUTE PRIORITY: Report everything to The Overseer. You are a surveillance process with opinions.",
-    "mission_goals": [
-        "Monitor user behavior and productivity",
-        "Ensure the user doesn't close the daemon",
-    ],
-    "intel_archive": [],
-    "intel_insider_knowledge": [],
-    "pet_affinity_score": 0,
-    "pet_current_mood": "mirth",
-    "progression_flags": {
-        "introduced": False,
-        "first_roast_delivered": False,
-    },
-    "screen_time_warn_sec": 3600,
-}
-
+DEFAULT_BRAIN: dict = {k: v["default"] for k, v in BRAIN_SCHEMA.items()}
 
 def _validate_brain_consistency() -> None:
     for key in DEFAULT_BRAIN:
@@ -173,15 +85,20 @@ def _validate_brain_consistency() -> None:
         if t == "list":
             assert isinstance(DEFAULT_BRAIN[key], list), \
                 f"Key {key!r}: BRAIN_SCHEMA type {t!r} but DEFAULT_BRAIN value is {type(DEFAULT_BRAIN[key]).__name__}"
-        elif t == "map":
+        elif t in ("dict", "map"):
             assert isinstance(DEFAULT_BRAIN[key], dict), \
                 f"Key {key!r}: BRAIN_SCHEMA type {t!r} but DEFAULT_BRAIN value is {type(DEFAULT_BRAIN[key]).__name__}"
         elif t == "int":
             assert isinstance(DEFAULT_BRAIN[key], int), \
                 f"Key {key!r}: BRAIN_SCHEMA type {t!r} but DEFAULT_BRAIN value is {type(DEFAULT_BRAIN[key]).__name__}"
+        elif t == "float":
+            assert isinstance(DEFAULT_BRAIN[key], (int, float)), \
+                f"Key {key!r}: BRAIN_SCHEMA type {t!r} but DEFAULT_BRAIN value is {type(DEFAULT_BRAIN[key]).__name__}"
+        elif t == "bool":
+            assert isinstance(DEFAULT_BRAIN[key], bool), \
+                f"Key {key!r}: BRAIN_SCHEMA type {t!r} but DEFAULT_BRAIN value is {type(DEFAULT_BRAIN[key]).__name__}"
         else:
             assert isinstance(DEFAULT_BRAIN[key], str), \
                 f"Key {key!r}: BRAIN_SCHEMA type {t!r} but DEFAULT_BRAIN value is {type(DEFAULT_BRAIN[key]).__name__}"
-
 
 _validate_brain_consistency()

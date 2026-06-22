@@ -170,3 +170,45 @@ class TestDiaryStoreMigration:
         assert result is not None
         assert len(result["entries"]) == 1
         assert result["entries"][0]["content"] == "legacy bak"
+
+
+def test_diary_store_storage_backend_interface(tmp_path):
+    from src.diary_store import DiaryStore
+    from src.storage_backend import StorageBackend
+    
+    path = str(tmp_path / "diary.json")
+    store = DiaryStore(path)
+    
+    assert isinstance(store, StorageBackend)
+    
+    # test count
+    assert store.count() == 0
+    
+    # test set
+    assert store.set("ignored_key", "diary content text") is True
+    assert store.count() == 1
+    
+    # get the hash of the entry
+    entries = store.get_entries()
+    assert len(entries) == 1
+    entry_hash = entries[0]["hash"]
+    
+    # test get
+    entry = store.get(entry_hash)
+    assert entry is not None
+    assert entry["content"] == "diary content text"
+    
+    # test query
+    q_res = store.query()
+    assert len(q_res) == 1
+    assert q_res[0]["id"] == entry_hash
+    assert q_res[0]["content"] == "diary content text"
+    
+    # test query filter
+    q_res_filter = store.query(filter_fn=lambda x: "text" in x["content"])
+    assert len(q_res_filter) == 1
+    q_res_filter_empty = store.query(filter_fn=lambda x: "nonexistent" in x["content"])
+    assert len(q_res_filter_empty) == 0
+    
+    # test all_entries
+    assert len(store.all_entries()) == 1

@@ -68,7 +68,40 @@ class PluginRegistry:
         # Plugins that have registered (for dedup)
         self._registered_plugins: set[str] = set()
 
+        # Plugin-contributed brain fields
+        self._brain_fields: dict = {}
+
     # ── Registration API ──────────────────────────────────────────────
+
+    def register_brain_field(
+        self,
+        field_name: str,
+        field_type: str,
+        default,
+        locked: bool = False,
+        plugin_name: str = "unknown",
+    ) -> None:
+        """Register a plugin-contributed brain schema field.
+
+        Call before brain schema validation runs at boot.
+        field_type must be one of: str, int, float, list, dict, bool
+        """
+        from src.brain_schema import VALID_FIELD_TYPES
+        if field_type not in VALID_FIELD_TYPES:
+            raise ValueError(f"Invalid field_type {field_type!r} for field {field_name!r}")
+        if field_name in self._brain_fields:
+            logger.warning("Plugin %s overrides existing brain field %s", plugin_name, field_name)
+        self._brain_fields[field_name] = {
+            "type": field_type,
+            "locked": locked,
+            "default": default,
+            "plugin": plugin_name,
+        }
+        logger.debug("Plugin %s registered brain field: %s (%s)", plugin_name, field_name, field_type)
+
+    def get_brain_fields(self) -> dict:
+        """Return all plugin-contributed brain schema fields."""
+        return dict(self._brain_fields)
 
     def register_emotion_profile(
         self,

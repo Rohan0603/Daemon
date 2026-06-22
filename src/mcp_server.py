@@ -256,7 +256,32 @@ MCP_TOOLS = [
             "required": ["id"]
         }
     },
+    {
+        "name": "query_memory",
+        "description": "Query any of Daemon's persistent stores: memory (key-value facts), diary (timestamped entries), or history (conversation turns).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "enum": ["memory", "diary", "history"],
+                    "description": "Which store to query."
+                },
+                "keyword": {
+                    "type": "string",
+                    "description": "Optional keyword filter — returns only entries whose content contains this string (case-insensitive)."
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max entries to return (default 20, max 50).",
+                    "default": 20
+                }
+            },
+            "required": ["type"]
+        }
+    },
 ]
+
 
 
 def _read_clipboard() -> str:
@@ -654,6 +679,28 @@ class MCPHandler(BaseHTTPRequestHandler):
 
         return {"result": {"content": [{"type": "text", "text": "ok"}]}}
 
+    def _handle_query_memory(self, params: dict) -> dict:
+        store_type = params.get("type", "")
+        keyword = params.get("keyword", "").lower()
+        limit = min(int(params.get("limit", 20)), 50)
+
+        backend_map = {
+            "memory": self._memory,
+            "diary":  self._diary,
+            "history": self._history,
+        }
+        if store_type not in backend_map:
+            return {"error": {"code": -32602, "message": f"Unknown type: {store_type!r}"}}
+
+        backend = backend_map[store_type]
+        if backend is None:
+            return {"error": {"code": -32602, "message": f"Store type '{store_type}' is not configured/available."}}
+
+        filter_fn = (lambda e: keyword in e.get("content", "").lower()) if keyword else None
+        entries = backend.query(filter_fn=filter_fn, limit=limit)
+
+        return {"result": {"type": store_type, "count": len(entries), "entries": entries}}
+
     def _handle_tools_call(self, params):
         if not params:
             logger.debug("MCP tools/call: missing params")
@@ -715,6 +762,13 @@ class MCPHandler(BaseHTTPRequestHandler):
             return _mcp_result(self._handle_read_file(args))
         elif name == "search_codebase":
             return _mcp_result(self._handle_search_codebase(args))
+
+        elif name == "query_memory":
+            res = self._handle_query_memory(args)
+            if "error" in res:
+                return _mcp_result({"jsonrpc": "2.0", "id": 1, "error": res["error"]})
+            content_text = json.dumps(res["result"], indent=2)
+            return _mcp_result({"jsonrpc": "2.0", "id": 1, "result": {"content": [{"type": "text", "text": content_text}]}})
 
         elif name == "get_memory":
             if self.memory is None:
@@ -969,7 +1023,7 @@ class MCPHandler(BaseHTTPRequestHandler):
                         response["result"] = {"content": [{"type": "text", "text": "ok"}]}
                 elif name in ("read_clipboard", "capture_blackmail_evidence", "send_system_toast",
                                "list_directory", "read_file", "search_codebase", "get_memory", "get_diary",
-                               "simulate_keystroke", "move_mouse", "browser_navigation"):
+                               "simulate_keystroke", "move_mouse", "browser_navigation", "query_memory"):
                     response["result"] = {"content": [{"type": "text", "text": "ok"}]}
                 elif name == "set_log_level":
                     response["result"] = {"content": [{"type": "text", "text": "ok"}]}

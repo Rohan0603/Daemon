@@ -231,3 +231,52 @@ class TestHistoryEdgeCases:
         hist2 = History(path=path)
         assert hist2.count() == 1
         assert hist2.get_recent(1)[0]["user_input"] == "rescue"
+
+
+def test_history_storage_backend_interface(tmp_path):
+    from src.history import History
+    from src.storage_backend import StorageBackend
+    
+    path = str(tmp_path / "history.json")
+    hist = History(path=path)
+    
+    assert isinstance(hist, StorageBackend)
+    
+    # test count
+    assert hist.count() == 0
+    
+    # test set/get (with string/role input)
+    assert hist.set("ignored_key", "hello user") is True
+    assert hist.count() == 1
+    assert hist.get("0")["content"] == "hello user"
+    assert hist.get("0")["role"] == "user"
+
+    # test set with dict
+    turn = {
+        "timestamp": time.time(),
+        "role": "daemon",
+        "content": "hi there",
+        "user_input": "",
+        "daemon_response": "hi there",
+        "action": "celebrate",
+    }
+    assert hist.set("ignored_key", turn) is True
+    assert hist.count() == 2
+    assert hist.get("1")["content"] == "hi there"
+    assert hist.get("1")["role"] == "daemon"
+    
+    # test query
+    results = hist.query()
+    assert len(results) == 2
+    assert results[0]["id"] == "0"
+    assert "hello user" in results[0]["content"]
+    assert results[1]["id"] == "1"
+    assert "hi there" in results[1]["content"]
+    
+    # test query with filter
+    results_filter = hist.query(filter_fn=lambda x: "user" in x["content"])
+    assert len(results_filter) == 1
+    
+    # test all_entries
+    assert len(hist.all_entries()) == 2
+

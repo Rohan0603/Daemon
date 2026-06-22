@@ -79,7 +79,7 @@ class TestBrainSchemaConsistency:
                 assert isinstance(DEFAULT_BRAIN[key], list), (
                     f"Key {key!r}: BRAIN_SCHEMA type {t!r} but DEFAULT_BRAIN value is {type(DEFAULT_BRAIN[key]).__name__}"
                 )
-            elif t == "map":
+            elif t in ("map", "dict"):
                 assert isinstance(DEFAULT_BRAIN[key], dict), (
                     f"Key {key!r}: BRAIN_SCHEMA type {t!r} but DEFAULT_BRAIN value is {type(DEFAULT_BRAIN[key]).__name__}"
                 )
@@ -157,8 +157,8 @@ class TestBrainSchemaEdgeCases:
         from src.brain_schema import BRAIN_SCHEMA
         for key, schema in BRAIN_SCHEMA.items():
             if schema["locked"]:
-                assert schema["type"] == "string", (
-                    f"Locked field {key!r} has type {schema['type']!r}, expected 'string'"
+                assert schema["type"] in ("string", "str"), (
+                    f"Locked field {key!r} has type {schema['type']!r}, expected 'string' or 'str'"
                 )
 
     def test_default_brain_all_unlocked_lists_have_items(self):
@@ -172,9 +172,9 @@ class TestBrainSchemaEdgeCases:
                         assert len(DEFAULT_BRAIN[key]) >= 1, (
                             f"Unlocked list field {key!r} has no items in DEFAULT_BRAIN"
                         )
-                elif schema["type"] == "string":
+                elif schema["type"] in ("string", "str"):
                     assert isinstance(DEFAULT_BRAIN[key], str)
                 elif schema["type"] == "int":
                     assert isinstance(DEFAULT_BRAIN[key], int)
-                elif schema["type"] == "map":
+                elif schema["type"] in ("map", "dict"):
                     assert isinstance(DEFAULT_BRAIN[key], dict)
