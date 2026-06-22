@@ -2430,4 +2430,24 @@ Shutdown: _finalize_quit() → save_session() → disk
 **Test results:** Full suite 718 passed, 1 skipped.
 
 
+### Phase 75 — Strands Agent Improvements (2026-06-22)
+**Branch:** `master` (squash-merged)
+
+**What was done:**
+- Implemented `StrandsSession` class inside `src/strands_worker.py` to keep a long-lived, persistent agent session and `MCPClient` SSE connection active across queries of the same mode (`user` or `autonomous`).
+- Set up Tool Stratification: in `autonomous` mode, the persistent client restricts tool access to a safe read-only subset (`list_directory`, `read_file`, `search_codebase`, `get_memory`, `get_diary`, `query_memory`) via `tool_filters`. In `user` mode, all tools are allowed.
+- Connected the `partial_text` signal of `StrandsAutonomousWorker` to `PetWindow`'s `_on_partial_response` slot to stream generated text incrementally into the speech bubble in real-time.
+- Wrote and added `extract_dialogue_stream()` regex-based parsing utility to extract active dialogue text dynamically from incomplete structured JSON streams.
+- Updated `_finalize_quit` and `_on_restart_brain` to close the `StrandsSession` connection properly.
+- Added comprehensive unit tests in `tests/test_strands_worker.py` covering persistent session retrieval, tool stratification filters, streaming chunk signals, and dialogue stream extraction.
+
+**Files changed:**
+- `src/strands_worker.py` (modified)
+- `src/pet_window.py` (modified)
+- `tests/test_strands_worker.py` (modified)
+- `memory/project-dev-memory.md` (modified)
+
+**Test results:** Full suite 729 passed, 1 skipped in 31.21s.
+
+
 
