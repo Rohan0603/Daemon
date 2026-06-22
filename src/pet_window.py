@@ -748,6 +748,11 @@ class PetWindow(QWidget):
             self._summary_on_complete()
 
     def _finalize_quit(self) -> None:
+        try:
+            from src.strands_worker import StrandsSession
+            StrandsSession.get_instance().close()
+        except Exception:
+            pass
         self._mcp_server.stop()
         self._fsm_timer.stop()
         self._behavior_timer.stop()
@@ -1469,8 +1474,11 @@ class PetWindow(QWidget):
         # Append current user query
         recent_chat.append({"role": "user", "content": text})
 
-        self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level)
+        self._accumulated_stream_text = ""
+        self._bubble_text = ""
+        self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level, mode="user")
         self.strands_worker.execution_complete.connect(self._on_response_ready)
+        self.strands_worker.partial_text.connect(self._on_partial_response)
 
         # Handle failures gracefully to un-stick the FSM
         def handle_failure(err):
@@ -1762,6 +1770,11 @@ class PetWindow(QWidget):
         self._check_mcp_health()
 
     def _on_restart_brain(self) -> None:
+        try:
+            from src.strands_worker import StrandsSession
+            StrandsSession.get_instance().close()
+        except Exception:
+            pass
         from src.opencode_serve_manager import ensure_opencode_serve_running
         ensure_opencode_serve_running()
         self._on_health_check()
@@ -1923,8 +1936,11 @@ class PetWindow(QWidget):
                 if item.get("daemon_response"):
                     recent_chat.append({"role": "assistant", "content": item["daemon_response"]})
             
-            self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level)
+            self._accumulated_stream_text = ""
+            self._bubble_text = ""
+            self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level, mode="autonomous")
             self.strands_worker.execution_complete.connect(self._on_response_ready)
+            self.strands_worker.partial_text.connect(self._on_partial_response)
             
             # 3. Handle failures gracefully to un-stick the FSM
             def handle_failure(err):
@@ -2125,6 +2141,7 @@ class PetWindow(QWidget):
 
     def _on_response_ready(self, items: list[dict]) -> None:
         logger.info("_on_response_ready: %d items", len(items))
+        self._accumulated_stream_text = ""
         self._autonomous_query_pending = False
         self._session_active = True
         if getattr(self, "_opencode_worker", None) is not None:
@@ -2183,6 +2200,19 @@ class PetWindow(QWidget):
             QTimer.singleShot(500, self._on_refill_needed)
         self._boredom_timer_ms = AUTONOMOUS_QUERY_INTERVAL_SEC * 1000
         self._fire_deferred_trigger()
+
+    def _on_partial_response(self, text_chunk: str) -> None:
+        """Slot for receiving streaming dialogue text chunks."""
+        if not hasattr(self, "_accumulated_stream_text") or self._accumulated_stream_text is None:
+            self._accumulated_stream_text = ""
+        self._accumulated_stream_text += text_chunk
+        
+        from src.strands_worker import extract_dialogue_stream
+        dialogue = extract_dialogue_stream(self._accumulated_stream_text)
+        if dialogue:
+            self._bubble_text = dialogue
+            self._bubble_timer_ms = 999999
+            self.update()
 
     def _fire_deferred_trigger(self) -> None:
         from src.pet_fsm import PetState
