@@ -2449,5 +2449,26 @@ Shutdown: _finalize_quit() → save_session() → disk
 
 **Test results:** Full suite 729 passed, 1 skipped in 31.21s.
 
+### Phase 75b — Strands Prompt Integration & FSM Migration Cleanup (2026-06-22)
+**Branch:** `master` (squash-merged)
+
+**What was done:**
+- Loaded `SKILL.md` dynamically (stripped of YAML frontmatter) inside `StrandsAutonomousWorker.run()` to provide the LLM with full persona instructions and action layering constraints.
+- Added `change_visual_state` to the `autonomous` mode tool allowed list in `StrandsSession.get_agent` so the autonomous background worker can trigger animations.
+- Resolved `AttributeError` from invalid FSM transitions to deleted FSM states:
+  - Replaced the low APM panic transition to `PetState.LOOK_AWAY` in `_trigger_apm_panic` with triggering the lowercase `look_away` expression action via the `ActionLayer`.
+  - Replaced the local boredom FSM transitions to `SHAKING`/`SPINNING`/`LOOK_AWAY`/`BOUNCING` in `_on_autonomous_trigger_fired` with triggering lowercase expression actions (`shake`/`spin`/`look_away`/`bounce`) on the `ActionLayer`.
+  - Removed deleted FSM states (`shake`, `spin`, `bounce`, `look_away` to `PetState` mapping) from the `state_map` in `_on_mcp_fsm_action` to prevent attribute failures on any FSM action calls.
+  - Replaced setting `_triggered_action` in `_on_lsp_timeout` with directly triggering the `shake` expression action via the `ActionLayer`.
+- Wrote unit tests in `tests/test_strands_worker.py` (verifying dynamic `SKILL.md` parsing and integration) and `tests/test_fsm_migration.py` (verifying `_on_mcp_fsm_action` doesn't crash on invalid state mapping).
+
+**Files changed:**
+- [src/pet_window.py](file:///C:/Users/ponna/Project/Daemon/src/pet_window.py)
+- [src/strands_worker.py](file:///C:/Users/ponna/Project/Daemon/src/strands_worker.py)
+- [tests/test_fsm_migration.py](file:///C:/Users/ponna/Project/Daemon/tests/test_fsm_migration.py)
+- [tests/test_strands_worker.py](file:///C:/Users/ponna/Project/Daemon/tests/test_strands_worker.py)
+
+**Test results:** Full suite 730 passed, 1 skipped in 21.86s.
+
 
 
