@@ -529,7 +529,7 @@ class PetWindow(QWidget):
             self._show_bubble("Why is my APM so low? I can't even think!")
             # Don't use THINKING here as it expects an opencode worker to release it
             self._fsm.current_state = PetState.IDLE 
-            self._fsm.transition_to(PetState.LOOK_AWAY)
+            self._action_layer.trigger("look_away")
         elif panic_type == "high":
             self._show_bubble("My APM just spiked! I'm hyperventilating!")
             self._fsm.current_state = PetState.IDLE
@@ -816,7 +816,7 @@ class PetWindow(QWidget):
     def _on_lsp_timeout(self):
         # Bypass boredom timer
         self._idle_seconds = 600  # Force idle condition
-        self._triggered_action = "shake"
+        self._action_layer.trigger("shake")
         # Wait for the master tick to pick it up or push direct dispatch here
 
     def _on_command_completed(self, cmd: str, exit_code: int):
@@ -1898,12 +1898,14 @@ class PetWindow(QWidget):
                 return
 
             if mode == "boredom":
-                # Local FSM action only — no GCD, no opencode
-                actions = ["PERIMETER", "SHAKING", "SPINNING", "LOOK_AWAY", "BOUNCING"]
+                # Local action only — no GCD, no opencode
+                actions = ["PERIMETER", "shake", "spin", "look_away", "bounce"]
                 import random
                 action = random.choice(actions)
-                target_state = getattr(PetState, action)
-                self._fsm.transition_to(target_state)
+                if action == "PERIMETER":
+                    self._fsm.transition_to(PetState.PERIMETER)
+                else:
+                    self._action_layer.trigger(action)
                 self._on_output_displayed(engaged=False)
                 return
 
@@ -2235,11 +2237,7 @@ class PetWindow(QWidget):
         state_map = {
             "idle": PetState.IDLE,
             "wander": PetState.PERIMETER,
-            "shake": PetState.SHAKING,
-            "spin": PetState.SPINNING,
             "hyper": PetState.HYPER,
-            "bounce": PetState.BOUNCING,
-            "look_away": PetState.LOOK_AWAY,
             "celebrate": PetState.CELEBRATE,
             "devastated": PetState.DEVASTATED,
             "fall": PetState.FALLING,

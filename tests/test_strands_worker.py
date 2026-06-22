@@ -113,6 +113,7 @@ def test_strands_session_persistency(mock_agent_class, mock_mcp_client_class, mo
     assert "tool_filters" in last_kwargs
     allowed = last_kwargs["tool_filters"]["allowed"]
     assert "read_file" in allowed
+    assert "change_visual_state" in allowed
     assert "move_mouse" not in allowed
     
     # Cleanup
@@ -157,3 +158,37 @@ def test_extract_dialogue_stream():
     assert extract_dialogue_stream('raw text') == "raw text"
     assert extract_dialogue_stream('[{"dialogue": "hello \\"world\\"\\nline') == 'hello "world"\nline'
     assert extract_dialogue_stream('[{"dialogue": "hello \\') == "hello "
+
+
+@patch("src.strands_worker.StrandsSession")
+@patch("pathlib.Path.exists")
+@patch("pathlib.Path.read_text")
+def test_strands_worker_skill_loading(mock_read_text, mock_exists, mock_session_class, qapp):
+    mock_session = mock_session_class.get_instance.return_value
+    mock_agent = MagicMock()
+    mock_session.get_agent.return_value = (mock_agent, [])
+
+    mock_exists.return_value = True
+    mock_read_text.return_value = """---
+name: kenny
+description: test
+---
+This is the skill instructions content.
+Line 2."""
+
+    worker = StrandsAutonomousWorker(
+        context={},
+        chat_history=[],
+        profanity_level="moderate",
+        config={"pet": {"id": "kenny"}},
+        mode="autonomous"
+    )
+    worker.run()
+
+    # Verify that get_agent was called with the system_prompt containing the stripped content
+    mock_session.get_agent.assert_called_once()
+    system_prompt = mock_session.get_agent.call_args[1]["system_prompt"]
+    assert "This is the skill instructions content." in system_prompt
+    assert "---" not in system_prompt
+    assert "name: kenny" not in system_prompt
+    assert "description: test" not in system_prompt

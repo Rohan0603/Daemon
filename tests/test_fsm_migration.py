@@ -34,3 +34,16 @@ def test_fsm_context_can_be_constructed_without_triggered_action():
         state_elapsed_ms=0, autonomous_query_pending=False,
     )
     assert ctx is not None
+
+
+def test_on_mcp_fsm_action_no_attribute_errors(qapp):
+    from src.pet_window import PetWindow
+    from unittest.mock import patch, MagicMock
+    
+    with patch("src.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.pet_window.APMWorker"):
+        window = PetWindow(opencode_enabled=False)
+        window._fsm.transition_to = MagicMock()
+        window._on_mcp_fsm_action("idle", None, None)
+        window._fsm.transition_to.assert_called_with(PetState.IDLE)

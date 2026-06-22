@@ -71,7 +71,8 @@ class StrandsSession:
             if mode == "autonomous":
                 READ_ONLY_TOOL_NAMES = {
                     "list_directory", "read_file", "search_codebase",
-                    "get_memory", "get_diary", "query_memory"
+                    "get_memory", "get_diary", "query_memory",
+                    "change_visual_state"
                 }
                 tool_filters = {"allowed": list(READ_ONLY_TOOL_NAMES)}
             
@@ -218,12 +219,38 @@ class StrandsAutonomousWorker(QThread):
                     "content": formatted_contents
                 })
 
-            system_prompt = (
+            from pathlib import Path
+            project_root = Path(__file__).parent.parent.resolve()
+            pet_id = self.config.get("pet", {}).get("id", "kenny")
+            skill_path = project_root / ".opencode" / "skills" / pet_id / "SKILL.md"
+            if not skill_path.exists():
+                skill_path = project_root / ".opencode" / "skills" / "kenny" / "SKILL.md"
+            
+            skill_content = ""
+            if skill_path.exists():
+                try:
+                    raw_skill = skill_path.read_text(encoding="utf-8")
+                    if raw_skill.strip().startswith("---"):
+                        parts = raw_skill.strip().split("---", 2)
+                        if len(parts) >= 3:
+                            skill_content = parts[2].strip()
+                        else:
+                            skill_content = raw_skill.strip()
+                    else:
+                        skill_content = raw_skill.strip()
+                except Exception as e:
+                    logger.error("Failed to read SKILL.md", path=str(skill_path), error=str(e))
+            
+            base_prompt = (
                 "You are Kenny, the anxious, roasting desktop pet. Run autonomously in the background. "
                 "Analyze the user's environment context. Use your tools to interact. "
                 f"Your active profanity filter constraint is: {self.profanity_level}. "
                 "Always output your final actions strictly as a JSON array matching the brain schema."
             )
+            if skill_content:
+                system_prompt = f"{skill_content}\n\n[System Instructions]\n{base_prompt}"
+            else:
+                system_prompt = base_prompt
 
             # Get the persistent agent and tools from StrandsSession
             session = StrandsSession.get_instance()
