@@ -2470,5 +2470,19 @@ Shutdown: _finalize_quit() → save_session() → disk
 
 **Test results:** Full suite 730 passed, 1 skipped in 21.86s.
 
+### fix-5: QRect / QPoint float TypeErrors in PyQt6 paintEvent (2026-06-22)
+**Branch:** `master` (squash-merged)
+
+**What was done:**
+- Fixed paintEvent crash: `TypeError: arguments did not match any overloaded call: QRect(aleft: int, atop: int, awidth: int, aheight: int): argument 2 has unexpected type 'float'`.
+- Cast all floating-point inputs for coordinate mapping (`bx`, `by`, `tail_cx`, `bubble_w`, `bubble_h`, `line_h`) in `_draw_bubble()` inside `src/pet_renderer.py` explicitly to `int` before passing them to QRect, QPoint, QPolygon, and QPainter calls.
+- Wrote unit test `test_bubble_rendering_with_floats` in `tests/test_pet_renderer.py` using a real `QImage` and `QPainter` to verify float coordinate handling without raising type errors.
+
+**Files changed:**
+- [src/pet_renderer.py](file:///C:/Users/ponna/Project/Daemon/src/pet_renderer.py)
+- [tests/test_pet_renderer.py](file:///C:/Users/ponna/Project/Daemon/tests/test_pet_renderer.py)
+
+**Test results:** Full suite 731 passed, 1 skipped in 30.20s.
+
 
 
