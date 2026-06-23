@@ -1419,7 +1419,7 @@ class PetWindow(QWidget):
         field_x = self._pet_x + PET_WIDTH // 2 - INPUT_WIDTH // 2
         field_y = self._pet_y - INPUT_HEIGHT - INPUT_Y_OFFSET
         logger.info("Displaying input field at coordinates (%d, %d)", field_x, field_y)
-        self._input_field.move(field_x, field_y)
+        self._input_field.move(int(field_x), int(field_y))
         self._input_field.clear()
         self._input_field.show()
         self._input_field.setFocus()
