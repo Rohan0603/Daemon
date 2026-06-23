@@ -22,14 +22,14 @@ class TestTriggerBoredomFsm:
             self.pw._fsm.current_state = PetState.IDLE
             self.pw._on_output_displayed = MagicMock()
 
-    @patch('src.pet_window.get_active_window_title')
+    @patch('src.ui.pet_window.get_active_window_title')
     def test_triggers_draw_and_dispatch(self, mock_window):
         mock_window.return_value = "test"
         self.pw._trigger_boredom_query()
         self.pw._response_manager.draw.assert_called()
         self.pw._dispatch_structured.assert_called_once()
 
-    @patch('src.pet_window.get_active_window_title')
+    @patch('src.ui.pet_window.get_active_window_title')
     def test_no_api_when_pending(self, mock_window):
         mock_window.return_value = "test"
         self.pw._autonomous_query_pending = True

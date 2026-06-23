@@ -13,11 +13,11 @@ def test_get_click_geometry_with_float_coords():
     app = QApplication.instance() or QApplication(sys.argv)
     
     # Use proper init with mocked dependencies
-    with patch("src.pet_window.ClickThroughManager"), \
+    with patch("src.ui.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
-         patch("src.pet_window.APMWorker"), \
-         patch("src.pet_window.MCPServer"), \
-         patch("src.pet_window.BehaviorController"):
+         patch("src.ui.pet_window.APMWorker"), \
+         patch("src.ui.pet_window.MCPServer"), \
+         patch("src.ui.pet_window.BehaviorController"):
         win = PetWindow(opencode_enabled=False)
         win._pet_x = 123.7   # floats from physics engine
         win._pet_y = 456.2

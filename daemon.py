@@ -145,7 +145,7 @@ def main() -> None:
         logger.error(f"Configuration Validation Failed: {e}")
         # Need to spawn Settings UI here
         app = QApplication.instance() or QApplication(sys.argv)
-        from src.settings_dialog import SettingsDialog
+        from src.ui.settings_dialog import SettingsDialog
         dialog = SettingsDialog(
             llm_model_id=cfg.get("llm", {}).get("model_id") or "gemini-2.5-flash",
             llm_api_key=cfg.get("llm", {}).get("api_key", ""),
@@ -295,7 +295,7 @@ def main() -> None:
     atexit.register(stop_opencode_serve)
 
     from src.persistence import load_state, save_state
-    from src.pet_window import PetWindow
+    from src.ui.pet_window import PetWindow
     import time
 
     state = load_state()

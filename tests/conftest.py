@@ -32,16 +32,16 @@ def mock_background_workers():
     Use this fixture in any test that instantiates PetWindow to avoid
     real worker threads, network calls, and file I/O during tests.
     """
-    with patch("src.pet_window.TTSWorker"), \
-         patch("src.pet_window.MCPServer"), \
-         patch("src.pet_window.TypingBuffer") as mock_tb, \
-         patch("src.pet_window.APMWorker"), \
-         patch("src.pet_window.ClickThroughManager"), \
+    with patch("src.ui.pet_window.TTSWorker"), \
+         patch("src.ui.pet_window.MCPServer"), \
+         patch("src.ui.pet_window.TypingBuffer") as mock_tb, \
+         patch("src.ui.pet_window.APMWorker"), \
+         patch("src.ui.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
-         patch("src.pet_window.OpencodeWorker"), \
-         patch("src.pet_window.MemoryManager") as mock_mem, \
-         patch("src.pet_window.History") as mock_hist, \
-         patch("src.pet_window.DiaryStore") as mock_diary:
+         patch("src.ui.pet_window.OpencodeWorker"), \
+         patch("src.ui.pet_window.MemoryManager") as mock_mem, \
+         patch("src.ui.pet_window.History") as mock_hist, \
+         patch("src.ui.pet_window.DiaryStore") as mock_diary:
         # Configure mocks
         mock_tb.return_value.get_context.return_value = ""
         mock_mem.return_value = _mock_firebase_diary(mock_mem.return_value)

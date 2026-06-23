@@ -40,9 +40,9 @@ def test_on_mcp_fsm_action_no_attribute_errors(qapp):
     from src.pet_window import PetWindow
     from unittest.mock import patch, MagicMock
     
-    with patch("src.pet_window.ClickThroughManager"), \
+    with patch("src.ui.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
-         patch("src.pet_window.APMWorker"):
+         patch("src.ui.pet_window.APMWorker"):
         window = PetWindow(opencode_enabled=False)
         window._fsm.transition_to = MagicMock()
         window._on_mcp_fsm_action("idle", None, None)

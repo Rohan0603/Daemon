@@ -8,7 +8,7 @@ class TestSessionReuse:
     """Verify refill workers do NOT share the main dialog session to prevent
     concurrent request mixing."""
 
-    @patch("src.pet_window.OpencodeWorker")
+    @patch("src.ui.pet_window.OpencodeWorker")
     def test_refill_worker_has_own_session(self, MockWorker):
         """When _on_refill_needed fires, the OpencodeWorker must NOT receive the
         cached _opencode_session_id — refill workers get their own session."""

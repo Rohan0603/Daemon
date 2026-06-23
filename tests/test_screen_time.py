@@ -10,19 +10,19 @@ def test_screen_time_bucketing(qapp, tmp_path):
     initial_state = {"screen_time": {}, "screen_time_date": "2024-01-01"}
     
     with patch("src.config.load_config", return_value={}), \
-         patch("src.pet_window.get_event_bus") as mock_bus, \
-         patch("src.pet_window.datetime") as mock_datetime:
+         patch("src.ui.pet_window.get_event_bus") as mock_bus, \
+         patch("src.ui.pet_window.datetime") as mock_datetime:
          
         mock_datetime.now.return_value.strftime.return_value = "2024-01-01"
         
         # We'll mock the internal components so PetWindow doesn't crash
-        with patch("src.pet_window.Memory"), \
-             patch("src.pet_window.History"), \
-             patch("src.pet_window.DiaryStore"), \
-             patch("src.pet_window.MCPServer"), \
-             patch("src.pet_window.AutonomousResponseManager"), \
-             patch("src.pet_window.WriteCoalescer"), \
-             patch("src.pet_window.BehaviorController"):
+        with patch("src.ui.pet_window.Memory"), \
+             patch("src.ui.pet_window.History"), \
+             patch("src.ui.pet_window.DiaryStore"), \
+             patch("src.ui.pet_window.MCPServer"), \
+             patch("src.ui.pet_window.AutonomousResponseManager"), \
+             patch("src.ui.pet_window.WriteCoalescer"), \
+             patch("src.ui.pet_window.BehaviorController"):
              
             window = PetWindow(initial_state=initial_state)
             
@@ -46,19 +46,19 @@ def test_screen_time_daily_reset(qapp, tmp_path):
     initial_state = {"screen_time": {"Chrome": 500}, "screen_time_date": "2024-01-01"}
     
     with patch("src.config.load_config", return_value={}), \
-         patch("src.pet_window.get_event_bus") as mock_bus, \
-         patch("src.pet_window.datetime") as mock_datetime:
+         patch("src.ui.pet_window.get_event_bus") as mock_bus, \
+         patch("src.ui.pet_window.datetime") as mock_datetime:
          
         # Simulate a new day
         mock_datetime.now.return_value.strftime.return_value = "2024-01-02"
         
-        with patch("src.pet_window.Memory"), \
-             patch("src.pet_window.History"), \
-             patch("src.pet_window.DiaryStore"), \
-             patch("src.pet_window.MCPServer"), \
-             patch("src.pet_window.AutonomousResponseManager"), \
-             patch("src.pet_window.WriteCoalescer"), \
-             patch("src.pet_window.BehaviorController"):
+        with patch("src.ui.pet_window.Memory"), \
+             patch("src.ui.pet_window.History"), \
+             patch("src.ui.pet_window.DiaryStore"), \
+             patch("src.ui.pet_window.MCPServer"), \
+             patch("src.ui.pet_window.AutonomousResponseManager"), \
+             patch("src.ui.pet_window.WriteCoalescer"), \
+             patch("src.ui.pet_window.BehaviorController"):
              
             window = PetWindow(initial_state=initial_state)
             
@@ -70,18 +70,18 @@ def test_screen_time_threshold_event(qapp, tmp_path):
     initial_state = {"screen_time": {"Game": 3590}, "screen_time_date": "2024-01-01"}
     
     with patch("src.config.load_config", return_value={}), \
-         patch("src.pet_window.get_event_bus") as mock_bus, \
-         patch("src.pet_window.datetime") as mock_datetime:
+         patch("src.ui.pet_window.get_event_bus") as mock_bus, \
+         patch("src.ui.pet_window.datetime") as mock_datetime:
          
         mock_datetime.now.return_value.strftime.return_value = "2024-01-01"
         
-        with patch("src.pet_window.Memory"), \
-             patch("src.pet_window.History"), \
-             patch("src.pet_window.DiaryStore"), \
-             patch("src.pet_window.MCPServer"), \
-             patch("src.pet_window.AutonomousResponseManager"), \
-             patch("src.pet_window.WriteCoalescer"), \
-             patch("src.pet_window.BehaviorController"):
+        with patch("src.ui.pet_window.Memory"), \
+             patch("src.ui.pet_window.History"), \
+             patch("src.ui.pet_window.DiaryStore"), \
+             patch("src.ui.pet_window.MCPServer"), \
+             patch("src.ui.pet_window.AutonomousResponseManager"), \
+             patch("src.ui.pet_window.WriteCoalescer"), \
+             patch("src.ui.pet_window.BehaviorController"):
              
             window = PetWindow(initial_state=initial_state)
             
