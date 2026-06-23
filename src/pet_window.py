@@ -37,26 +37,30 @@ from src.constants import (
 )
 from src.pet_fsm import PetFSM, PetState, FSMContext
 from src.pet_renderer import PetRenderer, RenderContext
-from src.tts_worker import TTSWorker
-from src.click_through import ClickThroughManager
-from src.apm_worker import APMWorker
-from src.typing_buffer import TypingBuffer
 from src.context_menu import PetContextMenu
 warnings.filterwarnings("ignore", category=DeprecationWarning, message="OpencodeWorker is deprecated.*")
 from src.opencode_worker import OpencodeWorker
 from src.strands_worker import StrandsAutonomousWorker
 from src.llm_session_persistence import load_session, save_session, LLMSessionState
-from src.active_window import get_active_window_title, normalize_window_title
-from src.screen_reader import ScreenReader
 from src.memory import Memory
 from src.history import History
 from src.memory_manager import MemoryManager
 from src.write_coalescer import WriteCoalescer
 from src.diary_store import DiaryStore
-from src.event_worker import EventStreamWorker
 from src.context_manager import ContextManager
 from src.response_manager import AutonomousResponseManager
 from src.action_layer import ActionLayer
+
+from src.system import (
+    APMWorker,
+    ClickThroughManager,
+    EventStreamWorker,
+    ScreenReader,
+    TTSWorker,
+    TypingBuffer,
+    get_active_window_title,
+    normalize_window_title,
+)
 
 
 from src.fsm_bridge import FSMActionBridge
