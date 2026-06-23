@@ -39,15 +39,19 @@ from src.pet_fsm import PetFSM, PetState, FSMContext
 from src.pet_renderer import PetRenderer, RenderContext
 from src.context_menu import PetContextMenu
 warnings.filterwarnings("ignore", category=DeprecationWarning, message="OpencodeWorker is deprecated.*")
-from src.opencode_worker import OpencodeWorker
-from src.strands_worker import StrandsAutonomousWorker
-from src.llm_session_persistence import load_session, save_session, LLMSessionState
+from src.llm import (
+    ContextManager,
+    OpencodeWorker,
+    StrandsAutonomousWorker,
+    load_session,
+    save_session,
+    LLMSessionState,
+)
 from src.memory import Memory
 from src.history import History
 from src.memory_manager import MemoryManager
 from src.write_coalescer import WriteCoalescer
 from src.diary_store import DiaryStore
-from src.context_manager import ContextManager
 from src.response_manager import AutonomousResponseManager
 from src.action_layer import ActionLayer
 
@@ -706,7 +710,7 @@ class PetWindow(QWidget):
         history_text = "\n".join(lines)
         prompt = f"Summarize this session strictly into a single observation about the user's habits:\n{history_text}"
         
-        from src.opencode_worker import OpencodeWorker
+        from src.llm import OpencodeWorker
         self._summary_worker = OpencodeWorker(
             user_input="",
             prompt=prompt,
@@ -758,7 +762,7 @@ class PetWindow(QWidget):
 
     def _finalize_quit(self) -> None:
         try:
-            from src.strands_worker import StrandsSession
+            from src.llm import StrandsSession
             StrandsSession.get_instance().close()
         except Exception:
             pass
@@ -1793,7 +1797,7 @@ class PetWindow(QWidget):
 
     def _on_restart_brain(self) -> None:
         try:
-            from src.strands_worker import StrandsSession
+            from src.llm import StrandsSession
             StrandsSession.get_instance().close()
         except Exception:
             pass
@@ -2230,7 +2234,7 @@ class PetWindow(QWidget):
             self._accumulated_stream_text = ""
         self._accumulated_stream_text += text_chunk
         
-        from src.strands_worker import extract_dialogue_stream
+        from src.llm import extract_dialogue_stream
         dialogue = extract_dialogue_stream(self._accumulated_stream_text)
         if dialogue:
             self._bubble_text = dialogue

@@ -18,20 +18,20 @@ class TestChatTurn:
     """Test ChatTurn dataclass."""
 
     def test_create_turn_user(self):
-        from src.llm_session_persistence import ChatTurn
+        from src.llm.llm_session_persistence import ChatTurn
         t = ChatTurn(role="user", content="hello")
         assert t.role == "user"
         assert t.content == "hello"
         assert t.timestamp == 0.0
 
     def test_create_turn_assistant(self):
-        from src.llm_session_persistence import ChatTurn
+        from src.llm.llm_session_persistence import ChatTurn
         t = ChatTurn(role="assistant", content="world")
         assert t.role == "assistant"
         assert t.content == "world"
 
     def test_to_from_dict(self):
-        from src.llm_session_persistence import ChatTurn
+        from src.llm.llm_session_persistence import ChatTurn
         t = ChatTurn(role="user", content="test", timestamp=123.0)
         d = t.to_dict()
         assert d["role"] == "user"
@@ -44,7 +44,7 @@ class TestChatTurn:
         assert t2.timestamp == 123.0
 
     def test_to_from_dict_rejects_missing_keys(self):
-        from src.llm_session_persistence import ChatTurn
+        from src.llm.llm_session_persistence import ChatTurn
         with pytest.raises(KeyError):
             ChatTurn.from_dict({"role": "user"})
 
@@ -54,7 +54,7 @@ class TestLLMSessionState:
 
     @pytest.fixture
     def state(self):
-        from src.llm_session_persistence import LLMSessionState
+        from src.llm.llm_session_persistence import LLMSessionState
         return LLMSessionState(
             session_id="test-session-123",
             model="deepseek-v4-flash-free",
@@ -62,7 +62,7 @@ class TestLLMSessionState:
         )
 
     def test_create_default(self):
-        from src.llm_session_persistence import LLMSessionState
+        from src.llm.llm_session_persistence import LLMSessionState
         s = LLMSessionState()
         assert s.session_id is None
         assert s.model == ""
@@ -89,13 +89,13 @@ class TestLLMSessionState:
         assert d["model"] == "deepseek-v4-flash-free"
         assert len(d["history"]) == 2
 
-        from src.llm_session_persistence import LLMSessionState
+        from src.llm.llm_session_persistence import LLMSessionState
         s2 = LLMSessionState.from_dict(d)
         assert s2.session_id == "test-session-123"
         assert len(s2.history) == 2
 
     def test_from_dict_corrupt_history_skipped(self):
-        from src.llm_session_persistence import LLMSessionState
+        from src.llm.llm_session_persistence import LLMSessionState
         d = {
             "session_id": "test",
             "history": [
@@ -151,12 +151,12 @@ class TestSaveLoad:
         self.storage_dir = tmp_path / "data"
         self.storage_dir.mkdir()
         monkeypatch.setattr(
-            "src.llm_session_persistence._get_session_path",
+            "src.llm.llm_session_persistence._get_session_path",
             lambda: self.storage_dir / "llm_session.json",
         )
 
     def test_save_and_load(self):
-        from src.llm_session_persistence import (
+        from src.llm.llm_session_persistence import (
             LLMSessionState, save_session, load_session,
         )
         state = LLMSessionState(session_id="sid-1", model="test-model")
@@ -171,13 +171,13 @@ class TestSaveLoad:
         assert loaded.history[0].content == "hello"
 
     def test_load_empty_file(self):
-        from src.llm_session_persistence import load_session
+        from src.llm.llm_session_persistence import load_session
         loaded = load_session()
         assert loaded.session_id is None
         assert loaded.history == []
 
     def test_load_corrupt_json(self):
-        from src.llm_session_persistence import load_session
+        from src.llm.llm_session_persistence import load_session
         path = self.storage_dir / "llm_session.json"
         path.write_text("{{{corrupt json}}")
         loaded = load_session()
@@ -187,16 +187,16 @@ class TestSaveLoad:
         """save_session should create the storage dir if missing."""
         deep_path = Path(tempfile.mkdtemp()) / "deep" / "nested"
         monkeypatch.setattr(
-            "src.llm_session_persistence._get_session_path",
+            "src.llm.llm_session_persistence._get_session_path",
             lambda: deep_path / "llm_session.json",
         )
-        from src.llm_session_persistence import LLMSessionState, save_session
+        from src.llm.llm_session_persistence import LLMSessionState, save_session
         state = LLMSessionState(session_id="test")
         save_session(state)  # should not raise
         assert deep_path.exists()
 
     def test_save_and_clear(self):
-        from src.llm_session_persistence import (
+        from src.llm.llm_session_persistence import (
             LLMSessionState, save_session, load_session, clear_session,
         )
         state = LLMSessionState(session_id="sid-2")
@@ -206,7 +206,7 @@ class TestSaveLoad:
         assert load_session().session_id is None
 
     def test_clear_session_nonexistent(self):
-        from src.llm_session_persistence import clear_session
+        from src.llm.llm_session_persistence import clear_session
         # Should not raise when file doesn't exist
         clear_session()
 
@@ -215,7 +215,7 @@ class TestWorkerIntegration:
     """Test that OpencodeWorker correctly uses session_state."""
 
     def test_session_state_reuses_session_id(self):
-        from src.llm_session_persistence import LLMSessionState
+        from src.llm.llm_session_persistence import LLMSessionState
         from src.opencode_worker import OpencodeWorker
 
         state = LLMSessionState(session_id="previous-session-456")
@@ -227,7 +227,7 @@ class TestWorkerIntegration:
         assert worker._session_state is state
 
     def test_session_id_overrides_session_state(self):
-        from src.llm_session_persistence import LLMSessionState
+        from src.llm.llm_session_persistence import LLMSessionState
         from src.opencode_worker import OpencodeWorker
 
         state = LLMSessionState(session_id="old-session")
@@ -246,7 +246,7 @@ class TestWorkerIntegration:
 
     def test_emit_turn_completed_called(self):
         """Verify _emit_turn_completed logic exists and doesn't crash."""
-        from src.llm_session_persistence import LLMSessionState
+        from src.llm.llm_session_persistence import LLMSessionState
         from src.opencode_worker import OpencodeWorker
 
         state = LLMSessionState(session_id="test-session")

@@ -2,9 +2,9 @@ import json
 import pytest
 from unittest.mock import patch, MagicMock
 from PyQt6.QtCore import QThread
-from src.event_worker import EventStreamWorker
+from src.system.event_worker import EventStreamWorker
 
-@patch('src.event_worker.requests.get')
+@patch('src.system.event_worker.requests.get')
 def test_event_worker_parses_events(mock_get):
     worker = EventStreamWorker("http://127.0.0.1:4096")
     

@@ -87,9 +87,9 @@ def test_clean_and_parse_json():
     assert len(res[0]["dialogue"]) == 150
     assert res[0]["dialogue"] == "z" * 147 + "..."
 
-@patch("src.strands_worker.sse_client")
-@patch("src.strands_worker.MCPClient")
-@patch("src.strands_worker.Agent")
+@patch("src.llm.strands_worker.sse_client")
+@patch("src.llm.strands_worker.MCPClient")
+@patch("src.llm.strands_worker.Agent")
 def test_strands_session_persistency(mock_agent_class, mock_mcp_client_class, mock_sse_client):
     # Reset singleton instance
     StrandsSession._instance = None
@@ -139,7 +139,7 @@ def test_strands_session_persistency(mock_agent_class, mock_mcp_client_class, mo
     # Cleanup
     session.close()
 
-@patch("src.strands_worker.StrandsSession")
+@patch("src.llm.strands_worker.StrandsSession")
 def test_strands_worker_streaming(mock_session_class, qapp):
     mock_session = mock_session_class.get_instance.return_value
     mock_agent = MagicMock()
@@ -188,7 +188,7 @@ def test_extract_dialogue_stream():
 
 
 
-@patch("src.strands_worker.StrandsSession")
+@patch("src.llm.strands_worker.StrandsSession")
 @patch("pathlib.Path.exists")
 @patch("pathlib.Path.read_text")
 def test_strands_worker_skill_loading(mock_read_text, mock_exists, mock_session_class, qapp):
@@ -200,7 +200,7 @@ def test_strands_worker_skill_loading(mock_read_text, mock_exists, mock_session_
     mock_read_text.return_value = """---
 name: kenny
 description: test
----
+|---
 This is the skill instructions content.
 Line 2."""
 
@@ -225,7 +225,7 @@ Line 2."""
 def test_warning_filter_suppresses_reasoning_content(qapp):
     """warnings.filterwarnings should suppress 'reasoningContent' messages."""
     import warnings
-    from src.strands_worker import _install_warning_filters
+    from src.llm.strands_worker import _install_warning_filters
 
     # Should not raise
     _install_warning_filters()
@@ -241,7 +241,7 @@ def test_warning_filter_suppresses_reasoning_content(qapp):
 
 def test_placeholder_interpolation(qapp):
     """Must interpolate {{pet_id}}, {{persona_name}}, {{chattiness}} etc."""
-    from src.strands_worker import StrandsAutonomousWorker
+    from src.llm.strands_worker import StrandsAutonomousWorker
 
     context = {"active_window": "code", "apm": 10}
     config = {"pet": {"id": "daemon", "persona_name": "Kenny", "chattiness": 0.8}}

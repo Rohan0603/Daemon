@@ -18,7 +18,7 @@ def _mock_response(status_code=200, json_payload=None, text=""):
 
 
 def test_module_logger_has_debug_method():
-    from src.opencode_worker import logger
+    from src.llm.opencode_worker import logger
     assert hasattr(logger, "debug")
     assert callable(logger.debug)
 
@@ -112,7 +112,7 @@ def test_post_message_creates_session_when_none(qapp):
     session_resp = _mock_response(200, {"id": "new_ses"})
     msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": "hello"}]})
 
-    with patch("src.opencode_worker.requests.post") as mock_req:
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
         mock_req.side_effect = [session_resp, msg_resp]
         session_ids = []
         worker = OpencodeWorker("hi")
@@ -128,7 +128,7 @@ def test_post_message_reuses_existing_session(qapp):
     from src.opencode_worker import OpencodeWorker
     msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": "response"}]})
 
-    with patch("src.opencode_worker.requests.post") as mock_req:
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
         mock_req.return_value = msg_resp
         worker = OpencodeWorker("hi", session_id="ses_existing")
         result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
@@ -140,7 +140,7 @@ def test_post_message_reuses_existing_session(qapp):
 
 def test_post_message_returns_none_on_connection_error(qapp):
     from src.opencode_worker import OpencodeWorker
-    with patch("src.opencode_worker.requests.post") as mock_req:
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
         mock_req.side_effect = _real_requests.exceptions.ConnectionError("refused")
         worker = OpencodeWorker("hi")
         result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
@@ -149,7 +149,7 @@ def test_post_message_returns_none_on_connection_error(qapp):
 
 def test_post_message_returns_none_on_timeout(qapp):
     from src.opencode_worker import OpencodeWorker
-    with patch("src.opencode_worker.requests.post") as mock_req:
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
         mock_req.side_effect = _real_requests.exceptions.Timeout("slow")
         worker = OpencodeWorker("hi")
         result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
@@ -158,7 +158,7 @@ def test_post_message_returns_none_on_timeout(qapp):
 
 def test_post_message_returns_none_on_4xx(qapp):
     from src.opencode_worker import OpencodeWorker
-    with patch("src.opencode_worker.requests.post") as mock_req:
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
         mock_req.return_value = _mock_response(status_code=500, text="boom")
         worker = OpencodeWorker("hi")
         result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
@@ -168,7 +168,7 @@ def test_post_message_returns_none_on_4xx(qapp):
 def test_post_message_returns_none_on_no_text_parts(qapp):
     from src.opencode_worker import OpencodeWorker
     resp = _mock_response(200, {"parts": [{"type": "reasoning", "text": "hmm"}]})
-    with patch("src.opencode_worker.requests.post") as mock_req:
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
         mock_req.return_value = resp
         worker = OpencodeWorker("hi")
         result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
@@ -177,7 +177,7 @@ def test_post_message_returns_none_on_no_text_parts(qapp):
 
 def test_post_message_returns_none_on_session_create_fail(qapp):
     from src.opencode_worker import OpencodeWorker
-    with patch("src.opencode_worker.requests.post") as mock_req:
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
         mock_req.return_value = _mock_response(status_code=500, text="error")
         worker = OpencodeWorker("hi")
         result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
@@ -186,7 +186,7 @@ def test_post_message_returns_none_on_session_create_fail(qapp):
 
 def test_post_message_returns_none_on_session_no_id(qapp):
     from src.opencode_worker import OpencodeWorker
-    with patch("src.opencode_worker.requests.post") as mock_req:
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
         mock_req.return_value = _mock_response(200, {"no": "id"})
         worker = OpencodeWorker("hi")
         result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
@@ -200,7 +200,7 @@ def test_send_emits_response_ready(qapp):
     from src.opencode_worker import OpencodeWorker
     payload = '[{"thought":"t","dialogue":"hello","action":"idle"}]'
     msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
-    with patch("src.opencode_worker.requests.post") as mock_req:
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
         mock_req.return_value = msg_resp
         captured = []
         worker = OpencodeWorker("hi", session_id="ses_xyz")
@@ -215,7 +215,7 @@ def test_send_includes_structured_schema(qapp):
     from src.constants import STRUCTURED_SCHEMA
     payload = '[{"thought":"t","dialogue":"hi","action":"idle"}]'
     msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
-    with patch("src.opencode_worker.requests.post") as mock_req:
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
         mock_req.return_value = msg_resp
         worker = OpencodeWorker("hi", session_id="ses_xyz")
         worker.send("test prompt")
@@ -228,7 +228,7 @@ def test_send_includes_structured_schema(qapp):
 def test_send_emits_schema_error_on_garbage(qapp):
     from src.opencode_worker import OpencodeWorker
     msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": "not json at all"}]})
-    with patch("src.opencode_worker.requests.post") as mock_req:
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
         mock_req.return_value = msg_resp
         captured = []
         worker = OpencodeWorker("hi", session_id="ses_xyz")
@@ -255,7 +255,7 @@ def test_run_delegates_to_send(qapp):
     from src.opencode_worker import OpencodeWorker
     payload = '[{"thought":"t","dialogue":"from prompt","action":"idle"}]'
     msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
-    with patch("src.opencode_worker.requests.post") as mock_req:
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
         mock_req.return_value = msg_resp
         captured = []
         paths = []
@@ -318,7 +318,7 @@ class TestEdgeCaseSessionLifecycle:
         session_resp = _mock_response(200, {"id": "persist_ses"})
         resp1 = _mock_response(200, {"parts": [{"type": "text", "text": '[{"thought":"t","dialogue":"hi","action":"idle"}]'}]})
         resp2 = _mock_response(200, {"parts": [{"type": "text", "text": '[{"thought":"t","dialogue":"hi","action":"idle"}]'}]})
-        with patch("src.opencode_worker.requests.post") as mock_req:
+        with patch("src.llm.opencode_worker.requests.post") as mock_req:
             mock_req.side_effect = [session_resp, resp1, resp2]
             worker = OpencodeWorker("hi")
             worker.send("first message")
@@ -358,7 +358,7 @@ class TestEdgeCaseSessionLifecycle:
         from src.opencode_worker import OpencodeWorker
         session_resp = _mock_response(200, {"id": "send_new_ses"})
         msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": '[{"thought":"t","dialogue":"hi","action":"idle"}]'}]})
-        with patch("src.opencode_worker.requests.post") as mock_req:
+        with patch("src.llm.opencode_worker.requests.post") as mock_req:
             mock_req.side_effect = [session_resp, msg_resp]
             session_ids = []
             worker = OpencodeWorker("hi")
@@ -373,7 +373,7 @@ class TestEdgeCaseSessionLifecycle:
 
 def test_parse_pool_response_handles_markdown_fence():
     """Must strip markdown fences from pool refill responses."""
-    from src.opencode_worker import _parse_pool_response
+    from src.llm.opencode_worker import _parse_pool_response
 
     text = '''```json
 [{"thought": "t1", "dialogue": "d1", "type": "observation"}]
@@ -385,7 +385,7 @@ def test_parse_pool_response_handles_markdown_fence():
 
 def test_parse_pool_response_handles_preamble():
     """Must skip preamble before JSON array."""
-    from src.opencode_worker import _parse_pool_response
+    from src.llm.opencode_worker import _parse_pool_response
 
     text = """Here are my thoughts on the system:
 
@@ -397,7 +397,7 @@ def test_parse_pool_response_handles_preamble():
 
 def test_parse_pool_response_strips_forbidden_fields():
     """Must strip fields not in schema: action, priority, target_fsm."""
-    from src.opencode_worker import _parse_pool_response
+    from src.llm.opencode_worker import _parse_pool_response
 
     text = '''[{"thought": "t", "dialogue": "d", "type": "observation", "action": "nod", "priority": 3, "target_fsm": "CELEBRATE"}]'''
     result = _parse_pool_response(text)
@@ -410,13 +410,13 @@ def test_parse_pool_response_strips_forbidden_fields():
 
 def test_parse_pool_response_rejects_empty_list():
     """Empty array must return empty list without error."""
-    from src.opencode_worker import _parse_pool_response
+    from src.llm.opencode_worker import _parse_pool_response
     result = _parse_pool_response("[]")
     assert result == []
 
 
 def test_parse_pool_response_rejects_non_array():
     """Non-array valid JSON must return empty list."""
-    from src.opencode_worker import _parse_pool_response
+    from src.llm.opencode_worker import _parse_pool_response
     result = _parse_pool_response('{"type": "observation", "thought": "t"}')
     assert result == []
