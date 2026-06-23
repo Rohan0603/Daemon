@@ -1,5 +1,8 @@
+import asyncio
 import json
 import re
+import time
+from collections import deque
 from PyQt6.QtCore import QThread, pyqtSignal
 import structlog
 import warnings
@@ -18,6 +21,102 @@ from strands.agent.conversation_manager import SlidingWindowConversationManager
 from mcp.client.sse import sse_client
 
 logger = structlog.get_logger()
+
+# ── Fallback dedup tracker ──────────────────────────────────────────────
+# Prevents the same fallback message from flooding the bubble when LLM
+# consistently fails to produce parseable JSON.
+_FALLBACK_LOG: deque[tuple[str, float]] = deque(maxlen=6)
+_FALLBACK_WINDOW_SEC = 60.0
+_FALLBACK_MAX_REPEATS = 3
+
+
+def _is_fallback_flood(text: str) -> bool:
+    """Return True if *text* has been returned >= _FALLBACK_MAX_REPEATS
+    within the sliding window of _FALLBACK_WINDOW_SEC seconds.
+    
+    When True the caller should log silently instead of emitting a visible
+    bubble, breaking the infinite-repetition feedback loop."""
+    now = time.time()
+    # Purge stale entries
+    while _FALLBACK_LOG and now - _FALLBACK_LOG[0][1] > _FALLBACK_WINDOW_SEC:
+        _FALLBACK_LOG.popleft()
+    # Count recent occurrences of this exact text
+    count = sum(1 for t, _ in _FALLBACK_LOG if t == text)
+    # Record this occurrence (always — even if we skip it, the next call needs to see it)
+    _FALLBACK_LOG.append((text, now))
+    return count >= _FALLBACK_MAX_REPEATS
+
+
+def _salvage_text(raw_text: str, cleaned: str = "") -> str:
+    """Try to extract human-readable text from failed JSON model output.
+
+    The model often generates conversational dialogue text that just isn't
+    wrapped in valid JSON. This function strips JSON syntax artifacts and
+    returns whatever natural-language text can be recovered.
+
+    Strategy:
+    1. Try to find any quoted string value that looks like dialogue (long, multi-word)
+    2. Strip JSON structural characters + key names from the text
+    3. Return the raw text if all else fails (with JSON artifacts removed)
+    """
+    text = cleaned or raw_text
+
+    # Strategy 1: Find any long quoted string value — model often puts
+    # dialogue text as a JSON value even when the JSON is malformed
+    quoted_values = re.findall(r'"((?:[^"\\]|\\.){10,})"', text)
+    dialogue_candidates = [
+        v for v in quoted_values
+        if v and not v.startswith("thought") and not v.startswith("dialogue")
+        and not v.startswith("type") and not v.startswith("priority")
+        and not v.startswith("brain_update") and not v.startswith("context_hash")
+        and not v.startswith("observation") and not v.startswith("intel_roast")
+        and not v.startswith("typing_reaction") and not v.startswith("idle_thought")
+        and "should probably implement" not in v
+        and "If I stare at this cursor" not in v
+        and "Wonder if the FSM" not in v
+        and "Look man, I don't want to alarm" not in v
+        and "You haven't twitched" not in v
+        and "Oh man, the keyboard" not in v
+        and len(v) > 15  # Filter out short keys like "idle", "ok"
+    ]
+    if dialogue_candidates:
+        # Prefer the longest candidate (likely the dialogue field)
+        best = max(dialogue_candidates, key=len)
+        try:
+            best = best.encode('utf-8').decode('unicode_escape', errors='ignore')
+        except Exception:
+            pass
+        return best
+
+    # Strategy 2: Strip JSON key names and structural chars
+    # Remove common JSON key patterns: "key": value
+    stripped = re.sub(
+        r'"(thought|dialogue|type|priority|brain_update|observation|'
+        r'intel_roast|typing_reaction|idle_thought|context_hash|action|'
+        r'user_habits|user_preferences|pet_quirks|pet_habits|pet_fears|'
+        r'pet_catchphrases|mission_goals|pet_affinity_score)"\s*:\s*',
+        '', text
+    )
+    # Remove remaining JSON structural characters
+    for ch in ('[', ']', '{', '}', '"', '\\'):
+        stripped = stripped.replace(ch, '')
+    stripped = stripped.strip().strip(',').strip()
+    # Clean up double spaces and commas
+    stripped = re.sub(r'\s{2,}', ' ', stripped)
+    stripped = re.sub(r',\s*,', ',', stripped)
+    if stripped and len(stripped) > 10:
+        return stripped
+
+    # Strategy 3: Return raw text as last resort
+    raw_clean = raw_text.strip()
+    # Strip leading/trailing JSON structure
+    raw_clean = raw_clean.lstrip('[{( ')
+    raw_clean = raw_clean.rstrip(']}) ,')
+    if raw_clean and len(raw_clean) > 10:
+        return raw_clean
+
+    return ""
+
 
 def extract_dialogue_stream(accumulated_text: str) -> str:
     stripped = accumulated_text.strip()
@@ -103,6 +202,8 @@ class StrandsSession:
 
         if recreate:
             self.close()
+            import time
+            time.sleep(0.5)  # Let old SSE connection drain before creating new MCP client
             self.mode = mode
             self.model = model
             
@@ -163,6 +264,10 @@ class StrandsSession:
             logger.info("Closing StrandsSession MCP client")
             try:
                 self.mcp_client.__exit__(None, None, None)
+            except GeneratorExit:
+                pass  # Expected during SSE connection teardown
+            except asyncio.CancelledError:
+                pass  # Expected during asyncio scope cancellation
             except Exception:
                 logger.exception("Error closing MCP client")
             self.mcp_client = None
@@ -231,9 +336,9 @@ class StrandsAutonomousWorker(QThread):
             import urllib.request
             import time
 
-            # Wait up to 5 seconds for MCP server on port 4097 to be ready
+            # Wait for MCP server on port 4097 to be ready (fast polling)
             mcp_ready = False
-            for i in range(10):
+            for i in range(5):
                 if self._is_aborted:
                     logger.info("Strands worker aborted during startup waiting for MCP server")
                     return
@@ -244,13 +349,17 @@ class StrandsAutonomousWorker(QThread):
                             break
                 except Exception:
                     pass
-                time.sleep(0.5)
+                time.sleep(0.3)
             if not mcp_ready:
                 logger.warning("MCP server at port 4097 is not ready, proceeding anyway")
 
             # Format history to avoid "unsupported type" crashes
             formatted_history = []
             for turn in self.chat_history:
+                # Strip assistant responses in autonomous mode to prevent
+                # pool-refill outputs from inflating the LLM context window
+                if self.mode == "autonomous" and turn["role"] == "assistant":
+                    continue
                 role = turn["role"]
                 content = turn["content"]
                 if isinstance(content, str):
@@ -296,10 +405,24 @@ class StrandsAutonomousWorker(QThread):
                 "You are Kenny, the anxious, roasting desktop pet. Run autonomously in the background. "
                 "Analyze the user's environment context. Use your tools to interact. "
                 f"Your active profanity filter constraint is: {self.profanity_level}. "
-                "Always output your final actions strictly as a JSON array matching the brain schema."
+                "Always output your final actions strictly as a JSON array matching the brain schema. "
+                "IMPORTANT: For change_visual_state, use ONLY actions from the valid list: "
+                "bounce, celebrate, chase, dash, devastated, fall, flail, flip, float, glitch, grow, "
+                "headshake, hyper, idle, inflate, jump, look_away, melt, nod, pulse, rainbow, shake, "
+                "shrink, spin, strut, teleport, tremble, vanish, wander, wave, wobble. "
+                "Do NOT invent new action names."
             )
             if skill_content:
-                system_prompt = f"{skill_content}\n\n[System Instructions]\n{base_prompt}"
+                if self.mode == "autonomous":
+                    # Condensed persona for autonomous refills: strip Phonetics &
+                    # Delivery section (~3K chars of voice instructions irrelevant for
+                    # background thought generation). Keep identity, rules, and schema.
+                    condensed_parts = skill_content.split("\n## Phonetics & Delivery", maxsplit=1)
+                    stripped = condensed_parts[0].strip()
+                    # Shorten the lengthy action/examples section too
+                    system_prompt = f"{stripped}\n\n[System Instructions - condensed]\n{base_prompt}"
+                else:
+                    system_prompt = f"{skill_content}\n\n[System Instructions]\n{base_prompt}"
             else:
                 system_prompt = base_prompt
 
@@ -427,16 +550,39 @@ class StrandsAutonomousWorker(QThread):
                     truncated = dialogue_text if len(dialogue_text) <= BUBBLE_MAX_CHARS else dialogue_text[:BUBBLE_MAX_CHARS - 3] + "..."
                     return [{"thought": thought_text, "dialogue": truncated, "priority": 1}]
 
-                # If we couldn't even extract dialogue via regex, return a user-friendly segfault message
-                # rather than raw JSON code.
+                # If we couldn't even extract dialogue via regex, try to salvage
+                # natural-language text from the raw output. The model often generates
+                # conversational text that just isn't wrapped in valid JSON — show that
+                # instead of repeating the canned "segfaulted" message.
+                salvaged = _salvage_text(text, cleaned)
+                if salvaged:
+                    truncated = salvaged if len(salvaged) <= BUBBLE_MAX_CHARS else salvaged[:BUBBLE_MAX_CHARS - 3] + "..."
+                    if _is_fallback_flood(truncated):
+                        logger.warning("Suppressing repeated salvaged bubble (flood detected)")
+                        return [{"thought": "...", "dialogue": ". . .", "priority": 5, "type": "observation"}]
+                    return [{
+                        "thought": "Recovered from JSON parse error",
+                        "dialogue": truncated,
+                        "type": "observation",
+                        "priority": 5
+                    }]
+
+                # Last resort: user-friendly segfault message rather than raw JSON code.
+                fallback_text = "Holy crap, my brain just segfaulted! (JSON Parse Error)"
+                if _is_fallback_flood(fallback_text):
+                    logger.warning("Suppressing repeated fallback bubble (flood detected)")
+                    return [{"thought": "...", "dialogue": ". . .", "priority": 5, "type": "observation"}]
                 return [{
                     "thought": "Strands worker JSON parse failure",
-                    "dialogue": "Holy crap, my brain just segfaulted! (JSON Parse Error)",
+                    "dialogue": fallback_text,
                     "type": "observation",
                     "priority": 5
                 }]
 
             # Truly free-form text: display directly in the bubble.
             truncated = text if len(text) <= BUBBLE_MAX_CHARS else text[:BUBBLE_MAX_CHARS - 3] + "..."
+            if _is_fallback_flood(truncated):
+                logger.warning("Suppressing repeated free-form bubble (flood detected)")
+                return [{"thought": ". . .", "dialogue": ". . .", "priority": 5, "type": "observation"}]
             return [{"thought": "observation", "dialogue": truncated, "priority": 1}]
 

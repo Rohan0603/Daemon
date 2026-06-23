@@ -59,7 +59,8 @@ def test_add_items(qapp):
     m.add_items([
         {"dialogue": "test", "type": "idle_thought", "priority": 3}
     ])
-    assert m.thought_pool.remaining() == before + 1
+    expected = min(before + 1, m.thought_pool._max_size)
+    assert m.thought_pool.remaining() == expected
 
 
 def test_decay_reduces_priority(qapp):
@@ -84,7 +85,8 @@ def test_stop_saves_pool(qapp):
     m.stop()
     with open(tmp.name, encoding="utf-8") as f:
         data = json.load(f)
-    assert len(data["pools"]["thought_pool"]["items"]) == before + 1
+    expected = min(before + 1, m.thought_pool._max_size)
+    assert len(data["pools"]["thought_pool"]["items"]) == expected
     assert data["version"] == 2
 
 

@@ -326,23 +326,53 @@ class OpencodeWorker(QThread):
 
     def _parse_json_response(self, raw: str) -> list[dict] | None:
         """Parse JSON response from LLM.
-        
-        Relies on OpenCode API's structural enforcement. Custom regex and JSONL
-        fallbacks have been pruned since Strands natively handles validation.
+
+        Handles markdown code fences, preambles, trailing text, and partial JSON.
+        Uses bracket/brace matching as the main extraction strategy.
         """
+        import re
+
         cleaned = raw.strip()
 
-        # 1. Strip markdown code fences
-        for fence in ("```json", "```"):
-            if cleaned.startswith(fence):
-                cleaned = cleaned[len(fence):]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3]
-        cleaned = cleaned.strip()
+        # 1. Look for ```json ... ``` blocks (regex, handles whitespace/newlines)
+        md_json = re.search(r'```json\s*(.*?)\s*```', cleaned, re.DOTALL)
+        if md_json:
+            cleaned = md_json.group(1).strip()
+        else:
+            # 2. Look for generic ``` ... ``` blocks
+            md_generic = re.search(r'```\s*(.*?)\s*```', cleaned, re.DOTALL)
+            if md_generic:
+                block = md_generic.group(1).strip()
+                # Use it if it starts with JSON indicators
+                if (block.startswith('[') and block.endswith(']')) or (block.startswith('{') and block.endswith('}')):
+                    cleaned = block
+            else:
+                # 3. Strip inline ```json / ``` fences (legacy path)
+                for fence in ("```json", "```"):
+                    if cleaned.startswith(fence):
+                        cleaned = cleaned[len(fence):]
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3]
+                cleaned = cleaned.strip()
 
-        # 2. Direct JSON parse
+                # 4. Bracket/brace matching to strip preamble/postamble
+                if not (cleaned.startswith('[') and cleaned.endswith(']')):
+                    first_bracket = cleaned.find('[')
+                    first_brace = cleaned.find('{')
+                    if first_bracket != -1 and (first_brace == -1 or first_bracket < first_brace):
+                        last_bracket = cleaned.rfind(']')
+                        if last_bracket != -1 and last_bracket > first_bracket:
+                            cleaned = cleaned[first_bracket:last_bracket + 1].strip()
+                    elif first_brace != -1:
+                        last_brace = cleaned.rfind('}')
+                        if last_brace != -1 and last_brace > first_brace:
+                            cleaned = cleaned[first_brace:last_brace + 1].strip()
+
+        # 5. Direct JSON parse
         try:
             items = json.loads(cleaned)
+            if isinstance(items, dict):
+                items = [items]
             if isinstance(items, list):
                 if self._validate_items(items):
                     return items
@@ -352,7 +382,41 @@ class OpencodeWorker(QThread):
                 "JSON decode error at line %d col %d: %s",
                 e.lineno, e.colno, e.msg,
             )
-            
+
+            # 6. Fallback: regex extraction for partial JSON (dialogue/thought)
+            dialogue_text = None
+            thought_text = None
+            for line in cleaned.splitlines():
+                line = line.strip()
+                m_dialogue = re.search(r'"dialogue"\s*:\s*"(.*)"\s*,?\s*$', line)
+                if m_dialogue:
+                    dialogue_text = m_dialogue.group(1)
+                m_thought = re.search(r'"thought"\s*:\s*"(.*)"\s*,?\s*$', line)
+                if m_thought:
+                    thought_text = m_thought.group(1)
+            if not dialogue_text:
+                dialogue_matches = re.findall(r'"dialogue"\s*:\s*"((?:[^"\\]|\\.)*)"', cleaned)
+                if dialogue_matches:
+                    dialogue_text = dialogue_matches[0]
+            if not thought_text:
+                thought_matches = re.findall(r'"thought"\s*:\s*"((?:[^"\\]|\\.)*)"', cleaned)
+                if thought_matches:
+                    thought_text = thought_matches[0]
+
+            if dialogue_text:
+                if thought_text:
+                    try:
+                        thought_text = thought_text.encode('utf-8').decode('unicode_escape', errors='ignore')
+                    except Exception:
+                        pass
+                else:
+                    thought_text = "Observation (JSON Parse Error Recovery)"
+                return [{
+                    "thought": thought_text,
+                    "dialogue": dialogue_text[:147] + "..." if len(dialogue_text) > 150 else dialogue_text,
+                    "priority": 1,
+                }]
+
         logger.warning(
             "JSON parsing failed for response (first 500 chars): %s",
             raw[:500],

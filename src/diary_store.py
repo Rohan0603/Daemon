@@ -9,6 +9,28 @@ from src.storage_backend import StorageBackend
 logger = logging.getLogger(__name__)
 
 MAX_DIARY_ENTRIES = 200
+DIARY_DEDUP_SIMILARITY = 0.85  # Reject if >85% character overlap with existing
+
+
+def _fuzzy_ratio(a: str, b: str) -> float:
+    if not a or not b:
+        return 0.0
+    set_a = set(a.casefold())
+    set_b = set(b.casefold())
+    if not set_a and not set_b:
+        return 1.0
+    intersection = set_a & set_b
+    union = set_a | set_b
+    return len(intersection) / len(union)
+
+
+def _has_fuzzy_duplicate(content: str, entries: list[dict], threshold: float = DIARY_DEDUP_SIMILARITY) -> bool:
+    norm = content.strip().casefold()
+    for entry in entries:
+        existing = (entry.get("content") or "").strip().casefold()
+        if _fuzzy_ratio(norm, existing) >= threshold:
+            return True
+    return False
 
 def calculate_content_hash(text: str) -> str:
     normalized = unicodedata.normalize('NFKC', text.strip()).casefold()
@@ -69,6 +91,10 @@ class DiaryStore(StorageBackend):
         for entry in self._diary_entries:
             if entry.get("hash") == entry_hash:
                 return False
+        # Fuzzy dedup: reject if >85% character overlap with any existing entry
+        if _has_fuzzy_duplicate(content, self._diary_entries):
+            logger.debug("Diary fuzzy dedup skipped entry: '%.60s'", content)
+            return False
         entry: dict = {
             "content": content,
             "timestamp": timestamp if timestamp else time.time(),

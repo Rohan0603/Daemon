@@ -49,6 +49,9 @@ def setup_logging(
     Existing logger.info(...) calls with ``%s`` formatting work transparently.
     Falls back to plain-text format if structlog is not installed.
     """
+    import warnings
+    # Suppress Strands deprecation: `**kwargs` parameter is deprecating
+    warnings.filterwarnings("ignore", message="`\\*\\*kwargs` parameter is deprecating")
     root = logging.getLogger()
     root.setLevel(logging.DEBUG if debug else logging.INFO)
     root.handlers.clear()
@@ -141,6 +144,13 @@ def _apply_overrides(config_overrides: dict[str, str] | None) -> None:
         "comtypes.client._generate": "WARNING",
         "comtypes._post_coinit": "WARNING",
         "urllib3.connectionpool": "WARNING",
+        # Strands noise: tool config loading spam, reasoningContent warnings
+        "strands.tools.registry": "WARNING",
+        "strands.models.openai": "ERROR",
+        "strands.tools": "WARNING",
+        # httpcore noise: GeneratorExit during normal SSE teardown is harmless
+        "httpcore.http11": "WARNING",
+        "httpcore.connection": "WARNING",
     }
     if config_overrides:
         default_overrides.update(config_overrides)

@@ -28,18 +28,28 @@ def test_fsm_layer_routes_to_fsm_bridge():
     handler._action_layer.trigger.assert_not_called()
 
 
-def test_expression_action_on_fsm_layer_returns_error():
+def test_expression_action_on_fsm_layer_is_auto_corrected():
+    """Expression action on fsm layer should auto-correct to expression, not error."""
     handler = _make_handler()
     params = {"action": "float", "layer": "fsm"}
     result = handler._handle_change_visual_state(params)
-    assert result.get("error") is not None
+    # Should succeed via auto-correction, not error
+    assert result.get("error") is None
+    # Should route to expression layer
+    handler._action_layer.trigger.assert_called_once()
+    handler._fsm_bridge.fsm_action_requested.emit.assert_not_called()
 
 
-def test_fsm_action_on_expression_layer_returns_error():
+def test_fsm_action_on_expression_layer_is_auto_corrected():
+    """FSM action on expression layer should auto-correct to fsm, not error."""
     handler = _make_handler()
     params = {"action": "celebrate", "layer": "expression"}
     result = handler._handle_change_visual_state(params)
-    assert result.get("error") is not None
+    # Should succeed via auto-correction, not error
+    assert result.get("error") is None
+    # Should route to fsm bridge
+    handler._fsm_bridge.fsm_action_requested.emit.assert_called_once_with("celebrate")
+    handler._action_layer.trigger.assert_not_called()
 
 
 def test_duration_ms_passed_to_action_layer():

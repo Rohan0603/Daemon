@@ -736,7 +736,13 @@ class PetWindow(QWidget):
                 self._diary_store.add_diary_entry(summary, int(time.time()))
             # Push to Firebase
             if hasattr(self, '_firebase_mem') and self._firebase_mem and hasattr(self, '_diary_store'):
-                self._firebase_mem.push_pending_diaries(self._diary_store)
+                diary_entries = self._diary_store.get_entries()
+                diary_texts = [e.get("content", "") for e in diary_entries]
+                existing = self._diary_store.read()
+                diary_synced = existing.get("synced", 0) if existing else 0
+                self._firebase_mem.push_pending_diaries(
+                    self._diary_store, diary_texts, diary_synced,
+                )
             logger.info("Session summarized and saved.")
         else:
             logger.debug("Summary: no usable content from response")
@@ -1294,11 +1300,11 @@ class PetWindow(QWidget):
     def mousePressEvent(self, event) -> None:
         local = event.position().toPoint()
         if event.button() == Qt.MouseButton.LeftButton:
-            pet_rect = QRect(self._pet_x, self._pet_y, int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
+            pet_rect = QRect(int(self._pet_x), int(self._pet_y), int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
             if pet_rect.contains(local):
                 self._clear_bubble_queue()
                 self._fsm.current_state = PetState.DRAGGED
-                self._drag_offset = local - QPoint(self._pet_x, self._pet_y)
+                self._drag_offset = local - QPoint(int(self._pet_x), int(self._pet_y))
                 self._last_drag_pos = local
                 self._drag_velocity_x = 0.0
                 self._drag_velocity_y = 0.0
@@ -1336,7 +1342,7 @@ class PetWindow(QWidget):
 
     def contextMenuEvent(self, event) -> None:
         local = event.pos()
-        pet_rect = QRect(self._pet_x, self._pet_y, int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
+        pet_rect = QRect(int(self._pet_x), int(self._pet_y), int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
         if pet_rect.contains(local):
             self._context_menu.exec(event.globalPos())
 
@@ -1397,7 +1403,7 @@ class PetWindow(QWidget):
         if self._fsm.current_state == PetState.THINKING:
             return
         local = event.position().toPoint()
-        pet_rect = QRect(self._pet_x, self._pet_y, int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
+        pet_rect = QRect(int(self._pet_x), int(self._pet_y), int(PET_WIDTH * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)), int(PET_HEIGHT * getattr(self, '_scale', 1.0) * getattr(self, '_pet_scale', 1.0)))
         logger.debug("Double click coordinates: local=%s, pet_rect=%s, contains=%s", local, pet_rect, pet_rect.contains(local))
         if pet_rect.contains(local):
             self._show_input_field()

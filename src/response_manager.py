@@ -36,7 +36,6 @@ class AutonomousResponseManager(QObject):
     def _load_local_seeds(self) -> None:
         logger.debug("[VERIFY] ThoughtPool: seeding with %d local typing reactions", 15)
         kenny_typing_lines = [
-            "Look at those fingers fly! You're a regular hacker-man, huh?",
             "Whoa, slow down there, champ. The keyboard has a family.",
             "I-I-I can't even process how fast you're typing right now.",
             "Typing that fast? You better be saving the world or writing some sick Python.",
@@ -46,11 +45,7 @@ class AutonomousResponseManager(QObject):
             "Jeez, you're hitting those keys like they owe you money.",
             "Oh geez, the way you type... it's beautiful. It's terrifying. It's both.",
             "Holy crap, your WPM just broke my sensor array.",
-            "You type like a man possessed. Or a woman. Or a very determined corgi.",
-            "Aw man, I wish I had fingers. I'd type so fast the timeline would split.",
             "Keep going! The bugs aren't gonna fix themselves!",
-            "Is this a speedrun? Because it looks like a speedrun.",
-            "I'm getting carpal tunnel just WATCHING you.",
         ]
         items = [
             {"dialogue": line, "type": "typing_reaction", "action": "hyper",
@@ -59,6 +54,7 @@ class AutonomousResponseManager(QObject):
         ]
         self.thought_pool.add_items(items)
 
+        logger.debug("[VERIFY] ThoughtPool: seeding with %d local typing reactions", len(kenny_typing_lines))
         logger.debug("[VERIFY] ThoughtPool: seeding with %d local idle thoughts", 3)
         kenny_idle_lines = [
             "Wonder if the FSM has considered switching to a waltz state yet.",
@@ -71,6 +67,31 @@ class AutonomousResponseManager(QObject):
             for line in kenny_idle_lines
         ]
         self.thought_pool.add_items(idle_items)
+
+        logger.debug("[VERIFY] ThoughtPool: seeding with %d local observations", 2)
+        kenny_observations = [
+            "Staring at Python code but not typing a damn thing. C-c-cold feet or cold brain?",
+            "APM flatlined at zero in a Python window. You're either reading or pretending to.",
+        ]
+        obs_items = [
+            {"dialogue": line, "type": "observation", "action": "look_away",
+             "target_x": 0, "priority": 4}
+            for line in kenny_observations
+        ]
+        self.thought_pool.add_items(obs_items)
+
+        logger.debug("[VERIFY] ThoughtPool: seeding with %d local intel roasts", 3)
+        kenny_roasts = [
+            "Zero APM in Python. Planning a refactor or just admiring your own comments?",
+            "You know I can see that blinking cursor mocking you, right? T-t-type something, coward.",
+            "Python screen, zero inputs. You're either debugging in your head or browsing memes. I accept both.",
+        ]
+        roast_items = [
+            {"dialogue": line, "type": "intel_roast", "action": "celebrate",
+             "target_x": 0, "priority": 3}
+            for line in kenny_roasts
+        ]
+        self.thought_pool.add_items(roast_items)
 
     def draw(self, target_type: str, current_context_hash: str = None) -> list[dict]:
         return self.thought_pool.draw_by_type(target_type, current_context_hash)

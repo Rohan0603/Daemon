@@ -22,6 +22,8 @@ def save_state(state: dict, path: str = _DEFAULT_PATH) -> None:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(state, f)
         os.replace(tmp, path)
+        logger.info("State saved to %s: mood=%s, interactions=%d, runtime=%ds",
+                     path, state.get("mood"), state.get("interactions"), state.get("runtime_seconds"))
     except Exception as e:
         logger.warning("Failed to save state to %s: %s", path, e)
 

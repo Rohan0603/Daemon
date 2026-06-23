@@ -740,15 +740,24 @@ def test_invalid_action_error_includes_valid_actions():
 
 
 def test_invalid_fsm_layer_action_error_includes_fsm_actions():
-    """Must show which actions are valid for the fsm layer."""
+    """Invalid action for fsm layer returns an error with valid FSM actions listed."""
     handler = _handler()
-    result = handler._handle_change_visual_state({"action": "nod", "layer": "fsm"})
+    # "explode" is not a valid action in either layer
+    result = handler._handle_change_visual_state({"action": "explode", "layer": "fsm"})
     assert "error" in result
     msg = result["error"]["message"]
-    assert "nod" in msg
+    assert "explode" in msg
     assert "idle" in msg
     assert "wander" in msg
     assert "hyper" in msg
+
+
+def test_unrecognized_action_returns_error():
+    """Completely unrecognized action returns error regardless of layer."""
+    handler = _handler()
+    result = handler._handle_change_visual_state({"action": "bogus_invalid_action", "layer": "expression"})
+    assert "error" in result
+    assert "bogus_invalid_action" in result["error"]["message"]
 
 
 def test_history_is_wired_into_handler(monkeypatch):

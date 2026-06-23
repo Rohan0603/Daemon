@@ -8,6 +8,19 @@ from PyQt6.QtCore import QObject, pyqtSignal
 logger = logging.getLogger(__name__)
 
 
+def _fuzzy_ratio(a: str, b: str) -> float:
+    """Simple character-level similarity ratio between 0.0 and 1.0."""
+    if not a or not b:
+        return 0.0
+    set_a = set(a.lower())
+    set_b = set(b.lower())
+    if not set_a and not set_b:
+        return 1.0
+    intersection = set_a & set_b
+    union = set_a | set_b
+    return len(intersection) / len(union)
+
+
 class ThoughtPool(QObject):
     refill_needed = pyqtSignal()
     pool_refilled = pyqtSignal()
@@ -23,6 +36,27 @@ class ThoughtPool(QObject):
         self._ttl_seconds = ttl_seconds
         self._items: list[dict] = []
         self._refilling = False
+        # ── Dialogue dedup cache (per-instance) ──────────
+        self._dedup_cache: list[str] = []
+        self._dedup_max = 20
+        self._dedup_threshold = 0.75
+
+    def _is_repetitive(self, text: str) -> bool:
+        """Check if *text* is too similar to recently-seen dialogue."""
+        if not text:
+            return False
+        if text in self._dedup_cache:
+            return True
+        for existing in self._dedup_cache:
+            if _fuzzy_ratio(text, existing) >= self._dedup_threshold:
+                return True
+        return False
+
+    def _record_dialogue(self, text: str) -> None:
+        """Record a dialogue in the dedup cache (bounded)."""
+        self._dedup_cache.append(text)
+        if len(self._dedup_cache) > self._dedup_max:
+            self._dedup_cache.pop(0)
 
     def draw_by_type(self, target_type: str, current_context_hash: str = None) -> list[dict]:
         if not self._items:
@@ -114,9 +148,18 @@ class ThoughtPool(QObject):
         now_dt = datetime.now().isoformat()
         now_ts = datetime.now().timestamp()
         tagged = []
+        dedup_skipped = 0
         for item in items:
+            dialogue = item.get("dialogue", "")
+            # Skip repetitive dialogue (same or very similar to recent entries)
+            if dialogue and self._is_repetitive(dialogue):
+                dedup_skipped += 1
+                logger.debug("Dialogue dedup skipped: '%.60s'", dialogue)
+                continue
+            if dialogue:
+                self._record_dialogue(dialogue)
             tagged.append({
-                "dialogue": item.get("dialogue", ""),
+                "dialogue": dialogue,
                 "type": item.get("type", "idle_thought"),
                 "action": item.get("action", "idle"),
                 "target_x": item.get("target_x"),

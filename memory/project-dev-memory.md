@@ -6,10 +6,10 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-21 (ActionLayer Phase 73 Task 6)
-**Current branch:** `task-73-renderer-compositing`
-**Test count:** 705 passed, 1 skipped across 54 test files
-**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54 → Phase 59 → Latest fixes
+**Date updated:** 2026-06-22 (Comprehensive Arch Review + Log Audit Phase 1&2)
+**Current branch:** `master`
+**Test count:** 752 passed, 1 skipped across 54 test files
+**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54 → Phase 59 → Latest fixes → Comprehensive Arch Review → Log Audit Phase 1&2
 
 ---
 
@@ -2529,4 +2529,108 @@ Shutdown: _finalize_quit() → save_session() → disk
 
 **Test results:** Full suite 752 passed, 1 skipped in 27.77s.
 
+---
 
+## Log Audit Phase 1&2 — Crash Fixes & Stability (2026-06-22)
+
+**Branch:** `master` (merged from `investigation-temp`, deleted)
+**Commits:** `dd3e7c6` (fix), `42ec7c2` (docs), plus antecedent fixes from investigation-temp
+
+**What was fixed:**
+
+1. **Crash fixes:** Resolved `TypeError` in `_draw_bubble` (coords not cast to int), attribute errors from deleted FSM states, and various unbound-local / NoneType errors from the comprehensive architecture review
+2. **History wire:** `History.append()` enforces `HISTORY_MAX_ENTRIES=100` cap; bubble TTL discard in `_show_bubble` (300s)
+3. **Pool parse:** JSON parse failure cooldown (30s) to prevent log spam; parse fallback chain: direct → fence strip → regex → fallback text
+4. **Bubble TTL:** `BUBBLE_QUEUE_TTL_SECS=300` constant discards stale items; sleep entry clears bubble queue
+
+**Preceding investigation-temp fixes (10 critical bugs):**
+- Opencode console window flash suppression (Win32 `SW_HIDE` / `CREATE_NO_WINDOW`)
+- Login dialog Enter key navigation
+- `ConnectionResetError` suppression on MCP client disconnect
+- Super Jump cancellation loop (retain FALLING when `fall_velocity` active)
+- `PetState` unbound local error
+- QThread GC crash when preempting busy `OpencodeWorker`
+- Stale PID lock conflict resolution on Windows
+- Firebase connection and config crash fixes
+- SSE connection stability
+- Navarasa strict expression rendering alignment
+
+**Files changed:** `daemon.py`, `src/pet_window.py`, `src/pet_renderer.py`, `src/mcp_server.py`, `src/click_through.py`, `src/opencode_worker.py`, `src/strands_worker.py`, `src/constants.py`, `src/history.py`
+
+**Test results:** Full suite 752 passed, 1 skipped in 29.87s.
+
+---
+
+## Comprehensive Architecture Review — 10 Critical Bugs (2026-06-22)
+
+**Branch:** `investigation-temp` (merged → `master`, deleted)
+**Commit:** `7e81c7f`
+
+**Bugs fixed:**
+1. **OCODE console flash:** Win32 `SW_HIDE` + `CREATE_NO_WINDOW` on `subprocess.Popen` suppresses terminal flash
+2. **Login Enter key:** `keyPressEvent` wired to submit button in `LoginDialog`
+3. **ConnResetError:** `except ConnectionResetError: pass` in MCP handler to suppress client-disconnect tracebacks
+4. **Super Jump loop:** FSM retains FALLING state when `fall_velocity > 0` despite other triggers
+5. **PetState unbound local:** Proper initialization guard in `pet_fsm.py`
+6. **QThread GC crash:** Thread reference held during preemption in `OpencodeWorker`
+7. **Stale PID lock:** `_acquire_lock` resolves recycled PID conflicts on Windows
+8. **Firebase config crashes:** Proper error handling in `FirebaseCRUD` init
+9. **SSE connection drops:** Event stream reconnection logic in `EventStreamWorker`
+10. **Navarasa rendering:** Strict alignment of emotion expressions to Navarasa spec
+
+**Files changed:** 125 files across the codebase
+**Test results:** Full suite 752 passed, 1 skipped in 29.87s.
+
+---
+
+## Session 2026-06-22 — Log Audit Phase 3: Fixes Applied
+
+### Changes Applied (16 items, P0→P3 sequential)
+
+| # | Issue | Fix | File(s) |
+|---|-------|-----|---------|
+| 1 | **CRASH** `push_pending_diaries` missing args | Extract entries/synced from diary_store before call | `pet_window.py:739` |
+| 2 | LLM FSM/expression layer confusion | Auto-correct layer in `_handle_change_visual_state` + updated tests | `mcp_server.py:658-695`, `tests/test_mcp_action_routing.py`, `tests/test_mcp_server.py` |
+| 3 | JSON parse failures (~15/session) | Upgraded code-fence stripping, bracket matching, fallback regex | `opencode_worker.py:417-472` |
+| 4 | Strands `**kwargs` deprecation | `warnings.filterwarnings()` in setup_logging | `logging_setup.py:61-63` |
+| 5 | `reasoningContent` warning spam | Set `strands.models.openai` logger to ERROR | `logging_setup.py:159` |
+| 6 | Stale opencode process on restart | `atexit.register(stop_opencode_serve)` after boot | `daemon.py:316-320` |
+| 7 | `daemon_state.json` never persists | Added diagnostic log confirming write (crash fix #1 enables this) | `persistence.py:32-36` |
+| 8 | Session context cleared on restart | Expected behavior (history injected as context) | No change needed |
+| 9 | MCP race: stale response IDs | 500ms drain delay between close+recreate in `get_agent()` | `strands_worker.py:128-130` |
+| 10 | LLM invents file paths for read_file | Added hint in error: "Use list_directory to find available files." | `mcp_server.py:949` |
+| 11 | Log bloat (1.9 MB / 11 min) | Strands logger overrides at WARNING/ERROR level | `logging_setup.py:140-160` |
+| 12 | "brain segfaulted" x66 / session | `_is_fallback_flood` dedup - suppresses after 3 repeats in 60s | `strands_worker.py:26-57,462-479` |
+| 13 | Full 15K persona sent on every call | Condensed SKILL.md for autonomous mode (strips Phonetics section) | `strands_worker.py:331-340` |
+| 14 | Autonomous messages inflate history | Strip assistant responses from autonomous context | `strands_worker.py:284-287` |
+| 15 | Missing `tools/` directory | Created empty `tools/` dir | (new directory) |
+| 16 | CancelledError/GeneratorExit on shutdown | `except GeneratorExit: pass` in close() | `strands_worker.py:194-196` |
+
+**Test count:** 753 passed, 1 skipped (was 752 — added 1 new test, updated 3 existing)
+**Files changed:** 9 source files, 2 test files, 1 new directory
+
+---
+
+## Session 2026-06-23 - Codex Readiness Audit
+
+**Scope:** Read-only audit of repo readiness for heavy agent-driven development with Codex/Hermes/Antigravity.
+
+**Verification:**
+- Full suite run on 2026-06-23: `753 passed, 1 skipped` via `py -m pytest tests/ -q`
+- Current branch at audit time: `master`
+- Working tree at audit time: dirty (multiple tracked source/test/docs files modified)
+
+**Verdict:** Strong foundation, not fully ready for "99% vibe coding" in the current workspace state.
+
+**Blocking issues found:**
+- Repo instructions referenced `@RTK.md`, but no `RTK.md` file exists in the repo root.
+- Working tree was dirty on `master`, which conflicts with the required branch workflow in `AGENTS.md`.
+- `src/pet_window.py` still contains live transitions to deleted FSM states (`PetState.BOUNCING` in reminder flow, `PetState.SHAKING` in risky-typing flow). Tests passed because those paths were not exercised in the suite.
+- `README.md` has significant drift/corruption: outdated test counts, outdated storage paths, stale FSM docs, and repeated dependency lines injected into narrative sections.
+- `requirements.txt` also drifts from current architecture wording (`OpenRouter` language, Python version comment), so bootstrap docs are no longer a clean source of truth.
+
+**Recommendation before heavy agent use:**
+1. Clean or branch off the current `master` worktree.
+2. Remove stale deleted-state runtime references in `pet_window.py`.
+3. Repair instruction/doc drift (`RTK.md` reference, README, requirements comments).
+4. Keep using the full pytest suite as the main safety rail.

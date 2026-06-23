@@ -56,12 +56,12 @@ def test_clean_and_parse_json():
     assert res[0]["dialogue"] == "recovered_hello"
     assert "crazy" in res[0]["thought"]
 
-    # 6. JSON-like block completely broken (returns segfault fallback)
-    text_broken_json = '{"thought": "broken", "type": "observation"'  # missing dialogue entirely
+    # 6. JSON-like block completely broken but salvageable
+    text_broken_json = '{"thought": "broken", "type": "observation"'  # missing dialogue
     res = worker._clean_and_parse_json(text_broken_json)
     assert len(res) == 1
-    assert "segfaulted" in res[0]["dialogue"]
-    assert "JSON Parse Error" in res[0]["dialogue"]
+    # Salvaged text from the partial JSON: "broken, observation"
+    assert "broken" in res[0]["dialogue"]
 
     # 7. Invalid JSON (no JSON delimiters at all, should return raw text as fallback)
     text_invalid = 'just clean free-form text response from the model'

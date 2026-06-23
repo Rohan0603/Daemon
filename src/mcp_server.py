@@ -666,14 +666,23 @@ class MCPHandler(BaseHTTPRequestHandler):
         if layer not in ("fsm", "expression"):
             return {"error": {"code": -32602, "message": f"Invalid layer: {layer}"}}
 
+        # Auto-correct layer if action belongs exclusively to the other layer.
+        # This handles LLM confusion between FSM and expression actions.
+        if layer == "fsm" and action not in FSM_ACTIONS and action in EXPRESSION_ACTIONS:
+            logger.warning("Auto-corrected action '%s' from fsm->expression layer", action)
+            layer = "expression"
+        elif layer == "expression" and action not in EXPRESSION_ACTIONS and action in FSM_ACTIONS:
+            logger.warning("Auto-corrected action '%s' from expression->fsm layer", action)
+            layer = "fsm"
+
+        # Dispatch to the correct handler
         if layer == "fsm":
             if action not in FSM_ACTIONS:
                 valid = sorted(FSM_ACTIONS)
                 return {"error": {"code": -32602, "message": f"Action '{action}' is not valid for fsm layer. Valid FSM actions: {valid}"}}
             if self._fsm_bridge:
                 self._fsm_bridge.fsm_action_requested.emit(action)
-
-        elif layer == "expression":
+        else:  # expression
             if action not in EXPRESSION_ACTIONS:
                 valid = sorted(EXPRESSION_ACTIONS)
                 return {"error": {"code": -32602, "message": f"Action '{action}' is not valid for expression layer. Valid expression actions: {valid}"}}
@@ -937,7 +946,7 @@ class MCPHandler(BaseHTTPRequestHandler):
         except ValueError as e:
             return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": str(e)}}
         if not os.path.exists(abs_path):
-            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"File not found: {file_path}"}}
+            return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"File not found: {file_path}. Use list_directory to find available files."}}
         if not os.path.isfile(abs_path):
             return {"jsonrpc": "2.0", "id": 1, "error": {"code": -32602, "message": f"Not a file: {file_path}"}}
 

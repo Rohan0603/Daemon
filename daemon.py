@@ -291,6 +291,8 @@ def main() -> None:
             logger.debug("opencode serve ready at %s", opencode_server_url)
         else:
             logger.info("opencode serve not available; CLI fallback will be used")
+    # Also register atexit to clean up opencode serve on crash or abnormal exit
+    atexit.register(stop_opencode_serve)
 
     from src.persistence import load_state, save_state
     from src.pet_window import PetWindow
