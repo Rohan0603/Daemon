@@ -6,10 +6,10 @@
 
 ## Project Snapshot
 
-**Date updated:** 2026-06-22 (Comprehensive Arch Review + Log Audit Phase 1&2)
+**Date updated:** 2026-06-23 (Phase 1 — Agent-First Replatform)
 **Current branch:** `master`
-**Test count:** 752 passed, 1 skipped across 54 test files
-**Git history:** Phase 1-35 → Phase 36 → Phase 37 → Phase 38 → Phase 39 → Phase 39.5 → Phase 40 → Phase 42 → Phase 43 → Phase 44 → Phase 44.5 → Phase 44.6 → Phase 45 → Phase 46 → Phase 50 → Phase 51 → Phase 52 → Phase 54 → Phase 59 → Latest fixes → Comprehensive Arch Review → Log Audit Phase 1&2
+**Test count:** 760 passed, 1 skipped across 57 test files
+**Git history:** Phase 1-35 → ... → Log Audit Phase 1&2 → Package Extraction Phase 1
 
 ---
 
@@ -2606,12 +2606,41 @@ Shutdown: _finalize_quit() → save_session() → disk
 | 15 | Missing `tools/` directory | Created empty `tools/` dir | (new directory) |
 | 16 | CancelledError/GeneratorExit on shutdown | `except GeneratorExit: pass` in close() | `strands_worker.py:194-196` |
 
-**Test count:** 753 passed, 1 skipped (was 752 — added 1 new test, updated 3 existing)
-**Files changed:** 9 source files, 2 test files, 1 new directory
-
----
-
-## Session 2026-06-23 - Codex Readiness Audit
+|**Test count:** 753 passed, 1 skipped (was 752 — added 1 new test, updated 3 existing)
+|**Files changed:** 9 source files, 2 test files, 1 new directory
+|
+|---
+|
+|## Session 2026-06-23 — Phase 1: Agent-First Replatform (Package Extraction)
+|
+|**Scope:** Extract 4 domain packages from monolithic source tree. Enforce canonical import boundaries.
+|
+|**Packages extracted:**
+|- `src/system/` — 8 OS-level modules (active_window, apm, click_through, event_worker, screen_reader, tts, typing_buffer, logging_setup)
+|- `src/llm/` — 4 LLM modules (context_manager, opencode_worker, strands_worker, llm_session_persistence)
+|- `src/autonomy/` — 4 modules (behavior_controller, response_manager, response_pool + new reactions.py)
+|- `src/ui/` — 7 UI modules (pet_window, pet_renderer, context_menu, settings_dialog, login_dialog, thought_log_dialog, data_viewer_dialog)
+|
+|**Legacy wrappers:** Root-level modules retained as lazy `__getattr__` wrappers for backward compatibility.
+|
+|**Boundary guards:** `tests/test_package_layout.py` enforces `system→no ui`, `system→no llm`, `llm→no ui`, `autonomy→no ui`.
+|
+|**Verification:** 760 passed, 1 skipped → `py -m pytest tests/ -q`
+|
+|**Test files added:** 6 (3 import surface tests, 1 reactions test, 1 layout guard, 1 UI import surface)
+|
+|**Notable fixes:**
+|- `clear_screen_cache()` was indented as class method instead of module-level function in `autonomy/behavior_controller.py`
+|- All `src.pet_window.XXX` patch targets across 8 test files updated to `src.ui.pet_window.XXX`
+|- Test module name collision fixed for `test_import_surface` (system/llm/autonomy/ui all use unique basenames)
+|- `__all__` + `__getattr__` wrapper pattern used for all root-level re-exports
+|- Multi-export `pet_renderer.py` wrapper fixed (was incorrectly using `as _Wrapped` for both PetRenderer + RenderContext)
+|
+|**Commit hashes:** `5a1baec` (system), `d929d65` (llm), `c8c87af` (autonomy), `5d8c82d` (ui)
+|
+|---
+|
+|## Session 2026-06-23 - Codex Readiness Audit
 
 **Scope:** Read-only audit of repo readiness for heavy agent-driven development with Codex/Hermes/Antigravity.
 

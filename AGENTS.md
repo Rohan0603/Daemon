@@ -25,7 +25,28 @@ Transparent always-on-top Windows desktop companion built with PyQt6. Named **Da
 **Python:** use `py` (not `python` or `python3`) — Windows py launcher
 **Tests:** `py -m pytest tests/ -v`
 **Stack:** Python 3.14, PyQt6, pynput, ctypes (Win32), requests, comtypes, Pillow, pyttsx3
-**Test count:** 688 passed, 1 skipped across 53 test files
+**Test count:** 760 passed, 1 skipped across 57 test files
+
+## Package Architecture (Phase 1 — completed 2026-06-23)
+
+Canonical package layout with strict boundary guards (enforced by `tests/test_package_layout.py`):
+
+```
+src/
+├── system/       # OS-level: active_window, apm, click_through, screen_reader, tts, typing
+├── llm/          # LLM integration: context_manager, opencode_worker, strands_worker, sessions
+├── autonomy/     # Autonomous behavior: behavior_controller, response_manager, response_pool, reactions
+├── ui/           # Visual layer: pet_window, pet_renderer, context_menu, dialogs
+├── (root)        # Remaining modules (memory, history, fsm, events, etc.)
+```
+
+**Canonical import direction:** `ui → autonomy → {llm, system}`. No reverse imports.
+- `system` must NOT import `ui` or `llm`
+- `llm` must NOT import `ui`
+- `autonomy` must NOT import `ui`
+- `ui` is the topmost layer; it can import anything
+
+**Stale wrappers:** Root-level modules that were moved into packages now re-export via lazy `__getattr__`. Prefer importing from the domain package (`src.ui.PetWindow`) over the legacy wrapper (`src.pet_window.PetWindow`) in new code.
 
 ---
 
