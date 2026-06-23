@@ -52,7 +52,6 @@ from src.history import History
 from src.memory_manager import MemoryManager
 from src.write_coalescer import WriteCoalescer
 from src.diary_store import DiaryStore
-from src.response_manager import AutonomousResponseManager
 from src.action_layer import ActionLayer
 
 from src.system import (
@@ -71,7 +70,7 @@ from src.fsm_bridge import FSMActionBridge
 from src.mcp_server import MCPServer
 from src.animator import EmotionAnimator, Emotion
 from src.events import get_event_bus, EventType, Event
-from src.behavior_controller import BehaviorController
+from src.autonomy import AutonomousResponseManager, BehaviorController
 
 logger = logging.getLogger(__name__)
 

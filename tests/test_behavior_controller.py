@@ -164,7 +164,7 @@ class TestBehaviorControllerEmotionEvaluation(unittest.TestCase):
         controller = _make_controller()
         controller.set_apm(30)
         controller.set_idle_seconds(10)
-        with patch("src.behavior_controller.get_active_window_title", return_value="VS Code - main.py"):
+        with patch("src.autonomy.behavior_controller.get_active_window_title", return_value="VS Code - main.py"):
             emotion = controller._evaluate_emotion()
         self.assertEqual(emotion, Emotion.TRANQUILITY)
 
@@ -346,7 +346,7 @@ class TestBehaviorControllerEventBus(unittest.TestCase):
         controller._current_emotion = Emotion.MIRTH
 
         with patch.object(controller, "_evaluate_emotion", return_value=Emotion.DEVOTION):
-            with patch("src.behavior_controller.get_active_window_title", return_value="Some app"):
+            with patch("src.autonomy.behavior_controller.get_active_window_title", return_value="Some app"):
                 controller.tick(1.0)
 
         self.assertEqual(len(received), 1)
