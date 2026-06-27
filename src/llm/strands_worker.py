@@ -308,7 +308,7 @@ class StrandsAutonomousWorker(QThread):
                 "base_url": base_url,
             },
             model_id=model_id,
-            response_format={"type": "json_object"},
+            params={"response_format": {"type": "json_object"}},
         )
 
     def _interpolate_prompt(self, prompt: str) -> str:
