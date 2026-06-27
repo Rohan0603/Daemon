@@ -4,6 +4,7 @@ from src.system.screen_reader import (
     clear_screen_cache,
     get_text_via_uia,
     get_text_via_wm_gettext,
+    get_browser_url_via_uia,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "clear_screen_cache",
     "get_text_via_uia",
     "get_text_via_wm_gettext",
+    "get_browser_url_via_uia",
 ]

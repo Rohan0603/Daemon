@@ -96,6 +96,57 @@ def get_text_via_wm_gettext() -> str:
         return ""
 
 
+def get_browser_url_via_uia() -> str:
+    """Extract browser URL from address bar via UIA ValuePattern.
+
+    Uses FindFirst with Edit control type condition (fast path) and falls
+    back to tree walker scanning for ValuePattern on all children.
+
+    Returns the URL string if found, empty string otherwise.
+    """
+    automation = _get_uia_automation()
+    if not automation:
+        return ""
+    try:
+        import ctypes
+        hwnd = ctypes.windll.user32.GetForegroundWindow()
+        if not hwnd:
+            return ""
+        element = automation.ElementFromHandle(hwnd)
+        if not element:
+            return ""
+
+        # Fast path: FindFirst with Edit control type condition
+        try:
+            condition = automation.CreatePropertyCondition(30003, 50002)
+            edit_element = element.FindFirst(4, condition)
+            if edit_element:
+                value_pattern = edit_element.GetCurrentPattern(10018)
+                if value_pattern:
+                    url = value_pattern.CurrentValue or ""
+                    if url and (url.startswith("http") or url.startswith("www")):
+                        return url.strip()
+        except Exception:
+            pass
+
+        # Fallback: walk all children looking for ValuePattern with URL
+        walker = automation.CreateTreeWalker(automation.CreateTrueCondition())
+        child = walker.GetFirstChildElement(element)
+        while child:
+            try:
+                value_pattern = child.GetCurrentPattern(10018)
+                if value_pattern:
+                    url = value_pattern.CurrentValue or ""
+                    if url and (url.startswith("http") or url.startswith("www")):
+                        return url.strip()
+            except Exception:
+                pass
+            child = walker.GetNextSiblingElement(child)
+    except Exception as e:
+        logger.debug("get_browser_url_via_uia failed: %s", e)
+    return ""
+
+
 def _cleanup_uia():
     """Clean up COM on shutdown."""
     try:
@@ -112,12 +163,20 @@ def get_foreground_text_delta() -> str:
     screen content is identical to the last call, returns a short sentinel
     string instead of the full text — saving ~2000 tokens per idle tick.
 
-    Returns empty string (always) when no foreground window is detected.
+    If a browser URL is detected via UIA ValuePattern, prepends
+    ``[URL: <url>] `` to the returned text.
+
+    Returns empty string when no foreground window is detected.
     """
     global _last_screen_hash
     text = get_text_via_uia()
     if not text:
         text = get_text_via_wm_gettext()
+
+    url = get_browser_url_via_uia()
+    if url:
+        text = f"[URL: {url}] {text}" if text else f"[URL: {url}]"
+
     text = text[:2000]
     if not text:
         _last_screen_hash = None

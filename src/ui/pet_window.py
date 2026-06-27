@@ -2111,7 +2111,7 @@ class PetWindow(QWidget):
             "apm": apm,
             "idle_seconds": getattr(self, "_idle_seconds", 0.0),
             "typing_content": typing,
-            "screen_text": screen_text[:500]  # truncate to prevent prompt ballooning
+            "screen_text": screen_text[:1500]  # truncate to prevent prompt ballooning
         }
 
     def _dispatch_trigger(self, mode: str, user_input: str = "",
