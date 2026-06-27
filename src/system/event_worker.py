@@ -10,6 +10,8 @@ logger = logging.getLogger(__name__)
 
 
 class EventStreamWorker(QThread):
+    MAX_CONSECUTIVE_FAILURES = 10
+
     lsp_error_detected = pyqtSignal(dict)
     lsp_error_cleared = pyqtSignal()
     command_completed = pyqtSignal(str, int)
@@ -21,6 +23,7 @@ class EventStreamWorker(QThread):
         self.server_url = server_url
         self._running = True
         self._response = None
+        self._consecutive_failures = 0
 
     def run(self):
         backoff = 3
@@ -37,6 +40,7 @@ class EventStreamWorker(QThread):
                     break
                 self._response.raise_for_status()
                 backoff = 3
+                self._consecutive_failures = 0
                 for line in self._response.iter_lines():
                     if not self._running:
                         break
@@ -50,6 +54,11 @@ class EventStreamWorker(QThread):
                                 logger.warning("Failed to parse SSE JSON: %s", e)
             except Exception as e:
                 if self._running:
+                    self._consecutive_failures += 1
+                    if self._consecutive_failures >= self.MAX_CONSECUTIVE_FAILURES:
+                        logger.info("EventStreamWorker disabled")
+                        self._running = False
+                        break
                     logger.error("EventStreamWorker network error: %s", e)
                     time.sleep(backoff)
                     backoff = min(backoff * 2, 15)
