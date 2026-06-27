@@ -34,7 +34,7 @@ from src.constants import (
     SILENCE_THRESHOLD,
     TASK_MANAGER_KEYWORDS,
 )
-from src.events import EventBus, EventType
+from src.events import Event, EventBus, EventType
 from src.pet_fsm import PetFSM, PetState
 from .response_manager import AutonomousResponseManager
 from src.screen_reader import ScreenReader
@@ -120,6 +120,12 @@ class BehaviorController:
         self._distraction_apps = []
         self._event_bus.subscribe(EventType.SCREEN_TIME_THRESHOLD_REACHED, self._on_screen_time_threshold)
 
+        # ── Affinity Score Progression ─────────────────────────────────
+        self._affinity_score: int = -10
+        self._affinity_silence_hours: float = 0.0
+        self._last_affinity_milestone: int | None = None
+        self._affinity_milestones: list[int] = [-10, 0, 10, 25, 50]
+
     # ── Public setters (called by PetWindow) ──────────────────────────
 
     def set_apm(self, apm: int) -> None:
@@ -154,6 +160,44 @@ class BehaviorController:
         """Set global cooldown expiry (bubble active → silence)."""
         self._gcd_expiry_timestamp = timestamp
 
+    # ── Affinity Score ────────────────────────────────────────────────
+
+    @property
+    def affinity_score(self) -> int:
+        return self._affinity_score
+
+    def _modify_affinity(self, delta: int) -> None:
+        old_score = self._affinity_score
+        self._affinity_score += delta
+        self._event_bus.publish(Event(
+            type=EventType.AFFINITY_CHANGED,
+            source="behavior_controller",
+            data={"old_score": old_score, "new_score": self._affinity_score, "delta": delta}
+        ))
+        self._check_affinity_milestone()
+
+    def _check_affinity_milestone(self) -> None:
+        for milestone in self._affinity_milestones:
+            if (self._affinity_score >= milestone and
+                (self._last_affinity_milestone is None or self._last_affinity_milestone < milestone)):
+                self._last_affinity_milestone = milestone
+                self._event_bus.publish(Event(
+                    type=EventType.AFFINITY_MILESTONE_REACHED,
+                    source="behavior_controller",
+                    data={"milestone": milestone, "score": self._affinity_score}
+                ))
+                break
+
+    def _apply_affinity_silence_decay(self, tick_sec: float) -> None:
+        """Decrement affinity by 1 per hour of continuous silence (floor at -20)."""
+        if self._affinity_score <= -20:
+            return
+        self._affinity_silence_hours += tick_sec / 3600.0
+        if self._affinity_silence_hours >= 1.0:
+            hours = int(self._affinity_silence_hours)
+            self._affinity_silence_hours -= hours
+            self._modify_affinity(-hours)
+
     # ── Events (called by PetWindow) ─────────────────────────────────
 
     def on_user_input(self) -> None:
@@ -164,6 +208,8 @@ class BehaviorController:
         self._consecutive_silent = 0
         self._consecutive_engaged = 0
         self._current_interval = BASE_INTERVAL_SEC
+        self._affinity_silence_hours = 0.0
+        self._modify_affinity(+1)
 
     def on_sleep_entered(self) -> None:
         """Freeze behavioral timers when sleeping."""
@@ -185,6 +231,8 @@ class BehaviorController:
         if engaged:
             self._consecutive_engaged += 1
             self._consecutive_silent = 0
+            self._affinity_silence_hours = 0.0
+            self._modify_affinity(+1)
             if self._consecutive_engaged >= ENGAGED_THRESHOLD:
                 self._current_interval = BASE_INTERVAL_SEC
         else:
@@ -248,6 +296,9 @@ class BehaviorController:
                 self._joke_timer_sec = 0.0
                 self._emotion_timer_sec = 0.0
                 return
+
+            # Affinity silence decay: -1 per hour of inactivity
+            self._apply_affinity_silence_decay(master_dt)
 
             # Window switch tracking for WONDER
             current_window = get_active_window_title()

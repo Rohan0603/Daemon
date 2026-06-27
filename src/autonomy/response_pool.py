@@ -41,6 +41,14 @@ class ThoughtPool(QObject):
         self._dedup_max = 20
         self._dedup_threshold = 0.75
 
+    @property
+    def refill_threshold(self) -> int:
+        return self._threshold
+
+    @refill_threshold.setter
+    def refill_threshold(self, value: int) -> None:
+        self._threshold = value
+
     def _is_repetitive(self, text: str) -> bool:
         """Check if *text* is too similar to recently-seen dialogue."""
         if not text:
@@ -175,6 +183,8 @@ class ThoughtPool(QObject):
 
     def decay(self):
         """Priority decay + TTL purge for stale items."""
+        if not self._items:
+            return
         now = datetime.now()
         cutoff = now.timestamp() - self._ttl_seconds
         # TTL purge: remove items older than ttl_seconds

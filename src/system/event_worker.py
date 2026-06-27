@@ -14,6 +14,7 @@ class EventStreamWorker(QThread):
     lsp_error_cleared = pyqtSignal()
     command_completed = pyqtSignal(str, int)
     file_edited = pyqtSignal(str)
+    auth_failed = pyqtSignal()
 
     def __init__(self, server_url: str = DEFAULT_SERVER_URL):
         super().__init__()
@@ -26,6 +27,14 @@ class EventStreamWorker(QThread):
         while self._running:
             try:
                 self._response = requests.get(f"{self.server_url}/event", stream=True, timeout=60)
+                if self._response.status_code in (401, 403):
+                    logger.error(
+                        "EventStreamWorker auth failure (HTTP %d)",
+                        self._response.status_code,
+                    )
+                    self.auth_failed.emit()
+                    self._running = False
+                    break
                 self._response.raise_for_status()
                 backoff = 3
                 for line in self._response.iter_lines():

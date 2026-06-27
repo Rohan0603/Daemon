@@ -71,6 +71,10 @@ class EventType(Enum):
     AUTH_CLEARED = "auth_cleared"
     TOKEN_REFRESHED = "token_refreshed"
 
+    # Affinity Events
+    AFFINITY_CHANGED = "affinity_changed"
+    AFFINITY_MILESTONE_REACHED = "affinity_milestone_reached"
+
     # Pet Lifecycle Events
     PET_SLEEP_STARTED = "pet_sleep_started"
     PET_SLEEP_ENDED = "pet_sleep_ended"

@@ -20,7 +20,6 @@ _last_screen_hash: str | None = None
 
 def _get_uia_automation():
     """Lazy initialization of IUIAutomation, thread-local."""
-    global _UIA_INITIALIZED
     if not _UIA_AVAILABLE:
         return None
     if hasattr(_uia_local, 'automation') and _uia_local.automation is not None:

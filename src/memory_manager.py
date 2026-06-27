@@ -1,4 +1,6 @@
 from __future__ import annotations
+import hashlib
+import json
 import logging
 logger = logging.getLogger(__name__)
 from collections import deque
@@ -20,7 +22,9 @@ class MemoryManager:
         self.crud = crud
         self._uid = uid
         self._pet_id = pet_id
-        self._last_sync_hash: int = 0
+        self._last_sync_hash: str = ""
+        self._batch_cache: dict = {}
+        self._batch_dirty: bool = False
 
     @property
     def _brain_collection(self) -> str:
@@ -119,8 +123,8 @@ class MemoryManager:
             return
 
         # Content-hash guard: skip if nothing changed since last sync
-        current_hash = hash(tuple(sorted(facts.items())))
-        if getattr(self, '_last_sync_hash', 0) == current_hash:
+        current_hash = hashlib.sha256(json.dumps(facts, sort_keys=True).encode()).hexdigest()[:16]
+        if getattr(self, '_last_sync_hash', '') == current_hash:
             logger.debug("[MemoryManager] sync_from_local: hash unchanged, skipping Firestore write")
             return
         self._last_sync_hash = current_hash
@@ -146,7 +150,7 @@ class MemoryManager:
                         if item not in existing_val and item not in [str(x) for x in existing_val]:
                             merged.setdefault(key, []).append(item)
                 elif isinstance(existing_val, dict):
-                    pass
+                    merged.setdefault(key, {}).update(value)
                 else:
                     merged[key] = value
             self.crud.set("users", self._uid, merged, merge=True)
@@ -163,7 +167,7 @@ class MemoryManager:
                         if item not in existing_val and item not in [str(x) for x in existing_val]:
                             merged.setdefault(key, []).append(item)
                 elif isinstance(existing_val, dict):
-                    pass
+                    merged.setdefault(key, {}).update(value)
                 else:
                     merged[key] = value
             self.crud.set(self._brain_collection, self._brain_doc_id, merged, merge=True)
@@ -246,5 +250,21 @@ class MemoryManager:
     def get_current_brain(self) -> dict:
         return self.load_current_brain()
 
+    def update_affinity_score(self, score: int) -> bool:
+        """Write affinity score to the brain doc."""
+        success = self.crud.set(self._brain_collection, self._brain_doc_id,
+                                {"pet_affinity_score": score}, merge=True)
+        if success:
+            logger.info("[MemoryManager] affinity score updated to %d", score)
+        else:
+            logger.warning("[MemoryManager] affinity score update failed — queued for retry")
+            self._pending_writes.append(("affinity", score))
+        return bool(success)
+
     def get_all_diary_entries(self) -> list:
-        return []
+        try:
+            entries = self.crud.get_all(self._diary_collection)
+            return list(entries) if entries else []
+        except Exception as e:
+            logger.warning("[MemoryManager] get_all_diary_entries failed: %s", e)
+            return []

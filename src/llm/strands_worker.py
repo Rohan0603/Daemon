@@ -169,6 +169,19 @@ def _install_warning_filters() -> None:
     )
 class StrandsSession:
     _instance = None
+    _tools_cache: list | None = None
+    _tools_cache_ts: float = 0
+    _TOOLS_CACHE_TTL: float = 60.0
+
+    @classmethod
+    def _get_cached_tools(cls, mcp_client) -> list:
+        now = time.time()
+        if cls._tools_cache is not None and now - cls._tools_cache_ts < cls._TOOLS_CACHE_TTL:
+            return cls._tools_cache
+        cls._tools_cache = mcp_client.list_tools_sync()
+        cls._tools_cache_ts = now
+        return cls._tools_cache
+
     @classmethod
     def get_instance(cls):
         if cls._instance is None:
@@ -208,7 +221,7 @@ class StrandsSession:
                 tool_filters=tool_filters
             )
             self.mcp_client.__enter__()
-            tools = self.mcp_client.list_tools_sync()
+            tools = self._get_cached_tools(self.mcp_client)
             
             self.agent = Agent(
                 system_prompt=system_prompt,
@@ -222,7 +235,7 @@ class StrandsSession:
             from strands.types.content import split_system_prompt
             self.agent._system_prompt, self.agent._system_prompt_content = split_system_prompt(system_prompt)
             self.agent.messages = messages
-            tools = self.mcp_client.list_tools_sync()
+            tools = self._get_cached_tools(self.mcp_client)
 
         # Update hooks
         from strands.hooks import AfterToolCallEvent
@@ -245,6 +258,8 @@ class StrandsSession:
 
         return self.agent, tools
     def close(self):
+        self._tools_cache = None
+        self._tools_cache_ts = 0
         if self.mcp_client is not None:
             logger.info("Closing StrandsSession MCP client")
             try:
@@ -292,7 +307,8 @@ class StrandsAutonomousWorker(QThread):
                 "api_key": api_key,
                 "base_url": base_url,
             },
-            model_id=model_id
+            model_id=model_id,
+            response_format={"type": "json_object"},
         )
 
     def _interpolate_prompt(self, prompt: str) -> str:
@@ -389,6 +405,7 @@ class StrandsAutonomousWorker(QThread):
                 "You are Kenny, the anxious, roasting desktop pet. Run autonomously in the background. "
                 "Analyze the user's environment context. Use your tools to interact. "
                 f"Your active profanity filter constraint is: {self.profanity_level}. "
+                "CRITICAL: Your response must be valid JSON. No markdown fences. No prose. Only a JSON array. "
                 "Always output your final actions strictly as a JSON array matching the brain schema. "
                 "IMPORTANT: For change_visual_state, use ONLY actions from the valid list: "
                 "bounce, celebrate, chase, dash, devastated, fall, flail, flip, float, glitch, grow, "
@@ -404,7 +421,8 @@ class StrandsAutonomousWorker(QThread):
                     condensed_parts = skill_content.split("\n## Phonetics & Delivery", maxsplit=1)
                     stripped = condensed_parts[0].strip()
                     # Shorten the lengthy action/examples section too
-                    system_prompt = f"{stripped}\n\n[System Instructions - condensed]\n{base_prompt}"
+                    system_prompt = (f"{stripped}\n\n[System Instructions - condensed]\n{base_prompt}"
+                                     "\n\nTOOL BUDGET: You have a budget of at most 3 tool calls for this response. Use them wisely.")
                 else:
                     system_prompt = f"{skill_content}\n\n[System Instructions]\n{base_prompt}"
             else:

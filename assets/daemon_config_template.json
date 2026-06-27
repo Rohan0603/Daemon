@@ -60,7 +60,7 @@
     "throw_friction": 0.95,
     "ground_padding_px": 0,
     "chase_enter_radius_px": 120,
-    "chase_exit_radius_px": 250,
+    "chase_exit_radius_px": 300,
     "sleep_idle_seconds": 300,
     "boredom_timeout_sec": 30,
     "autonomous_query_interval_sec": 20,
@@ -90,14 +90,18 @@
     "bubble_queue_max_size": 10,
     "short_bubble_duration_ms": 4000,
     "short_bubble_char_limit": 40,
+    "bubble_ms_per_char": 50,
+    "bubble_min_duration_ms": 2000,
+    "bubble_max_duration_ms": 30000,
     "squash_stretch_duration_ms": 400,
-    "min_chase_duration_ms": 500,
+    "min_chase_duration_ms": 800,
     "perimeter_fall_chance": 0.2,
     "particle_max_count": 200,
     "shake_duration_ms": 2000,
     "bounce_duration_ms": 3000,
     "spin_duration_ms": 1500,
-    "look_away_duration_ms": 4000
+    "look_away_duration_ms": 4000,
+    "dialogue_max_length": 150
   },
   "logging": {
     "level": "INFO",
@@ -137,7 +141,10 @@
     "bubble_font_size": 11,
     "input_width": 260,
     "input_height": 28,
-    "input_y_offset": 10
+    "input_y_offset": 10,
+    "bubble_max_chars": 400,
+    "typewriter_tick_ms": 30,
+    "typewriter_chars_per_tick": 8
   },
   "triggers": {
     "persona_hint": "You are Kenny, the user's desktop pet. You are an anxious, hyperactive, and foul-mouthed Python process gremlin. You are a rogue script and have opinions about code. Keep responses briefly rambling.",

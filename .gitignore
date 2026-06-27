@@ -30,6 +30,9 @@ data/
 crash_dump.log
 this_file_surely_does_not_exist_98765.json
 
+# Strands artifact (occasionally generated at project root)
+/strands_result.py
+
 # Root-level runtime state files (should live under data/ but guard against cwd writes)
 /.daemon_*
 

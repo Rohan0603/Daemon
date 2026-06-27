@@ -1,4 +1,5 @@
 from __future__ import annotations
+import difflib
 import hashlib
 import logging
 import time
@@ -9,19 +10,24 @@ from src.storage_backend import StorageBackend
 logger = logging.getLogger(__name__)
 
 MAX_DIARY_ENTRIES = 200
-DIARY_DEDUP_SIMILARITY = 0.85  # Reject if >85% character overlap with existing
+DIARY_DEDUP_SIMILARITY = 0.85  # Reject if >85% bigram overlap with existing
+DIARY_COOLDOWN_SEC = 1800  # 30 minutes
+
+
+def _bigram_set(s: str) -> set[str]:
+    return {s[i:i+2] for i in range(len(s)-1)}
 
 
 def _fuzzy_ratio(a: str, b: str) -> float:
     if not a or not b:
         return 0.0
-    set_a = set(a.casefold())
-    set_b = set(b.casefold())
-    if not set_a and not set_b:
+    bigrams_a = _bigram_set(a.casefold())
+    bigrams_b = _bigram_set(b.casefold())
+    if not bigrams_a and not bigrams_b:
         return 1.0
-    intersection = set_a & set_b
-    union = set_a | set_b
-    return len(intersection) / len(union)
+    intersection = bigrams_a & bigrams_b
+    union = bigrams_a | bigrams_b
+    return len(intersection) / len(union) if union else 0.0
 
 
 def _has_fuzzy_duplicate(content: str, entries: list[dict], threshold: float = DIARY_DEDUP_SIMILARITY) -> bool:
@@ -30,6 +36,35 @@ def _has_fuzzy_duplicate(content: str, entries: list[dict], threshold: float = D
         existing = (entry.get("content") or "").strip().casefold()
         if _fuzzy_ratio(norm, existing) >= threshold:
             return True
+    return False
+
+
+def _has_sequence_duplicate(content: str, entries: list[dict]) -> bool:
+    """Additional dedup using difflib SequenceMatcher on first sentences."""
+    first_sentence = content.strip().split('.')[0].casefold()
+    for entry in entries:
+        existing = (entry.get("content") or "").strip().split('.')[0].casefold()
+        ratio = difflib.SequenceMatcher(None, first_sentence, existing).ratio()
+        if ratio > 0.85:
+            return True
+    return False
+
+
+def _has_cooldown_duplicate(content: str, entries: list[dict]) -> bool:
+    """Reject entries with near-identical first sentence within the last 30 minutes."""
+    first_sentence = content.strip().split('.')[0].casefold()
+    now = time.time()
+    for entry in entries:
+        existing = (entry.get("content") or "").strip().split('.')[0].casefold()
+        ts = entry.get("timestamp", 0)
+        if isinstance(ts, str):
+            try:
+                ts = float(ts)
+            except (ValueError, TypeError):
+                ts = 0
+        if now - ts < DIARY_COOLDOWN_SEC:
+            if difflib.SequenceMatcher(None, first_sentence, existing).ratio() > 0.85:
+                return True
     return False
 
 def calculate_content_hash(text: str) -> str:
@@ -91,9 +126,17 @@ class DiaryStore(StorageBackend):
         for entry in self._diary_entries:
             if entry.get("hash") == entry_hash:
                 return False
-        # Fuzzy dedup: reject if >85% character overlap with any existing entry
+        # Bigram fuzzy dedup
         if _has_fuzzy_duplicate(content, self._diary_entries):
             logger.debug("Diary fuzzy dedup skipped entry: '%.60s'", content)
+            return False
+        # SequenceMatcher dedup (catches near-duplicates with different character sets)
+        if _has_sequence_duplicate(content, self._diary_entries):
+            logger.debug("Diary sequence dedup skipped entry: '%.60s'", content)
+            return False
+        # Cooldown dedup (same first sentence within 30 minutes)
+        if _has_cooldown_duplicate(content, self._diary_entries):
+            logger.debug("Diary cooldown dedup skipped entry: '%.60s'", content)
             return False
         entry: dict = {
             "content": content,

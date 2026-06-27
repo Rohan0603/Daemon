@@ -102,9 +102,9 @@ def test_chase_exits_when_cursor_far_and_min_duration_elapsed():
     from src.constants import CHASE_EXIT_RADIUS_PX, MIN_CHASE_DURATION_MS
     fsm = PetFSM()
     fsm.current_state = PetState.CHASE
-    # cursor 300px away (> CHASE_EXIT_RADIUS_PX=250)
+    # cursor 301px away (> CHASE_EXIT_RADIUS_PX=300)
     ctx = make_context(
-        cursor_pos=(120 + 300, 925),
+        cursor_pos=(120 + 301, 925),
         pet_rect=(100, 900, 40, 50),
         state_elapsed_ms=MIN_CHASE_DURATION_MS,
     )

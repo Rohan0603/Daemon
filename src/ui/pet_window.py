@@ -259,6 +259,7 @@ class PetWindow(QWidget):
         )
         self._response_manager.thought_pool.refill_needed.connect(self._on_refill_needed)
         self._response_manager.thought_pool.pool_refilled.connect(self._on_pool_refilled)
+        self._response_manager.thought_pool.refill_failed.connect(self._on_refill_failed)
         self._response_manager.start()
         self._log_data_state("Startup+Cache")
 
@@ -2441,36 +2442,40 @@ class PetWindow(QWidget):
         if hasattr(self, "_last_refill_attempt") and hasattr(self, "_refill_failed_count"):
             time_since_last_refill = current_time - self._last_refill_attempt
             if self._refill_failed_count >= 3 and time_since_last_refill < 300:
+                self._response_manager.thought_pool.on_refill_result(None, intentional_abort=True)
                 logger.info("Skipping refill due to recent failures - threshold: %d, time since: %.1f seconds",
                            self._response_manager.thought_pool.refill_threshold, time_since_last_refill)
-                self._response_manager.thought_pool.on_refill_result(None, intentional_abort=True)
                 return
 
         count = THOUGHT_POOL_REFILL_COUNT
         self._refill_in_progress = True
-        base_prompt = self._context_manager.build_mixed_bag_prompt(count)
-        window = get_active_window_title() or "unknown"
-        # Single-stage refill: context included inline, no separate investigation call
-        single_prompt = (
-            f"Screen Context: {window}\n"
-            f"APM: {self._current_apm}\n"
-            f"Generate thoughts a panicked pet would have in this context.\n\n"
-            f"{base_prompt}"
-        )
-        logger.debug("[VERIFY] single-stage refill: window=%s, APM=%d",
-                     window, self._current_apm)
-        worker = OpencodeWorker(
-            "",
-            is_autonomous=True,
-            session_id=None,
-            prompt=single_prompt,
-        )
-        worker.response_ready.connect(lambda items: self._on_refill_result(items))
-        worker.error_occurred.connect(lambda err: self._on_refill_error())
-        with self._refill_workers_lock:
-            self._refill_workers["thought_pool"] = worker
-        worker.start()
-        self._last_refill_attempt = current_time
+        try:
+            base_prompt = self._context_manager.build_mixed_bag_prompt(count)
+            window = get_active_window_title() or "unknown"
+            # Single-stage refill: context included inline, no separate investigation call
+            single_prompt = (
+                f"Screen Context: {window}\n"
+                f"APM: {self._current_apm}\n"
+                f"Generate thoughts a panicked pet would have in this context.\n\n"
+                f"{base_prompt}"
+            )
+            logger.debug("[VERIFY] single-stage refill: window=%s, APM=%d",
+                         window, self._current_apm)
+            worker = OpencodeWorker(
+                "",
+                is_autonomous=True,
+                session_id=None,
+                prompt=single_prompt,
+            )
+            worker.response_ready.connect(lambda items: self._on_refill_result(items))
+            worker.error_occurred.connect(lambda err: self._on_refill_error())
+            with self._refill_workers_lock:
+                self._refill_workers["thought_pool"] = worker
+            worker.start()
+            self._last_refill_attempt = current_time
+        except Exception:
+            logger.exception("Refill worker creation failed — aborting refill")
+            self._on_refill_error()
 
     def _on_refill_result(self, items: list) -> None:
         logger.info("Refill result: %d items", len(items) if items else 0)
@@ -2498,6 +2503,12 @@ class PetWindow(QWidget):
         logger.debug("ThoughtPool refilled, %d items available", self._response_manager.remaining())
         # If we were waiting for refill and it's now ready, we could trigger an autonomous action
         # For now, just log; the next _master_tick will naturally draw from the pool
+
+    def _on_refill_failed(self, _reason: str) -> None:
+        """Called when ThoughtPool refill fails."""
+        if getattr(self, "_refill_in_progress", False):
+            self._refill_in_progress = False
+        logger.warning("ThoughtPool refill failed, pool has %d items", self._response_manager.remaining())
 
     def _on_refill_error(self) -> None:
         self._refill_in_progress = False

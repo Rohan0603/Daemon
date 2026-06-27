@@ -40,6 +40,10 @@ class History(StorageBackend):
             "daemon_response": daemon_response or "",
             "action": action or "idle",
         }
+        if len(self._entries) >= int(HISTORY_MAX_ENTRIES * 0.8):
+            logger.warning("History at %.0f%% capacity (%d/%d)", 
+                          len(self._entries) / HISTORY_MAX_ENTRIES * 100,
+                          len(self._entries), HISTORY_MAX_ENTRIES)
         self._entries.append(entry)
         while len(self._entries) > HISTORY_MAX_ENTRIES:
             self._entries.pop(0)
@@ -96,6 +100,10 @@ class History(StorageBackend):
             "daemon_response": content if role != "user" else "",
             "action": "idle",
         }
+        if len(self._turns) >= int(HISTORY_MAX_ENTRIES * 0.8):
+            logger.warning("History at %.0f%% capacity (%d/%d)", 
+                          len(self._turns) / HISTORY_MAX_ENTRIES * 100,
+                          len(self._turns), HISTORY_MAX_ENTRIES)
         self._turns.append(entry)
         while len(self._turns) > HISTORY_MAX_ENTRIES:
             self._turns.pop(0)

@@ -18,7 +18,7 @@
     "scale": 1.0,
     "opacity": 0.85,
     "speed_multiplier": 1.0,
-    "chattiness": 1.0
+    "chattiness": 3.0
   },
   "tts": {
     "enabled": true,
@@ -59,8 +59,8 @@
     "throw_velocity_threshold": 5.0,
     "throw_friction": 0.95,
     "ground_padding_px": 0,
-    "chase_enter_radius_px": 120,
-    "chase_exit_radius_px": 250,
+    "chase_enter_radius_px": 100,
+    "chase_exit_radius_px": 300,
     "sleep_idle_seconds": 300,
     "boredom_timeout_sec": 30,
     "autonomous_query_interval_sec": 20,
@@ -97,7 +97,11 @@
     "shake_duration_ms": 2000,
     "bounce_duration_ms": 3000,
     "spin_duration_ms": 1500,
-    "look_away_duration_ms": 4000
+    "look_away_duration_ms": 4000,
+    "bubble_ms_per_char": 50,
+    "bubble_min_duration_ms": 2000,
+    "bubble_max_duration_ms": 30000,
+    "dialogue_max_length": 150
   },
   "logging": {
     "level": "INFO",
@@ -138,7 +142,9 @@
     "input_width": 260,
     "input_height": 28,
     "input_y_offset": 10,
-    "bubble_max_chars": 150
+    "bubble_max_chars": 150,
+    "typewriter_tick_ms": 30,
+    "typewriter_chars_per_tick": 8
   },
   "triggers": {
     "persona_hint": "You are Kenny, the user's desktop pet. You are an anxious, hyperactive, and foul-mouthed Python process gremlin. You are a rogue script and have opinions about code. Keep responses briefly rambling.",
