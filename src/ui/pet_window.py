@@ -1338,6 +1338,9 @@ class PetWindow(QWidget):
             new_pos = local - self._drag_offset
             self._pet_x = new_pos.x()
             self._pet_y = new_pos.y()
+            screen_geom = self.screen().availableGeometry()
+            self._pet_x = max(0, min(self._pet_x, screen_geom.width() - PET_WIDTH))
+            self._pet_y = max(0, min(self._pet_y, screen_geom.height() - PET_HEIGHT))
             self.update()
 
     def mouseReleaseEvent(self, event) -> None:
@@ -1419,6 +1422,9 @@ class PetWindow(QWidget):
     def _show_input_field(self) -> None:
         field_x = self._pet_x + PET_WIDTH // 2 - INPUT_WIDTH // 2
         field_y = self._pet_y - INPUT_HEIGHT - INPUT_Y_OFFSET
+        screen_geom = self.screen().availableGeometry()
+        field_x = max(0, min(field_x, screen_geom.width() - INPUT_WIDTH))
+        field_y = max(0, field_y)
         logger.info("Displaying input field at coordinates (%d, %d)", field_x, field_y)
         self._input_field.move(int(field_x), int(field_y))
         self._input_field.clear()

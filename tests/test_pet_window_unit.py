@@ -100,3 +100,93 @@ def test_boredom_timer_reset_on_sleep_entry(app):
         window._fsm.update = lambda dt, ctx: PetState.SLEEP
         window._tick()
         assert window._boredom_timer_ms == BOREDOM_TIMEOUT_SEC * 1000
+
+
+@pytest.mark.fast
+def test_input_field_clamped_left_edge(app):
+    from PyQt6.QtCore import QRect
+    with patch("src.ui.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.ui.pet_window.APMWorker"), \
+         patch("src.ui.pet_window.MCPServer"), \
+         patch("src.ui.pet_window.BehaviorController"):
+        window = PetWindow(opencode_enabled=False)
+        mock_screen = MagicMock()
+        mock_screen.availableGeometry.return_value = QRect(0, 0, 1920, 1080)
+        with patch.object(window, 'screen', return_value=mock_screen):
+            window._pet_x = -100
+            window._pet_y = 500
+            window._show_input_field()
+            pos = window._input_field.pos()
+            assert pos.x() >= 0, f"field_x={pos.x()} should be >= 0 (pet_x=-100)"
+            assert pos.y() >= 0, f"field_y={pos.y()} should be >= 0"
+
+
+@pytest.mark.fast
+def test_input_field_clamped_right_edge(app):
+    from PyQt6.QtCore import QRect
+    from src.constants import INPUT_WIDTH
+    with patch("src.ui.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.ui.pet_window.APMWorker"), \
+         patch("src.ui.pet_window.MCPServer"), \
+         patch("src.ui.pet_window.BehaviorController"):
+        window = PetWindow(opencode_enabled=False)
+        mock_screen = MagicMock()
+        mock_screen.availableGeometry.return_value = QRect(0, 0, 1920, 1080)
+        with patch.object(window, 'screen', return_value=mock_screen):
+            window._pet_x = 1920
+            window._pet_y = 500
+            window._show_input_field()
+            pos = window._input_field.pos()
+            max_x = 1920 - INPUT_WIDTH
+            assert pos.x() <= max_x, f"field_x={pos.x()} should be <= {max_x}"
+
+
+@pytest.mark.fast
+def test_drag_clamps_to_screen_bounds(app):
+    from PyQt6.QtCore import QRect, QPoint, QPointF, Qt, QEvent
+    from PyQt6.QtGui import QMouseEvent
+    from src.pet_fsm import PetState
+    from src.constants import PET_WIDTH, PET_HEIGHT
+    with patch("src.ui.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.ui.pet_window.APMWorker"), \
+         patch("src.ui.pet_window.MCPServer"), \
+         patch("src.ui.pet_window.BehaviorController"):
+        window = PetWindow(opencode_enabled=False)
+        mock_screen = MagicMock()
+        mock_screen.availableGeometry.return_value = QRect(0, 0, 1920, 1080)
+        with patch.object(window, 'screen', return_value=mock_screen):
+            window._pet_x = 100
+            window._pet_y = 100
+            window._fsm.current_state = PetState.DRAGGED
+            window._drag_offset = QPoint(50, 50)
+            window._drag_velocity_x = 0.0
+            window._drag_velocity_y = 0.0
+
+            event = QMouseEvent(
+                QEvent.Type.MouseMove,
+                QPointF(-100, 100),
+                Qt.MouseButton.NoButton,
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+            window.mouseMoveEvent(event)
+            assert window._pet_x >= 0, f"pet_x={window._pet_x} should be >= 0"
+            assert window._pet_y >= 0, f"pet_y={window._pet_y} should be >= 0"
+
+            window._pet_x = 100
+            window._pet_y = 100
+            event2 = QMouseEvent(
+                QEvent.Type.MouseMove,
+                QPointF(2500, 2000),
+                Qt.MouseButton.NoButton,
+                Qt.MouseButton.NoButton,
+                Qt.KeyboardModifier.NoModifier,
+            )
+            window.mouseMoveEvent(event2)
+            max_x = 1920 - PET_WIDTH
+            max_y = 1080 - PET_HEIGHT
+            assert window._pet_x <= max_x, f"pet_x={window._pet_x} should be <= {max_x}"
+            assert window._pet_y <= max_y, f"pet_y={window._pet_y} should be <= {max_y}"
