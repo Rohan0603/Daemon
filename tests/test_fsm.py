@@ -1,3 +1,4 @@
+import time
 import pytest
 from dataclasses import dataclass
 from src.pet_fsm import PetFSM, PetState, FSMContext
@@ -110,6 +111,46 @@ def test_chase_exits_when_cursor_far_and_min_duration_elapsed():
     )
     new_state = fsm.update(33, ctx)
     assert new_state == PetState.IDLE
+
+
+def test_chase_oscillation_cooldown_prevents_immediate_reentry():
+    """After exiting CHASE, re-entry is blocked for 500ms cooldown."""
+    fsm = PetFSM()
+    fsm.current_state = PetState.CHASE
+
+    # 1. Exit CHASE (cursor far, duration met)
+    ctx_exit = make_context(
+        cursor_pos=(120 + 301, 925),
+        pet_rect=(100, 900, 40, 50),
+        state_elapsed_ms=2000,
+    )
+    fsm.update(33, ctx_exit)
+    assert fsm.current_state == PetState.IDLE
+    assert fsm._last_chase_exit_time > 0
+
+    # 2. Immediately try re-entering CHASE with cursor within radius
+    ctx_reenter = make_context(
+        cursor_pos=(120, 875),
+        pet_rect=(100, 900, 40, 50),
+        state_elapsed_ms=0,
+    )
+    result = fsm.update(33, ctx_reenter)
+    assert result != PetState.CHASE, "Should not re-enter CHASE during cooldown"
+
+
+def test_chase_oscillation_cooldown_expires_allows_reentry():
+    """After 500ms cooldown expires, CHASE re-entry should work."""
+    fsm = PetFSM()
+    fsm.current_state = PetState.IDLE
+    # Set exit time to 600ms ago to simulate expired cooldown
+    fsm._last_chase_exit_time = time.monotonic() - 0.6
+
+    ctx = make_context(
+        cursor_pos=(120, 875),
+        pet_rect=(100, 900, 40, 50),
+    )
+    result = fsm.update(33, ctx)
+    assert result == PetState.CHASE, "Should re-enter CHASE after cooldown expires"
 
 
 def test_chase_holds_min_duration_before_exiting():

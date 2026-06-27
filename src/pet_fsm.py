@@ -1,4 +1,5 @@
 from __future__ import annotations
+import time
 from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Optional, Tuple
@@ -46,6 +47,7 @@ class FSMContext:
 class PetFSM:
     def __init__(self) -> None:
         self.current_state = PetState.IDLE
+        self._last_chase_exit_time: float = 0.0
 
     def transition_to(self, new_state: PetState, on_transition=None) -> None:
         if new_state == self.current_state:
@@ -85,13 +87,17 @@ class PetFSM:
             dist = self._cursor_distance(ctx)
             if cur == PetState.CHASE:
                 if dist > CHASE_EXIT_RADIUS_PX and ctx.state_elapsed_ms >= MIN_CHASE_DURATION_MS:
+                    self._last_chase_exit_time = time.monotonic()
                     pass
                 else:
                     return PetState.CHASE
             elif dist <= CHASE_ENTER_RADIUS_PX and cur not in (
                 PetState.THINKING, PetState.CELEBRATE, PetState.DEVASTATED
             ):
-                return PetState.CHASE
+                if time.monotonic() - self._last_chase_exit_time < 0.5:
+                    pass
+                else:
+                    return PetState.CHASE
 
         # Priority 4: HYPER
         if cur == PetState.HYPER:
