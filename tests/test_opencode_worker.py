@@ -248,6 +248,64 @@ def test_handle_schema_error_returns_safe_default(qapp):
     assert "thought" in items[0]
 
 
+# ── brain_update signal emission tests ────────────────────────────────────────
+
+
+def test_send_emits_brain_update_ready_when_items_have_brain_update(qapp):
+    """send() must emit brain_update_ready with the brain_update dict
+    and strip brain_update from items emitted via response_ready."""
+    from src.opencode_worker import OpencodeWorker
+    payload = '[{"thought":"t","dialogue":"hello","type":"observation","brain_update":{"user_habits":["codes at night"]}}]'
+    msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
+        mock_req.return_value = msg_resp
+        brain_updates = []
+        response_items = []
+        worker = OpencodeWorker("hi", session_id="ses_xyz")
+        worker.brain_update_ready.connect(brain_updates.append)
+        worker.response_ready.connect(response_items.append)
+        worker.send("test prompt")
+    assert len(brain_updates) == 1
+    assert brain_updates[0] == {"user_habits": ["codes at night"]}
+    assert len(response_items) == 1
+    assert "brain_update" not in response_items[0][0]
+
+
+def test_send_brain_update_extracts_only_first_item(qapp):
+    """When multiple items have brain_update, only emit the first one."""
+    from src.opencode_worker import OpencodeWorker
+    payload = ('[{"thought":"t1","dialogue":"d1","type":"observation","brain_update":{"user_habits":["a"]}},'
+               '{"thought":"t2","dialogue":"d2","type":"observation","brain_update":{"pet_quirks":["b"]}}]')
+    msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
+        mock_req.return_value = msg_resp
+        brain_updates = []
+        response_items = []
+        worker = OpencodeWorker("hi", session_id="ses_xyz")
+        worker.brain_update_ready.connect(brain_updates.append)
+        worker.response_ready.connect(response_items.append)
+        worker.send("test prompt")
+    assert len(brain_updates) == 1
+    assert brain_updates[0] == {"user_habits": ["a"]}
+    # Both items should have brain_update stripped
+    for item in response_items[0]:
+        assert "brain_update" not in item
+
+
+def test_send_does_not_emit_brain_update_when_not_present(qapp):
+    """When items have no brain_update, nothing should be emitted on that signal."""
+    from src.opencode_worker import OpencodeWorker
+    payload = '[{"thought":"t","dialogue":"hello","type":"observation"}]'
+    msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
+    with patch("src.llm.opencode_worker.requests.post") as mock_req:
+        mock_req.return_value = msg_resp
+        brain_updates = []
+        worker = OpencodeWorker("hi", session_id="ses_xyz")
+        worker.brain_update_ready.connect(brain_updates.append)
+        worker.send("test prompt")
+    assert len(brain_updates) == 0
+
+
 # ── run() tests ─────────────────────────────────────────────────────────────
 
 

@@ -63,7 +63,13 @@ def test_clean_and_parse_json():
     # Salvaged text from the partial JSON: "broken, observation"
     assert "broken" in res[0]["dialogue"]
 
-    # 7. Invalid JSON (no JSON delimiters at all, should return raw text as fallback)
+    # 7. brain_update is parsed and returned but will be stripped before emit
+    text_brain = '[{"thought": "t", "dialogue": "d", "type": "observation", "brain_update": {"user_habits": ["test"]}}]'
+    res = worker._clean_and_parse_json(text_brain)
+    assert len(res) == 1
+    assert "brain_update" in res[0]  # _clean_and_parse_json preserves it; caller strips it
+
+    # 8. Invalid JSON (no JSON delimiters at all, should return raw text as fallback)
     text_invalid = 'just clean free-form text response from the model'
     res = worker._clean_and_parse_json(text_invalid)
     assert len(res) == 1

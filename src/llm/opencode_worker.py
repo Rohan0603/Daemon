@@ -253,6 +253,8 @@ class OpencodeWorker(QThread):
             items = self._parse_json_response(raw)
             if items is not None:
                 logger.debug("RECV parsed: %d items, first: %s", len(items), json.dumps(items[0] if items else {}))
+                # Extract brain_update from items before emitting
+                self._extract_brain_update(items)
                 # Emit turn data for persistence using original_prompt
                 self._emit_turn_completed(original_prompt, raw)
                 self.response_ready.emit(items)
@@ -316,6 +318,7 @@ class OpencodeWorker(QThread):
 
         items = self._parse_json_response(raw2)
         if items is not None:
+            self._extract_brain_update(items)
             self.response_ready.emit(items)
             return
         items = self._handle_schema_error(raw2)
@@ -440,6 +443,14 @@ class OpencodeWorker(QThread):
             "type": "observation",
             "priority": 5,
         }]
+
+    def _extract_brain_update(self, items: list[dict]) -> None:
+        emitted = False
+        for item in items:
+            bu = item.pop("brain_update", None)
+            if bu is not None and not emitted:
+                self.brain_update_ready.emit(bu)
+                emitted = True
 
     def run(self) -> None:
         if self._two_stage is not None:

@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, ANY
 from src.pet_window import PetWindow
 from PyQt6.QtWidgets import QWidget
 
@@ -26,6 +26,7 @@ class TestUserQueryDispatch:
         self.pw._fsm.current_state = "IDLE"
         self.pw._events = None
         self.pw._boredom_timer_ms = 0
+        self.pw._on_brain_update = MagicMock()
 
     def test_on_response_ready_with_user_input(self):
         self.pw._on_response_ready([{"thought": "t", "dialogue": "d", "type": "idle_thought"}])
@@ -45,3 +46,30 @@ class TestUserQueryDispatch:
             force=False,
             user_input="",
         )
+
+    def test_on_response_ready_extracts_brain_update(self):
+        items = [
+            {"thought": "t", "dialogue": "d", "type": "idle_thought",
+             "brain_update": {"user_habits": ["codes at night"]}},
+        ]
+        self.pw._on_response_ready(items)
+        self.pw._on_brain_update.assert_called_once_with({"user_habits": ["codes at night"]})
+        assert "brain_update" not in items[0]
+        self.pw._dispatch_structured.assert_called_once()
+
+    def test_on_response_ready_extracts_only_first_brain_update(self):
+        items = [
+            {"thought": "t1", "dialogue": "d1", "type": "idle_thought",
+             "brain_update": {"user_habits": ["a"]}},
+            {"thought": "t2", "dialogue": "d2", "type": "observation",
+             "brain_update": {"pet_quirks": ["b"]}},
+        ]
+        self.pw._on_response_ready(items)
+        self.pw._on_brain_update.assert_called_once_with({"user_habits": ["a"]})
+        assert "brain_update" not in items[0]
+        assert "brain_update" not in items[1]
+
+    def test_on_response_ready_no_brain_update(self):
+        items = [{"thought": "t", "dialogue": "d", "type": "idle_thought"}]
+        self.pw._on_response_ready(items)
+        self.pw._on_brain_update.assert_not_called()

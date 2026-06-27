@@ -2208,6 +2208,15 @@ class PetWindow(QWidget):
         if not items:
             self._fire_deferred_trigger()
             return
+
+        # Extract brain_update from items before dispatch
+        brain_updated = False
+        for item in items:
+            bu = item.pop("brain_update", None)
+            if bu is not None and not brain_updated:
+                self._on_brain_update(bu)
+                brain_updated = True
+
         user_input = getattr(self, "_current_user_input", "")
         self._current_user_input = ""
         is_user = bool(user_input)

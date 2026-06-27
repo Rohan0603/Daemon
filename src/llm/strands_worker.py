@@ -453,6 +453,9 @@ class StrandsAutonomousWorker(QThread):
                 return
 
             parsed_actions = self._clean_and_parse_json(str(raw_result))
+            # Strip brain_update from items before emitting
+            for item in parsed_actions:
+                item.pop("brain_update", None)
             self.execution_complete.emit(parsed_actions)
             
         except Exception as e:
