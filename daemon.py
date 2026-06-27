@@ -1,5 +1,6 @@
 import sys
 import os
+import time
 import atexit
 import faulthandler
 import argparse
@@ -66,6 +67,24 @@ def _emergency_flush(window: "PetWindow | None" = None) -> None:
             window._firebase_mem.sync_from_local(window._memory)
     except Exception:
         pass
+
+
+def _firebase_sync_retry(fn, label):
+    """Retry a firebase sync call 3 times with 0.5s backoff.
+
+    Logs each attempt at INFO, final failure at WARNING. Never raises.
+    """
+    for attempt in range(1, 4):
+        try:
+            logger.info("Firestore sync [%s] attempt %d/3", label, attempt)
+            fn()
+            return
+        except Exception as e:
+            if attempt < 3:
+                logger.debug("Firestore sync [%s] attempt %d/3 failed: %s", label, attempt, e)
+                time.sleep(0.5)
+            else:
+                logger.warning("Firestore sync [%s] failed after 3 attempts: %s", label, e)
 
 
 def _ensure_ffmpeg_on_path():
@@ -358,13 +377,19 @@ def main() -> None:
 
     window._log_data_state("Pre-Sync")
     if window._firebase_mem:
-        window._firebase_mem.sync_from_local(window._memory)
+        _firebase_sync_retry(
+            lambda: window._firebase_mem.sync_from_local(window._memory),
+            "sync_from_local"
+        )
         diary_entries = window._diary_store.get_entries()
         diary_texts = [e.get("content", "") for e in diary_entries]
         existing = window._diary_store.read()
         diary_synced = existing.get("synced", 0) if existing else 0
-        window._firebase_mem.push_pending_diaries(
-            window._diary_store, diary_texts, diary_synced,
+        _firebase_sync_retry(
+            lambda: window._firebase_mem.push_pending_diaries(
+                window._diary_store, diary_texts, diary_synced,
+            ),
+            "push_pending_diaries"
         )
     window._history.save()
     window._memory.save()
