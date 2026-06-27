@@ -61,6 +61,11 @@ def _emergency_flush(window: "PetWindow | None" = None) -> None:
             window._history.save()
     except Exception:
         pass
+    try:
+        if hasattr(window, '_firebase_mem') and window._firebase_mem and hasattr(window, '_memory'):
+            window._firebase_mem.sync_from_local(window._memory)
+    except Exception:
+        pass
 
 
 def _ensure_ffmpeg_on_path():

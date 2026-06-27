@@ -34,6 +34,7 @@ from src.constants import (
     TASK_MANAGER_KEYWORDS, PROCRASTINATION_DOMAINS,
     APM_PANIC_THRESHOLD_LOW, APM_PANIC_THRESHOLD_HIGH, APM_PANIC_COOLDOWN_SEC,
     APM_STATE_CHANGE_COOLDOWN,
+    FIRESTORE_SYNC_INTERVAL_SEC,
 )
 from src.pet_fsm import PetFSM, PetState, FSMContext
 from .pet_renderer import PetRenderer, RenderContext
@@ -356,6 +357,11 @@ class PetWindow(QWidget):
         self._health_timer.setInterval(3000)
         self._health_timer.timeout.connect(self._on_health_check)
         self._health_timer.start()
+
+        # Periodic Firestore sync timer — started after Firebase auth in _on_boot_check_auth
+        self._firestore_sync_timer = QTimer(self)
+        self._firestore_sync_timer.setInterval(FIRESTORE_SYNC_INTERVAL_SEC * 1000)
+        self._firestore_sync_timer.timeout.connect(self._on_firestore_sync_tick)
 
         # Refill worker state
         self._last_refill_attempt = 0.0
@@ -779,6 +785,8 @@ class PetWindow(QWidget):
             self._greeting_timer.stop()
         if hasattr(self, "_boot_timer"):
             self._boot_timer.stop()
+        if hasattr(self, "_firestore_sync_timer"):
+            self._firestore_sync_timer.stop()
         self._log_data_state("Shutdown")
         self._response_manager.stop()
         try:
@@ -1758,6 +1766,7 @@ class PetWindow(QWidget):
         if self._crud.available:
             self._firebase_mem = MemoryManager(crud=self._crud, uid=uid, pet_id=self._pet_id)
             self._firebase_available = True
+            self._firestore_sync_timer.start()
             self._write_coalescer._memory_manager = self._firebase_mem
             brain = self._firebase_mem.load_current_brain()
             if brain:
@@ -1776,6 +1785,14 @@ class PetWindow(QWidget):
             source="pet_window",
             data={}
         ))
+
+    def _on_firestore_sync_tick(self) -> None:
+        if not self._firebase_available or not self._firebase_mem:
+            return
+        try:
+            self._firebase_mem.sync_from_local(self._memory)
+        except Exception:
+            logger.exception("_on_firestore_sync_tick failed")
 
     def _on_health_check(self) -> None:
         from src.opencode_serve_manager import check_health

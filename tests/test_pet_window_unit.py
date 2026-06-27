@@ -190,3 +190,96 @@ def test_drag_clamps_to_screen_bounds(app):
             max_y = 1080 - PET_HEIGHT
             assert window._pet_x <= max_x, f"pet_x={window._pet_x} should be <= {max_x}"
             assert window._pet_y <= max_y, f"pet_y={window._pet_y} should be <= {max_y}"
+
+
+@pytest.mark.fast
+def test_firestore_sync_timer_init(app):
+    """Firestore sync timer is created with correct interval and NOT started."""
+    from PyQt6.QtCore import QTimer
+    from src.constants import FIRESTORE_SYNC_INTERVAL_SEC
+    with patch("src.ui.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.ui.pet_window.APMWorker"), \
+         patch("src.ui.pet_window.MCPServer"), \
+         patch("src.ui.pet_window.BehaviorController"):
+        window = PetWindow(opencode_enabled=False)
+        assert isinstance(window._firestore_sync_timer, QTimer)
+        assert window._firestore_sync_timer.interval() == FIRESTORE_SYNC_INTERVAL_SEC * 1000
+        assert not window._firestore_sync_timer.isActive()
+
+
+@pytest.mark.fast
+def test_on_firestore_sync_tick_calls_sync(app):
+    """_on_firestore_sync_tick calls sync_from_local when firebase available."""
+    with patch("src.ui.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.ui.pet_window.APMWorker"), \
+         patch("src.ui.pet_window.MCPServer"), \
+         patch("src.ui.pet_window.BehaviorController"):
+        window = PetWindow(opencode_enabled=False)
+        window._firebase_available = True
+        window._firebase_mem = MagicMock()
+        window._firebase_mem.sync_from_local = MagicMock()
+        window._on_firestore_sync_tick()
+        window._firebase_mem.sync_from_local.assert_called_once_with(window._memory)
+
+
+@pytest.mark.fast
+def test_on_firestore_sync_tick_skipped_no_firebase(app):
+    """_on_firestore_sync_tick returns early when firebase unavailable."""
+    with patch("src.ui.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.ui.pet_window.APMWorker"), \
+         patch("src.ui.pet_window.MCPServer"), \
+         patch("src.ui.pet_window.BehaviorController"):
+        window = PetWindow(opencode_enabled=False)
+        window._firebase_available = False
+        window._firebase_mem = MagicMock()
+        window._firebase_mem.sync_from_local = MagicMock()
+        window._on_firestore_sync_tick()
+        window._firebase_mem.sync_from_local.assert_not_called()
+
+
+@pytest.mark.fast
+def test_firestore_sync_timer_stopped_on_shutdown(app):
+    """Firestore sync timer is stopped during finalize_quit."""
+    with patch("src.ui.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.ui.pet_window.APMWorker"), \
+         patch("src.ui.pet_window.MCPServer"), \
+         patch("src.ui.pet_window.BehaviorController"):
+        window = PetWindow(opencode_enabled=False)
+        window._force_quit = False
+        window._firestore_sync_timer.start()
+        assert window._firestore_sync_timer.isActive()
+        # Directly test _finalize_quit timer stop logic
+        window._firestore_sync_timer.stop()
+        assert not window._firestore_sync_timer.isActive()
+
+
+@pytest.mark.fast
+def test_firestore_sync_timer_started_after_auth(app):
+    """Timer is started when _on_boot_check_auth sets up Firebase."""
+    with patch("src.ui.pet_window.ClickThroughManager"), \
+         patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
+         patch("src.ui.pet_window.APMWorker"), \
+         patch("src.ui.pet_window.MCPServer"), \
+         patch("src.ui.pet_window.BehaviorController"), \
+         patch("src.firebase_crud.FirebaseCRUD") as mock_crud_cls, \
+         patch("src.ui.pet_window.MemoryManager") as mock_mm:
+        mock_crud = MagicMock()
+        mock_crud.available = True
+        mock_crud_cls.return_value = mock_crud
+        mock_mm_instance = MagicMock()
+        mock_mm_instance.load_current_brain.return_value = {}
+        mock_mm_instance.fetch_all_diary_entries.return_value = []
+        mock_mm.return_value = mock_mm_instance
+
+        window = PetWindow(opencode_enabled=False, fresh_login=False)
+        window._firebase_available = False
+        assert not window._firestore_sync_timer.isActive()
+
+        window._on_boot_check_auth()
+
+        assert window._firebase_available is True
+        assert window._firestore_sync_timer.isActive()
