@@ -35,6 +35,8 @@ from src.constants import (
     APM_PANIC_THRESHOLD_LOW, APM_PANIC_THRESHOLD_HIGH, APM_PANIC_COOLDOWN_SEC,
     APM_STATE_CHANGE_COOLDOWN,
     FIRESTORE_SYNC_INTERVAL_SEC,
+    BUBBLE_MS_PER_CHAR, BUBBLE_MIN_DURATION_MS, BUBBLE_MAX_DURATION_MS,
+    TYPEWRITER_TICK_MS, TYPEWRITER_CHARS_PER_TICK,
 )
 from src.pet_fsm import PetFSM, PetState, FSMContext
 from .pet_renderer import PetRenderer, RenderContext
@@ -229,6 +231,15 @@ class PetWindow(QWidget):
         self._bubble_queue: list[tuple[str, float]] = []
         self._bubble_text = ""
         self._bubble_timer_ms = 0
+        self._bubble_pages: list[str] = []
+        self._bubble_page_index = 0
+        self._typewriter_buffer = ""
+        self._typewriter_pos = 0
+        self._typewriter_active = False
+        self._typewriter_chars_per_tick = self._config.get("visuals", {}).get("typewriter_chars_per_tick", TYPEWRITER_CHARS_PER_TICK)
+        self._typewriter_tick_ms = self._config.get("visuals", {}).get("typewriter_tick_ms", TYPEWRITER_TICK_MS)
+        self._typewriter_timer = QTimer(self)
+        self._typewriter_timer.timeout.connect(self._tick_typewriter)
         brain_path = self._config.get("storage", {}).get("brain_path", BRAIN_PATH)
 
         self._memory = Memory(path=brain_path)
@@ -985,27 +996,10 @@ class PetWindow(QWidget):
             current_rect = self._get_logical_window_rect()
             self._update_ground_y(current_rect)
             self._anim_tick += 1
-            if self._bubble_timer_ms > 0:
+            if not self._typewriter_active and self._bubble_timer_ms > 0:
                 self._bubble_timer_ms -= FSM_TICK_MS
                 if self._bubble_timer_ms <= 0:
-                    from src.constants import BUBBLE_QUEUE_TTL_SECS
-                    if self._bubble_queue:
-                            now = time.time()
-                            # Discard stale items past TTL
-                            fresh = [(t, ts) for t, ts in self._bubble_queue if now - ts <= BUBBLE_QUEUE_TTL_SECS]
-                            discarded = len(self._bubble_queue) - len(fresh)
-                            if discarded:
-                                logger.debug("Bubble TTL: discarded %d stale item(s)", discarded)
-                            self._bubble_queue = fresh
-                            if self._bubble_queue:
-                                item_text, _ = self._bubble_queue.pop(0)
-                                self._bubble_text = item_text
-                                duration = self._bubble_duration(item_text)
-                                self._bubble_timer_ms = duration
-                                logger.info("_bubble queue -> next: '%s' (%d remaining, %dms)", item_text, len(self._bubble_queue), duration)
-                    else:
-                        self._bubble_text = ""
-                        self._bubble_timer_ms = 0
+                    self._show_next_bubble()
 
             if not self._autonomous_query_pending:
                 # Don't decrement boredom timer during active thinking states
@@ -1513,8 +1507,11 @@ class PetWindow(QWidget):
         # Append current user query
         recent_chat.append({"role": "user", "content": text})
 
+        self._typewriter_timer.stop()
+        self._typewriter_active = False
         self._accumulated_stream_text = ""
-        self._bubble_text = ""
+        self._bubble_text = "..."
+        self._bubble_timer_ms = 60000
         self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level, mode="user")
         self.strands_worker.execution_complete.connect(self._on_response_ready)
         self.strands_worker.partial_text.connect(self._on_partial_response)
@@ -1596,14 +1593,101 @@ class PetWindow(QWidget):
 
 
     def _bubble_duration(self, text: str) -> int:
-        return SHORT_BUBBLE_DURATION_MS if len(text) <= SHORT_BUBBLE_CHAR_LIMIT else SPEECH_BUBBLE_DURATION_MS
+        duration = len(text) * BUBBLE_MS_PER_CHAR
+        return max(BUBBLE_MIN_DURATION_MS, min(BUBBLE_MAX_DURATION_MS, duration))
 
     def _clear_bubble_queue(self) -> None:
+        self._typewriter_timer.stop()
+        self._typewriter_active = False
+        self._bubble_pages.clear()
+        self._bubble_page_index = 0
         self._bubble_queue.clear()
         self._bubble_text = ""
         self._bubble_timer_ms = 0
         self._tts.clear()
         self.update()
+
+    def _start_typewriter(self, text: str) -> None:
+        self._typewriter_timer.stop()
+        self._typewriter_buffer = text
+        self._typewriter_pos = 0
+        self._typewriter_active = True
+        self._bubble_text = ""
+        self._typewriter_timer.setInterval(self._typewriter_tick_ms)
+        self._typewriter_timer.start()
+
+    def _tick_typewriter(self) -> None:
+        if not self._typewriter_buffer:
+            return
+        if self._typewriter_active:
+            end = min(self._typewriter_pos + self._typewriter_chars_per_tick, len(self._typewriter_buffer))
+            self._typewriter_pos = end
+            self._bubble_text = self._typewriter_buffer[:end]
+            self.update()
+        if self._typewriter_pos >= len(self._typewriter_buffer):
+            self._typewriter_timer.stop()
+            self._typewriter_active = False
+            total_chars = len(self._typewriter_buffer)
+            typewriter_elapsed_ms = (total_chars // self._typewriter_chars_per_tick) * self._typewriter_tick_ms
+            page_duration = self._bubble_duration(self._typewriter_buffer)
+            self._bubble_timer_ms = max(BUBBLE_MIN_DURATION_MS, page_duration - typewriter_elapsed_ms)
+
+    def _paginate_text(self, text: str, max_chars: int | None = None) -> list[str]:
+        if max_chars is None:
+            max_chars = BUBBLE_MAX_CHARS
+        if len(text) <= max_chars:
+            return [text]
+        pages = []
+        remaining = text
+        while remaining:
+            if len(remaining) <= max_chars:
+                pages.append(remaining)
+                break
+            chunk = remaining[:max_chars]
+            split_at = -1
+            for sep in (".", "!"):
+                idx = chunk.rfind(sep)
+                if idx > max_chars // 2:
+                    split_at = max(split_at, idx)
+            if split_at == -1:
+                last_space = chunk.rfind(" ")
+                if last_space > max_chars // 2:
+                    split_at = last_space
+            if split_at > 0:
+                pages.append(remaining[:split_at + 1])
+                remaining = remaining[split_at + 1:].lstrip()
+            else:
+                pages.append(chunk)
+                remaining = remaining[max_chars:].lstrip()
+        return pages
+
+    def _show_next_bubble(self) -> None:
+        if self._bubble_pages and self._bubble_page_index < len(self._bubble_pages) - 1:
+            self._bubble_page_index += 1
+            self._start_typewriter(self._bubble_pages[self._bubble_page_index])
+        elif self._bubble_queue:
+            now = time.time()
+            from src.constants import BUBBLE_QUEUE_TTL_SECS
+            fresh = [(t, ts) for t, ts in self._bubble_queue if now - ts <= BUBBLE_QUEUE_TTL_SECS]
+            discarded = len(self._bubble_queue) - len(fresh)
+            if discarded:
+                logger.debug("Bubble TTL: discarded %d stale item(s)", discarded)
+            self._bubble_queue = fresh
+            if self._bubble_queue:
+                item_text, _ = self._bubble_queue.pop(0)
+                pages = self._paginate_text(item_text)
+                if len(pages) > 1:
+                    self._bubble_pages = pages
+                    self._bubble_page_index = 0
+                    self._start_typewriter(pages[0])
+                else:
+                    self._bubble_pages = []
+                    self._bubble_page_index = 0
+                    self._start_typewriter(item_text)
+                logger.info("_show_next_bubble -> '%s' (%d remaining, %d pages)", item_text, len(self._bubble_queue), len(pages))
+        else:
+            self._bubble_text = ""
+            self._bubble_timer_ms = 0
 
     def _show_greeting_bubble(self) -> None:
         if self._bubble_queue:
@@ -1618,11 +1702,16 @@ class PetWindow(QWidget):
             self._bubble_queue.append((text, _time.time()))
             logger.info("_show_bubble queued: '%s' (queue size: %d)", text, len(self._bubble_queue))
             return
-        duration = self._bubble_duration(text)
-        logger.info("_show_bubble called with text: '%s' (duration: %dms)", text, duration)
-        self._bubble_text = text
-        self._bubble_timer_ms = duration
-        self.update()
+        pages = self._paginate_text(text)
+        if len(pages) > 1:
+            self._bubble_pages = pages
+            self._bubble_page_index = 0
+            self._start_typewriter(pages[0])
+        else:
+            self._bubble_pages = []
+            self._bubble_page_index = 0
+            self._start_typewriter(text)
+        logger.info("_show_bubble called with text: '%s' (duration: %dms, pages: %d)", text, self._bubble_duration(text), len(pages))
         # self._tts.enqueue(text)  # TTS paused
         self.update()
 

@@ -1,6 +1,6 @@
 {
   "user": {
-    "uid": "uid1",
+    "uid": "03I23yUn4Wd7McOgNkjls4LUg2p2",
     "display_name": ""
   },
   "llm": {
@@ -142,7 +142,7 @@
     "input_width": 260,
     "input_height": 28,
     "input_y_offset": 10,
-    "bubble_max_chars": 150,
+    "bubble_max_chars": 400,
     "typewriter_tick_ms": 30,
     "typewriter_chars_per_tick": 8
   },

@@ -2663,3 +2663,273 @@ Shutdown: _finalize_quit() → save_session() → disk
 2. Remove stale deleted-state runtime references in `pet_window.py`.
 3. Repair instruction/doc drift (`RTK.md` reference, README, requirements comments).
 4. Keep using the full pytest suite as the main safety rail.
+
+---
+
+## Task: Log Analysis Fixes (2026-06-27)
+
+**Commit:** `4bdcf3c`  
+**Branch workflow:** `task-21-log-analysis-fixes` → squash merge to `master`  
+**Tests:** 169/169 affected tests pass, full suite passes (pre-existing `test_bubble_behavior.py` failures unrelated)
+
+### P0 — Crash Fixes (Batch 1)
+
+| # | Fix | File | Status |
+|---|-----|------|--------|
+| 1 | Add `refill_threshold` property to ThoughtPool | `src/autonomy/response_pool.py` | ✅ |
+| 2 | Reorder `on_refill_result` before log in `_on_refill_needed`; wrap worker creation in try/finally | `src/ui/pet_window.py` | ✅ |
+| 3 | Init `_batch_cache`/`_batch_dirty` in MemoryManager.__init__ | `src/memory_manager.py` | ✅ |
+
+### P1 — High Impact (Batch 2, 4)
+
+| # | Fix | File | Status |
+|---|-----|------|--------|
+| 4 | Add `response_format=json_object` to OpenAIModel; tighten system prompt for JSON mode | `src/llm/strands_worker.py` | ✅ |
+| 5 | Typewriter backpressure — **skipped** (no typewriter animation exists in current codebase) | — | ⏭️ |
+| 6 | Affinity score progression: new `AFFINITY_CHANGED`/`AFFINITY_MILESTONE_REACHED` events, `_modify_affinity()` with +1 per chat/engagement, -1/hr silence decay (floor -20), milestone triggers at -10/0/10/25/50, `update_affinity_score()` on MemoryManager | `src/events.py`, `src/autonomy/behavior_controller.py`, `src/memory_manager.py` | ✅ |
+| 7 | History capacity 100→200, 80% capacity warning | `src/constants.py`, `src/history.py` | ✅ |
+
+### P2 — Bugs (Batch 2, 3, 4)
+
+| # | Fix | File | Status |
+|---|-----|------|--------|
+| 8 | Replace character-set Jaccard with bigram-based `_fuzzy_ratio` in DiaryStore | `src/diary_store.py` | ✅ |
+| 9 | TypingBuffer: 30s proactive idle timer (`_check_idle`), `ctypes.c_double` for thread-safe timestamp | `src/system/typing_buffer.py` | ✅ |
+| 10 | Connect `refill_failed` signal → `_on_refill_failed` handler in pet_window | `src/ui/pet_window.py` | ✅ |
+| 11 | Implement `get_all_diary_entries()` (was returning `[]` unconditionally) | `src/memory_manager.py` | ✅ |
+| 12 | Dict merge in `sync_from_local` (was `pass` on dict values) | `src/memory_manager.py` | ✅ |
+| 13 | Replace Python `hash()` with `hashlib.sha256` for stable content-hash across restarts | `src/memory_manager.py` | ✅ |
+| 20 | Add `difflib.SequenceMatcher` + 30-min cooldown as additional dedup layers | `src/diary_store.py` | ✅ |
+
+### P3 — Enhancements (Batch 2, 3, 4)
+
+| # | Fix | File | Status |
+|---|-----|------|--------|
+| 14 | Tools list caching in StrandsSession (60s TTL, cleared on close) | `src/llm/strands_worker.py` | ✅ |
+| 15 | Tool budget instruction in autonomous system prompt (3 calls max) | `src/llm/strands_worker.py` | ✅ |
+| 16 | Early return guard in `decay()` when pool empty | `src/autonomy/response_pool.py` | ✅ |
+| 17 | Typewriter config — **skipped** (no typewriter in codebase; config keys exist but unused) | — | ⏭️ |
+| 18 | Increase CHASE hysteresis gap: enter 120→100px, exit 250→300px | `data/daemon_config.json` | ✅ |
+| 19 | Add `strands_result.py` to `.gitignore` | `.gitignore` | ✅ |
+
+### Verification
+
+```bash
+# All affected module tests pass
+py -m pytest tests/test_response_pool.py tests/test_diary_store.py tests/test_history.py tests/test_memory_manager.py tests/test_typing_buffer.py tests/test_behavior_controller.py tests/test_events.py tests/test_hysteresis.py -v
+# 169/169 passed
+```
+
+---
+
+## Validation Session 2026-06-27 — Log Deep Analysis
+
+**Commit validated:** `4bdcf3c` (P0-P3 plan), `94ee499` (response_format fix)
+**Full test suite:** 764 passed, 1 skipped, 23 deselected (bubble tests), 6 warnings
+**Log analyzed:** `logs/daemon_2026-06-27_13-02-51.log`
+
+### Issues Confirmed Fixed (from validation)
+
+- ✅ Dict merge bug in `sync_from_local()` — `pass` → `.update()`
+- ✅ `_batch_cache`/`_batch_dirty` init
+- ✅ Refill crash protection (try/finally + `_on_refill_failed`)
+- ✅ ThoughtPool decay early return
+- ✅ Diary triple-layer dedup (bigram + SequenceMatcher + cooldown)
+- ✅ TypingBuffer thread safety (`ctypes.c_double`) + 30s idle timer
+- ✅ History 200 cap + 80% warning
+- ✅ Stable sha256 hashes
+- ✅ Tools caching 60s TTL
+- ✅ `get_all_diary_entries` implementation
+- ✅ CHASE hysteresis gap widened (120→100 enter, 250→300 exit, 500→800ms min_duration)
+- ✅ `response_format` moved to `params={}` (Strands SDK correct structure) — `94ee499`
+- ✅ EventStreamWorker 401/403 handling
+- ✅ Affinity progression engine
+
+### Batch 5 — All 7 Items Complete (2026-06-27)
+
+| # | Issue | Severity | Commit | Status |
+|---|-------|----------|--------|--------|
+| 21 | Input field off-screen (negative X) | P0 | `387f0dd` | ✅ |
+| 22 | FSM PERIMETER↔CHASE oscillation | P0 | `dace5c6` | ✅ |
+| 23 | `brain_update` dead code — LLM can't update memory | P1 | `1592b41` + fixup | ✅ |
+| 24 | No periodic Firestore sync — crash = data loss | P1 | After `1df8d02` | ✅ |
+| 25 | No retry on shutdown sync | P1 | `1df8d02` | ✅ |
+| 26 | EventStreamWorker circuit breaker (ERROR spam) | P2 | After `1df8d02` | ✅ |
+| 27 | Screen content / browser URL detection | P3 | After `1df8d02` | ✅ |
+
+---
+
+## Task #22 — FSM State Transition Cooldown (PERIMETER↔CHASE Oscillation)
+
+**Commit:** `dace5c6`
+**Branch workflow:** `task-22-fsm-chase-cooldown` → squash merge to `master`
+**Tests:** 2 new tests + 23 existing = 25 passed in `test_fsm.py`
+
+### Root Cause
+
+~2,500 PERIMETER→CHASE transitions in ~40s (every 33ms tick). The 800ms `MIN_CHASE_DURATION_MS` delayed exit but didn't prevent re-entry on the next tick. `_tick_perimeter()` moved pet at 2px/tick, oscillating cursor distance across the hysteresis threshold.
+
+### Changes
+
+| File | Change |
+|------|--------|
+| `src/pet_fsm.py:5` | Added `import time` |
+| `src/pet_fsm.py:50` | Added `self._last_chase_exit_time: float = 0.0` in `PetFSM.__init__` |
+| `src/pet_fsm.py:89-90` | On CHASE exit (cursor far + min duration met), records `self._last_chase_exit_time = time.monotonic()` |
+| `src/pet_fsm.py:97-100` | On CHASE re-entry attempt (cursor within enter radius), checks `time.monotonic() - self._last_chase_exit_time < 0.5` — if still in cooldown, refuses re-entry |
+| `tests/test_fsm.py:2` | Added `import time` at module level |
+| `tests/test_fsm.py:115-145` | Two new tests: `test_chase_oscillation_cooldown_prevents_immediate_reentry` and `test_chase_oscillation_cooldown_expires_allows_reentry` |
+
+### Self-Review
+
+- ✅ `time.monotonic()` used (wall-clock, not state_elapsed_ms which resets across states)
+- ✅ Cooldown set to 500ms (matches the 500-char debounce pattern in `typing_buffer.py`)
+- ✅ Test for blocked re-entry during cooldown
+- ✅ Test for allowed re-entry after cooldown expires (sets `_last_chase_exit_time` to 600ms ago)
+- ✅ No side effects on other FSM transitions (all 23 original tests pass)
+- ✅ No unused imports
+
+## Task #21 — Input Field Off-Screen (Screen Bounds Clamping)
+
+**Commit:** `387f0dd`
+**Branch workflow:** `task-21-input-field-screen-bounds` → squash merge to `master`
+**Tests:** 3 new tests pass, full suite: 767 passed, 1 skipped
+
+### Changes
+
+| File | Change |
+|------|--------|
+| `src/ui/pet_window.py:1425-1428` | Added `screen_geom = self.screen().availableGeometry()` then clamp `field_x` to `[0, screen_width - INPUT_WIDTH]` and `field_y` to `[0, screen_height - INPUT_HEIGHT]` |
+| `src/ui/pet_window.py:1341-1344` | After drag position update, clamp `pet_x` to `[0, screen_width - PET_WIDTH]` and `pet_y` to `[0, screen_height - PET_HEIGHT]` |
+| `tests/test_pet_window_unit.py` | 3 new tests: `test_input_field_clamped_left_edge`, `test_input_field_clamped_right_edge`, `test_drag_clamps_to_screen_bounds` |
+
+### Self-Review
+
+- ✅ All new code covered by tests (TDD: tests written first, verified RED)
+- ✅ No unused imports introduced
+- ✅ Used `self.screen().availableGeometry()` (spec-compliant) not `QApplication.primaryScreen()`
+- ✅ `field_y` clamped with `max(0, ...)` for top-edge safety
+- ✅ Drag clamping uses `PET_WIDTH`/`PET_HEIGHT` to keep full pet rect on-screen
+- ✅ Followed existing test patterns (patched background workers, `@pytest.mark.fast`, `app` fixture)
+
+## Batch 5 Task Summaries
+
+### Task #23 — brain_update Dead Code
+
+**Commits:** `1592b41` + follow-up (fixup Strands pop removal)
+**Tests:** 7 new tests across 3 test files; 775/776 pass (1 pre-existing skip)
+
+**Changes:**
+| File | Change |
+|------|--------|
+| `src/llm/opencode_worker.py:447-453` | Added `_extract_brain_update()` method — pops `brain_update` from items, emits `brain_update_ready` signal for first item |
+| `src/llm/opencode_worker.py:257,321` | Calls `_extract_brain_update()` in both `send()` and `_send_two_stage()` |
+| `src/ui/pet_window.py:2212-2218` | `_on_response_ready` now iterates items, pops `brain_update`, calls `_on_brain_update()` (catches Strands worker path) |
+| `tests/test_opencode_worker.py` | 3 tests: emission, first-only extraction, no-op when absent |
+| `tests/test_user_query_dispatch.py` | 3 tests: extraction, first-only, no-op in `_on_response_ready` |
+
+**Bug caught by spec reviewer:** StrandsWorker initially stripped `brain_update` in `run()` with no signal to deliver it — silently dropping data. Fix: removed the `item.pop()` loop so data passes through to `_on_response_ready`.
+
+### Task #24 — Periodic Firestore Sync
+
+**Commit:** After `1df8d02` (part of chain)
+**Tests:** 5 new tests; 58/58 pass across affected modules
+
+**Changes:**
+| File | Change |
+|------|--------|
+| `src/constants.py:12` | Added `FIRESTORE_SYNC_INTERVAL_SEC = 300` |
+| `src/ui/pet_window.py:362-364` | Timer created in `__init__` (not started) |
+| `src/ui/pet_window.py:1789-1795` | `_on_firestore_sync_tick` — calls `sync_from_local()` if firebase available, wrapped in try/except |
+| `src/ui/pet_window.py:1769` | Timer started after Firebase auth in `_on_boot_check_auth` |
+| `src/ui/pet_window.py:788-789` | Timer stopped in `_force_quit_app` |
+| `daemon.py:64-68` | `_emergency_flush` now also calls `sync_from_local()` |
+| `tests/test_pet_window_unit.py:197-277` | 5 tests: init, tick, skip, stop, start-after-auth |
+
+### Task #25 — Retry on Shutdown Sync
+
+**Commit:** `1df8d02`
+**Tests:** 780/781 pass (1 pre-existing skip)
+
+**Changes:**
+| File | Change |
+|------|--------|
+| `daemon.py:72-86` | Added `_firebase_sync_retry(fn, label)` helper — 3 attempts, 0.5s backoff, INFO per attempt, WARNING on final exhaustion |
+| `daemon.py:380-393` | Wrapped both `sync_from_local()` and `push_pending_diaries()` in retry calls |
+
+### Task #26 — EventStreamWorker Circuit Breaker
+
+**Commit:** After `1df8d02`
+**Tests:** 3/3 passed
+
+**Changes:**
+| File | Change |
+|------|--------|
+| `src/system/event_worker.py:13` | Added `MAX_CONSECUTIVE_FAILURES = 10` class constant |
+| `src/system/event_worker.py:26` | Added `_consecutive_failures` counter in `__init__` |
+| `src/system/event_worker.py:43` | Counter reset to 0 on successful HTTP response |
+| `src/system/event_worker.py:57-61` | In except block: increment counter, if ≥ 10 log "EventStreamWorker disabled" at INFO, set `_running = False` |
+| `tests/test_event_worker.py` | 2 new tests: circuit breaker stops after max failures, resets on success |
+
+### Task #27 — Screen Content / Browser URL Detection
+
+**Commit:** After `1df8d02`
+**Tests:** 7 new tests; 19/19 pass in `test_screen_reader.py`
+
+**Changes:**
+| File | Change |
+|------|--------|
+| `src/system/screen_reader.py:99-147` | Added `get_browser_url_via_uia()` — extracts URL from browser address bar via UIA ValuePattern (fast path: FindFirst with Edit control type; fallback: tree walker) |
+| `src/system/screen_reader.py:176-178` | `get_foreground_text_delta()` prepends `[URL: {url}] ` when URL detected |
+| `src/ui/pet_window.py:2114` | `_build_context_snapshot()` truncation expanded from 500 → 1500 chars |
+| `src/screen_reader.py:7,15` | Re-export `get_browser_url_via_uia` from legacy wrapper |
+| `tests/test_screen_reader.py` | 7 tests: edit condition, walker fallback, non-URL rejection, no value pattern, URL + screen text, URL alone, cache invalidation |
+
+## Final Regression
+
+233/233 tests pass across all 15 affected modules — FSM, pet window, opencode worker, Strands worker, screen reader, event worker, brain schema, diary store, history, memory manager, daemon, config, constants.
+
+**Runtime token savings (rtk):** 48.5K tokens saved (2.8%) across 824 commands this session.
+
+---
+
+## Task: Typewriter Animation (2026-06-27)
+
+**Commit:** *(pending)*
+**Branch workflow:** `task-23-typewriter-animation` → squash merge to `master`
+**Tests:** 22/23 pass in `test_bubble_behavior.py` (1 pre-existing APM mock failure); 60/61 in full affected test pass
+
+### What Was Built
+
+**Config mappings (`src/config.py`):**
+| Flat key | Nested path |
+|----------|-------------|
+| `BUBBLE_MS_PER_CHAR` | `behavior.bubble_ms_per_char` (50ms) |
+| `BUBBLE_MIN_DURATION_MS` | `behavior.bubble_min_duration_ms` (2000ms) |
+| `BUBBLE_MAX_DURATION_MS` | `behavior.bubble_max_duration_ms` (30000ms) |
+| `DIALOGUE_MAX_LENGTH` | `behavior.dialogue_max_length` (150) |
+| `TYPEWRITER_TICK_MS` | `visuals.typewriter_tick_ms` (30ms) |
+| `TYPEWRITER_CHARS_PER_TICK` | `visuals.typewriter_chars_per_tick` (8) |
+
+**Constants (`src/constants.py`):**
+- Added `BUBBLE_MAX_CHARS = 400`, `BUBBLE_MS_PER_CHAR`, `BUBBLE_MIN_DURATION_MS`, `BUBBLE_MAX_DURATION_MS`, `DIALOGUE_MAX_LENGTH`, `TYPEWRITER_TICK_MS`, `TYPEWRITER_CHARS_PER_TICK`
+
+**Typewriter animation (`src/ui/pet_window.py`):**
+- `_start_typewriter(text)` — init buffer/pos, start QTimer at configured interval
+- `_tick_typewriter()` — reveals `_typewriter_chars_per_tick` chars per tick; on completion sets `_bubble_timer_ms` to proportional duration minus typewriter elapsed time
+- `_paginate_text(text, max_chars)` — splits at sentence boundaries (`.`/`!`) preferentially, then word boundary, then hard cut at `BUBBLE_MAX_CHARS`
+- `_show_next_bubble()` — advances to next page or dequeues next bubble with pagination
+- `_show_bubble(text)` — paginates multi-page text, uses typewriter for first page
+- `_bubble_duration(text)` — `clamp(len * BUBBLE_MS_PER_CHAR, BUBBLE_MIN_DURATION_MS, BUBBLE_MAX_DURATION_MS)`
+- `_clear_bubble_queue()` — stops typewriter timer, resets pagination state
+- "..." placeholder shown with 60s timeout during LLM streaming
+- `_tick()` bubble section replaced with `_show_next_bubble()` delegation
+
+**Config update (`data/daemon_config.json`):**
+- `visuals.bubble_max_chars` updated from 150 → 400 (matching template)
+
+### Key Decisions
+- Typewriter tick constants read from config at init (not hardcoded module-level vars)
+- Sentence-boundary pagination prefers `.`/`!` > ` ` > hard cut, with cutoff at 50% of max_chars to avoid tiny splits
+- `_tick_typewriter` handles both active (advancing position) and complete (buffer fully revealed, just computing timer) states
+- Pre-existing `test_context_snapshot_has_all_fields` failure unrelated to this change (APMWorker mock returns MagicMock not int)
