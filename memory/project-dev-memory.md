@@ -2938,7 +2938,7 @@ py -m pytest tests/test_response_pool.py tests/test_diary_store.py tests/test_hi
 
 ### Phase 41 — Strands-Based Dual-Profile Integration Fixes (2026-06-28)
 
-**Branch:** `master` (uncommitted as of this writing)
+**Branch:** `master` (commit `5f30de1`, squash-merged from `task-41-strands-dual-profile-integration`)
 
 **What was fixed:**
 
