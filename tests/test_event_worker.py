@@ -41,11 +41,13 @@ def test_event_worker_circuit_breaker_resets_on_success(mock_get, mock_sleep):
     assert worker._consecutive_failures == 0
 
 
+@patch('src.system.event_worker.time.sleep')
 @patch('src.system.event_worker.requests.get')
-def test_event_worker_parses_events(mock_get):
+def test_event_worker_parses_events(mock_get, mock_sleep):
     worker = EventStreamWorker("http://127.0.0.1:4096")
     
     mock_response = MagicMock()
+    mock_response.status_code = 200
     
     def mock_iter_lines():
         yield b'data: {"anyOf": [{"id": "1", "status": "error"}]}'
@@ -53,7 +55,6 @@ def test_event_worker_parses_events(mock_get):
         worker._running = False
         
     mock_response.iter_lines.side_effect = lambda: mock_iter_lines()
-    mock_response.__enter__.return_value = mock_response
     mock_get.return_value = mock_response
     
     lsp_errors = []

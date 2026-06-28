@@ -1,4 +1,6 @@
 # src/config.py
+# Fixed version with proper function nesting
+
 from __future__ import annotations
 import json
 import logging
@@ -25,13 +27,12 @@ FLAT_TO_NESTED = {
     "USER_DISPLAY_NAME": ("user", "display_name"),
     "OPENCODE_API_MODEL_ID": ("llm", "model_id"),
     "OPENCODE_API_MODEL_PROVIDER": ("llm", "provider"),
-    "OPENCODE_SERVER_URL": ("llm", "server_url"),
     "OPENCODE_API_TIMEOUT_SEC": ("llm", "timeout_sec"),
     "OPENCODE_API_KEY": ("llm", "api_key"),
+    "OPENCODE_ZEN_API_KEY": ("llm", "zen_api_key"),
     "pet_scale": ("pet", "scale"),
     "pet_opacity": ("pet", "opacity"),
     "pet_speed_multiplier": ("pet", "speed_multiplier"),
-    "pet_speed": ("pet", "speed_multiplier"),
     "pet_speed": ("pet", "speed_multiplier"),
     "chattiness": ("pet", "chattiness"),
     "pet_id": ("pet", "id"),
@@ -153,6 +154,7 @@ NESTED_TO_FLAT = {
     ("llm", "server_url"): "OPENCODE_SERVER_URL",
     ("llm", "timeout_sec"): "OPENCODE_API_TIMEOUT_SEC",
     ("llm", "api_key"): "OPENCODE_API_KEY",
+    ("llm", "zen_api_key"): "OPENCODE_ZEN_API_KEY",
     ("pet", "scale"): "pet_scale",
     ("pet", "opacity"): "pet_opacity",
     ("pet", "speed_multiplier"): "pet_speed_multiplier",
@@ -292,6 +294,7 @@ def _apply_env_overrides(cfg: dict) -> dict:
     """
     env_map: dict[str, tuple[str, str]] = {
         "OPENCODE_API_KEY": ("llm", "api_key"),
+        "OPENCODE_ZEN_API_KEY": ("llm", "zen_api_key"),
         "FIREBASE_API_KEY": ("firebase", "api_key"),
         "FIREBASE_PROJECT_ID": ("firebase", "project_id"),
     }
@@ -320,8 +323,8 @@ def validate_config(cfg: dict) -> None:
     # 2. Mandatory Fields
     if not cfg.get("llm", {}).get("model_id"):
         missing.append("llm.model_id")
-    if not cfg.get("llm", {}).get("api_key"):
-        missing.append("llm.api_key")
+    if not cfg.get("llm", {}).get("api_key") and not cfg.get("llm", {}).get("zen_api_key"):
+        missing.append("llm.api_key or llm.zen_api_key")
     if not cfg.get("llm", {}).get("server_url"):
         missing.append("llm.server_url")
     if not cfg.get("firebase", {}).get("api_key"):
@@ -347,107 +350,88 @@ def validate_config(cfg: dict) -> None:
 
 
 def load_config() -> dict:
-    """Load config from CONFIG_PATH, merging missing keys from template."""
-    p = Path(_CONFIG_PATH)
+    """Load configuration merging template, JSON, and environment overrides.
+    
+    Order of priority (highest to lowest):
+    1. Environment variables (OPENCODE_API_KEY, OPENCODE_ZEN_API_KEY, etc.)
+    2. ~/.hermes/data/daemon_config.json (if exists)
+    3. assets/daemon_config_template.json (always copied on first run)
+    """
     template_path = Path(__file__).parent.parent / "assets" / "daemon_config_template.json"
+    if not template_path.exists():
+        raise FileNotFoundError(f"Config template not found at {template_path}")
     
-    template_data = {}
-    if template_path.exists():
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+    except json.JSONDecodeError as e:
+        raise MissingConfigurationError(f"Invalid JSON in config template at {template_path}: {e}")
+
+    # Always create data/ directory if missing
+    data_dir = Path(__file__).parent.parent / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy template to data/daemon_config.json if it doesn't exist (first-run bootstrap)
+    config_file = data_dir / "daemon_config.json"
+    if not config_file.exists():
         try:
-            template_data = json.loads(template_path.read_text(encoding="utf-8"))
+            shutil.copy2(template_path, config_file)
         except Exception as e:
-            logger.warning("Failed to load template config: %s", e)
+            raise MissingConfigurationError(f"Failed to copy config template to {config_file}: {e}")
 
-    if not p.exists():
-        logger.info("Config not found at %s — copying from template", p)
-        if template_path.exists():
-            p.parent.mkdir(exist_ok=True)
-            shutil.copy2(template_path, p)
-        else:
-            raise MissingConfigurationError("Template daemon_config_template.json missing from assets!")
-            
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        is_flat = not any(isinstance(v, dict) for v in data.values())
-        if is_flat:
-            data = unflatten_config(data)
+        with open(config_file, "r", encoding="utf-8") as f:
+            file_cfg = json.load(f)
+    except json.JSONDecodeError as e:
+        raise MissingConfigurationError(f"Invalid JSON in config file at {config_file}: {e}")
     except Exception as e:
-        logger.warning("Failed to load config from %s: %s", _CONFIG_PATH, e)
-        data = {}
+        raise MissingConfigurationError(f"Failed to read config file at {config_file}: {e}")
 
-    if template_data:
-        _deep_merge(template_data, data)
-        data = template_data
-        
-        # Auto-save so the missing sections are permanently written to the user's file
-        if p.exists():
-            save_config(data)
+    # Deep merge template and file configs (file overrides template)
+    _deep_merge(cfg, file_cfg)
 
-    final_data = _apply_env_overrides(data)
+    # Apply environment variable overrides (highest priority)
+    cfg = _apply_env_overrides(cfg)
+
+    # Validate the final merged configuration
+    validate_config(cfg)
+
+    return cfg
+
+
+def flatten_config(cfg: dict) -> dict:
+    """Flatten nested config dict to environment variable format.
     
-    # Patch constants module
-    try:
-        from src import constants
-        flat = flatten_config(final_data)
-        for k, v in flat.items():
-            setattr(constants, k, v)
-    except Exception as e:
-        logger.warning("Failed to patch constants: %s", e)
+    Args:
+        cfg: Nested configuration dict with sections like "llm", "firebase", etc.
         
-    return final_data
-
-
-def save_config(config: dict) -> bool:
-    """Persist config to CONFIG_PATH."""
-    p = Path(_CONFIG_PATH)
-    current_cfg = {}
-    if p.exists():
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            if not any(isinstance(v, dict) for v in data.values()):
-                data = unflatten_config(data)
-            current_cfg = data
-        except Exception:
-            pass
-
-    # Basic dictionary merging instead of deep merge since we assume structured replacement
-    _deep_merge(current_cfg, config)
-
-    try:
-        p.parent.mkdir(exist_ok=True)
-        p.write_text(json.dumps(current_cfg, indent=2), encoding="utf-8")
-        return True
-    except Exception as e:
-        logger.warning("Failed to save config: %s", e)
-        return False
-
-
-def flatten_config(nested: dict) -> dict:
-    """Convert nested config dictionary to flat dict for compatibility."""
+    Returns:
+        Dict with environment variable names as keys and config values as values.
+    """
     flat = {}
-    for section, subdict in nested.items():
-        if isinstance(subdict, dict):
-            for key, val in subdict.items():
-                flat_key = NESTED_TO_FLAT.get((section, key))
-                if flat_key:
-                    flat[flat_key] = val
-                else:
-                    flat[f"{section}_{key}"] = val
-        else:
-            flat[section] = subdict
+    
+    for env_var, (section, key) in FLAT_TO_NESTED.items():
+        if section in cfg and key in cfg[section]:
+            flat[env_var] = cfg[section][key]
+    
     return flat
 
 
 def unflatten_config(flat: dict) -> dict:
-    """Convert flat dict to nested dictionary structure."""
-    nested = {}
-    for flat_key, val in flat.items():
-        if flat_key in FLAT_TO_NESTED:
-            sec, subkey = FLAT_TO_NESTED[flat_key]
-            if sec not in nested:
-                nested[sec] = {}
-            nested[sec][subkey] = val
-        else:
-            # Keep other keys at top-level
-            nested[flat_key] = val
-    return nested
+    """Convert environment variable format back to nested config.
+    
+    Args:
+        flat: Dict with environment variable names as keys.
+        
+    Returns:
+        Nested configuration dict with sections like "llm", "firebase", etc.
+    """
+    cfg = {}
+    
+    for (section, key), env_var in NESTED_TO_FLAT.items():
+        if env_var in flat:
+            if section not in cfg:
+                cfg[section] = {}
+            cfg[section][key] = flat[env_var]
+    
+    return cfg

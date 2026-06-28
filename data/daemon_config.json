@@ -8,7 +8,7 @@
     "provider": "opencode-zen",
     "server_url": "http://127.0.0.1:4096",
     "timeout_sec": 180,
-    "api_key": "sk-iYpolEiyJYqfQMuoT7lZb0oIoLrjbxZ7G7iQe2nO1fGAMMg8hJgxb880njreyMtP"
+    "api_key": "sk-Kl6KqXvG4vlSylT1TmvcWh5ge5GIBgXFGV1n1glADmjpqUraLZJxxm3BOO0TudY6"
   },
   "pet": {
     "id": "kenny",
@@ -18,7 +18,7 @@
     "scale": 1.0,
     "opacity": 0.85,
     "speed_multiplier": 1.0,
-    "chattiness": 3.0
+    "chattiness": 1.0
   },
   "tts": {
     "enabled": true,
@@ -29,12 +29,12 @@
   },
   "consent": {
     "allow_intrusive_animations": true,
-    "allow_audio_disruptions": true,
-    "allow_browser_redirection": true,
-    "allow_clipboard_hijacking": true,
-    "allow_mouse_interference": true,
-    "allow_window_management": true,
-    "allow_keyboard_injection": true
+    "allow_audio_disruptions": false,
+    "allow_browser_redirection": false,
+    "allow_clipboard_hijacking": false,
+    "allow_mouse_interference": false,
+    "allow_window_management": false,
+    "allow_keyboard_injection": false
   },
   "window": {
     "monitor": false
@@ -59,7 +59,7 @@
     "throw_velocity_threshold": 5.0,
     "throw_friction": 0.95,
     "ground_padding_px": 0,
-    "chase_enter_radius_px": 100,
+    "chase_enter_radius_px": 120,
     "chase_exit_radius_px": 300,
     "sleep_idle_seconds": 300,
     "boredom_timeout_sec": 30,
@@ -91,7 +91,7 @@
     "short_bubble_duration_ms": 4000,
     "short_bubble_char_limit": 40,
     "squash_stretch_duration_ms": 400,
-    "min_chase_duration_ms": 500,
+    "min_chase_duration_ms": 800,
     "perimeter_fall_chance": 0.2,
     "particle_max_count": 200,
     "shake_duration_ms": 2000,

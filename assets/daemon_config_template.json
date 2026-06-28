@@ -4,12 +4,13 @@
     "display_name": ""
   },
   "llm": {
-    "model_id": "gemini-2.5-flash",
-    "provider": "opencode-zen",
-    "server_url": "http://127.0.0.1:4096",
-    "timeout_sec": 180,
-    "api_key": ""
-  },
+      "model_id": "opencode/deepseek-v4-flash-free",
+      "provider": "opencode-zen",
+      "server_url": "https://opencode.ai/zen/v1",
+      "zen_api_key": "YOUR_ZEN_API_KEY_HERE",
+      "timeout_sec": 180,
+      "api_key": ""
+    },
   "pet": {
     "id": "kenny",
     "active_personas": [

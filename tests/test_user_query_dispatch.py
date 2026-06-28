@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch, ANY
+from unittest.mock import MagicMock, patch
 from src.pet_window import PetWindow
 from PyQt6.QtWidgets import QWidget
 

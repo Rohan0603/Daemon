@@ -23,7 +23,7 @@ class MemoryManager:
         self._uid = uid
         self._pet_id = pet_id
         self._last_sync_hash: str = ""
-        self._batch_cache: dict = {}
+        self._batch_cache: dict[str, object] = {}
         self._batch_dirty: bool = False
 
     @property

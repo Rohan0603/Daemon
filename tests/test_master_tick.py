@@ -18,6 +18,7 @@ def _make_pw():
     pw._behavior = MagicMock()
     pw._idle_seconds = 0
     pw._screen_time_tick = 0
+    pw._state_save_tick = 0
     pw._last_master_tick_time = time.monotonic() - 1.0
     return pw
 

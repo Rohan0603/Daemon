@@ -137,6 +137,10 @@ class PetWindow(QWidget):
         self._land_time: float = 0.0
         self._takeoff_time: float = 0.0
         self._title_land_time: float = 0.0
+        # Pre-calculated elapsed times for paintEvent (to avoid computation during rendering)
+        self._takeoff_elapsed_ms: float = 0.0
+        self._title_land_elapsed_ms: float = 0.0
+        self._prepare_jump_elapsed_ms: float = 0.0
         self._last_window_rect = None
         self._drag_offset = QPoint(0, 0)
         self._drag_velocity_x = 0.0
@@ -314,17 +318,6 @@ class PetWindow(QWidget):
             self._greeting_timer.start()
 
 
-        self._fsm_timer = QTimer(self)
-        self._fsm_timer.setInterval(FSM_TICK_MS)
-        self._fsm_timer.timeout.connect(self._tick)
-        self._fsm_timer.start()
-
-        from src.constants import BEHAVIOR_TICK_MS
-        self._behavior_timer = QTimer(self)
-        self._behavior_timer.setInterval(BEHAVIOR_TICK_MS)
-        self._behavior_timer.timeout.connect(self._master_tick)
-        self._behavior_timer.start()
-
         self._bubble_text = ""
         self._bubble_timer_ms = 0
         self._bubble_rect = QRect()
@@ -392,6 +385,18 @@ class PetWindow(QWidget):
         self._input_field.hide()
         self._input_field.returnPressed.connect(self._on_input_submitted)
         self._input_field.installEventFilter(self)
+
+        # ── Timers (started after all variables initialized) ──────────────────
+        self._fsm_timer = QTimer(self)
+        self._fsm_timer.setInterval(FSM_TICK_MS)
+        self._fsm_timer.timeout.connect(self._tick)
+        self._fsm_timer.start()
+
+        from src.constants import BEHAVIOR_TICK_MS
+        self._behavior_timer = QTimer(self)
+        self._behavior_timer.setInterval(BEHAVIOR_TICK_MS)
+        self._behavior_timer.timeout.connect(self._master_tick)
+        self._behavior_timer.start()
 
         self._tray_icon = self._build_tray()
         self._tray_icon.show()
@@ -1111,6 +1116,16 @@ class PetWindow(QWidget):
             self._apply_action_positions()
             self._apply_physics(new_state, FSM_TICK_MS, current_rect)
             self._animator.update(FSM_TICK_MS, self._pet_x, self._pet_y)
+            # Pre-calculate elapsed times for paintEvent to avoid computation during rendering
+            ms_takeoff = (time.time() - getattr(self, '_takeoff_time', 0.0)) * 1000
+            self._takeoff_elapsed_ms = ms_takeoff if ms_takeoff <= 200 else 0.0
+            
+            ms_title_land = (time.time() - getattr(self, '_title_land_time', 0.0)) * 1000
+            self._title_land_elapsed_ms = ms_title_land if ms_title_land <= 200 else 0.0
+            
+            ms_prepare_jump = (time.time() - getattr(self, '_prepare_jump_time', 0.0)) * 1000
+            self._prepare_jump_elapsed_ms = ms_prepare_jump if 0 < ms_prepare_jump <= 150 else 0.0
+            
             self.update()
         except Exception as e:
             logger.critical("CRASH in _tick: %s", e, exc_info=True)
@@ -1368,15 +1383,11 @@ class PetWindow(QWidget):
                 land_elapsed_ms = 0.0
             else:
                 land_elapsed_ms = ms
-                
-            ms_takeoff = (time.time() - getattr(self, '_takeoff_time', 0.0)) * 1000
-            takeoff_elapsed_ms = ms_takeoff if ms_takeoff <= 200 else 0.0
             
-            ms_title_land = (time.time() - getattr(self, '_title_land_time', 0.0)) * 1000
-            title_land_elapsed_ms = ms_title_land if ms_title_land <= 200 else 0.0
-
-            ms_prepare_jump = (time.time() - getattr(self, '_prepare_jump_time', 0.0)) * 1000
-            prepare_jump_elapsed_ms = ms_prepare_jump if 0 < ms_prepare_jump <= 150 else 0.0
+                        # Use pre-calculated elapsed times (updated in _tick) to avoid computation during rendering
+            takeoff_elapsed_ms = self._takeoff_elapsed_ms
+            title_land_elapsed_ms = self._title_land_elapsed_ms
+            prepare_jump_elapsed_ms = self._prepare_jump_elapsed_ms
 
             ctx = RenderContext(
                 state=self._fsm.current_state,
@@ -1488,9 +1499,23 @@ class PetWindow(QWidget):
         self._last_mode = "user_input"
 
         # Safely halt any existing in-flight ReAct loop to prevent memory leaks/crashes
-        if hasattr(self, 'strands_worker') and self.strands_worker and self.strands_worker.isRunning():
-            self.strands_worker.abort()
-            self.strands_worker.wait() # Safely block for the cancellation point
+        if hasattr(self, 'strands_worker') and self.strands_worker is not None:
+            if self.strands_worker.isRunning():
+                self.strands_worker.abort()
+                # Move to zombie workers for async cleanup instead of blocking
+                if not hasattr(self, '_zombie_workers'):
+                    self._zombie_workers = set()
+                w = self.strands_worker
+                self.strands_worker = None
+                self._zombie_workers.add(w)
+                def _cleanup_strands(w=w):
+                    if hasattr(self, '_zombie_workers'):
+                        self._zombie_workers.discard(w)
+                w.finished.connect(_cleanup_strands)
+                w.finished.connect(w.deleteLater)
+            else:
+                self.strands_worker.deleteLater()
+                self.strands_worker = None
 
         current_context = self._build_context_snapshot() 
         profanity_level = self._config.get("pet", {}).get("profanity_level", "moderate")
@@ -1512,8 +1537,10 @@ class PetWindow(QWidget):
         self._accumulated_stream_text = ""
         self._bubble_text = "..."
         self._bubble_timer_ms = 60000
-        self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level, mode="user")
+        self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, self._config.get("llm", {}).get("zen_api_key", ""), self._uid, self._pet_id, is_autonomous=False)
         self.strands_worker.execution_complete.connect(self._on_response_ready)
+        from src.log_context import get_correlation_id
+        self.strands_worker._correlation_id = get_correlation_id()
         self.strands_worker.partial_text.connect(self._on_partial_response)
 
         # Handle failures gracefully to un-stick the FSM
@@ -2059,11 +2086,25 @@ class PetWindow(QWidget):
 
             # No local cache hit — trigger Strands worker dispatch
             # 1. Safely halt any existing in-flight ReAct loop to prevent memory leaks/crashes
-            if hasattr(self, 'strands_worker') and self.strands_worker and self.strands_worker.isRunning():
-                self.strands_worker.abort()
-                self.strands_worker.wait() # Safely block for the cancellation point
-                
-            current_context = self._build_context_snapshot() 
+            if hasattr(self, 'strands_worker') and self.strands_worker is not None:
+                if self.strands_worker.isRunning():
+                    self.strands_worker.abort()
+                    # Move to zombie workers for async cleanup instead of blocking
+                    if not hasattr(self, '_zombie_workers'):
+                        self._zombie_workers = set()
+                    w = self.strands_worker
+                    self.strands_worker = None
+                    self._zombie_workers.add(w)
+                    def _cleanup_strands(w=w):
+                        if hasattr(self, '_zombie_workers'):
+                            self._zombie_workers.discard(w)
+                    w.finished.connect(_cleanup_strands)
+                    w.finished.connect(w.deleteLater)
+                else:
+                    self.strands_worker.deleteLater()
+                    self.strands_worker = None
+
+            current_context = self._build_context_snapshot()
             profanity_level = self._config.get("pet", {}).get("profanity_level", "moderate")
             
             # 2. Pull last 10 turns for context injection
@@ -2076,10 +2117,11 @@ class PetWindow(QWidget):
                     recent_chat.append({"role": "assistant", "content": item["daemon_response"]})
             
             self._accumulated_stream_text = ""
-            self._bubble_text = ""
-            self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, profanity_level, mode="autonomous")
+            self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, self._config.get("llm", {}).get("zen_api_key", ""), self._uid, self._pet_id, is_autonomous=True)
             self.strands_worker.execution_complete.connect(self._on_response_ready)
             self.strands_worker.partial_text.connect(self._on_partial_response)
+            from src.log_context import get_correlation_id
+            self.strands_worker._correlation_id = get_correlation_id()
             
             # 3. Handle failures gracefully to un-stick the FSM
             def handle_failure(err):

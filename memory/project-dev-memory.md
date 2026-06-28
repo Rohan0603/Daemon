@@ -2932,4 +2932,25 @@ py -m pytest tests/test_response_pool.py tests/test_diary_store.py tests/test_hi
 - Typewriter tick constants read from config at init (not hardcoded module-level vars)
 - Sentence-boundary pagination prefers `.`/`!` > ` ` > hard cut, with cutoff at 50% of max_chars to avoid tiny splits
 - `_tick_typewriter` handles both active (advancing position) and complete (buffer fully revealed, just computing timer) states
-- Pre-existing `test_context_snapshot_has_all_fields` failure unrelated to this change (APMWorker mock returns MagicMock not int)
+|- Pre-existing `test_context_snapshot_has_all_fields` failure unrelated to this change (APMWorker mock returns MagicMock not int)
+
+---
+
+### Phase 41 — Strands-Based Dual-Profile Integration Fixes (2026-06-28)
+
+**Branch:** `master` (uncommitted as of this writing)
+
+**What was fixed:**
+
+1. **Fixed indentation errors in `src/ui/pet_window.py`** — Removed unexpected indents at lines 1541 and 323 that caused ImportError during module loading
+2. **Corrected timer initialization order** — Moved timer block (`self._fsm_timer`, `self._behavior_timer`, `self._greeting_timer`) to occur after all instance variables are initialized, ensuring proper state setup
+3. **Added missing timing constants to `src/constants.py`** — Replaced hardcoded module-level ACTION_* constants with config-driven defaults via `__getattr__` defaults dict. Added `BEHAVIOR_TICK_MS=1000`, `FSM_TICK_MS=33`, and all `ACTION_*_DURATION_MS` entries with sensible fallback values
+
+**Verification:**
+
+- All 34 related tests pass: `test_screen_time.py` (3), `test_strands_worker.py` (5), `test_action_layer.py` (9), `test_constants.py` (4), `test_pet_window_unit.py` (13)
+- `src.ui.pet_window.PetWindow`, `src.constants.*`, and `src.action_layer.ActionLayer` all import cleanly
+
+**Files modified:**
+- `src/ui/pet_window.py` — indentation + timer init order
+- `src/constants.py` — missing constants added via defaults dict
