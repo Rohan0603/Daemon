@@ -1,3 +1,7 @@
+"""Tests for stateless burst OpencodeWorker.
+
+Updated for Phase 4 Task 4.1 stateless burst executor.
+"""
 import os
 import subprocess
 import pytest
@@ -47,434 +51,337 @@ def test_persona_hint_constant_exists():
     assert "Kenny" in _PERSONA_HINT
 
 
-def test_worker_emits_pool_items_ready_signal(qapp):
-    """OpencodeWorker should have pool_items_ready signal."""
-    from src.opencode_worker import OpencodeWorker
-    w = OpencodeWorker("hello")
-    assert hasattr(w, "pool_items_ready")
-
-
-# ── New signals tests ────────────────────────────────────────────────────────
+# ── Signal existence tests ────────────────────────────────────────────────
 
 
 def test_response_ready_signal_exists(qapp):
     from src.opencode_worker import OpencodeWorker
-    worker = OpencodeWorker("hi")
+    worker = OpencodeWorker(prompt="hi")
     assert hasattr(worker, "response_ready")
 
 
-def test_old_signals_removed(qapp):
+def test_trigger_ready_signal_added(qapp):
+    """trigger_ready is the new preferred signal name (Phase 4.1)."""
     from src.opencode_worker import OpencodeWorker
-    worker = OpencodeWorker("hi")
-    assert not hasattr(worker, "trigger_ready")
+    worker = OpencodeWorker(prompt="hi")
+    assert hasattr(worker, "trigger_ready")
+
+
+def test_error_occurred_signal_exists(qapp):
+    from src.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(prompt="hi")
+    assert hasattr(worker, "error_occurred")
+    assert hasattr(worker, "error")
+    emitted = []
+    worker.error_occurred.connect(emitted.append)
+
+
+def test_session_created_signal_bw_compat(qapp):
+    """session_created still exists for backward compat but is never emitted."""
+    from src.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(prompt="hi")
+    assert hasattr(worker, "session_created")
+
+
+def test_brain_update_ready_signal_exists(qapp):
+    from src.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(prompt="hi")
+    assert hasattr(worker, "brain_update_ready")
+
+
+def test_legacy_signals_not_present(qapp):
+    """Removed signals from old stateful interface."""
+    from src.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(prompt="hi")
+    assert not hasattr(worker, "pool_items_ready")
+    assert not hasattr(worker, "path_used")
+    assert not hasattr(worker, "session_turn_completed")
     assert not hasattr(worker, "context_injected")
-    assert not hasattr(worker, "injection_failed")
     assert not hasattr(worker, "structured_ready")
-    assert not hasattr(worker, "structured_batch_ready")
-    assert not hasattr(worker, "structured_multiplexed")
-    assert not hasattr(worker, "result_ready")
+    assert not hasattr(worker, "injection_failed")
 
 
-# ── Constructor tests ────────────────────────────────────────────────────────
+# ── Constructor tests ────────────────────────────────────────────────────
 
 
-def test_constructor_simplified_kwargs(qapp):
+def test_constructor_keyword_prompt(qapp):
+    """New constructor uses prompt= keyword (first positional is accepted for backward compat)."""
     from src.opencode_worker import OpencodeWorker
-    worker = OpencodeWorker("hi", context_hint="Chrome", apm=42,
-                            is_autonomous=True, session_id="ses_1",
-                            prompt="prebuilt prompt", typing_content="hello world")
-    assert worker._user_input == "hi"
-    assert worker._context_hint == "Chrome"
-    assert worker._apm == 42
+    worker = OpencodeWorker(prompt="hello")
+    assert worker._prompt == "hello"
+
+
+def test_constructor_backward_compat_kwargs(qapp):
+    """Extra kwargs (context_hint, apm, session_id, etc.) must not crash."""
+    from src.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(
+        "hi", context_hint="Chrome", apm=42,
+        is_autonomous=True, session_id="ses_1",
+        prompt="prebuilt prompt", typing_content="hello world"
+    )
+    assert worker._prompt == "prebuilt prompt"
     assert worker._is_autonomous is True
-    assert worker._session_id == "ses_1"
-    assert worker._prebuilt_prompt == "prebuilt prompt"
-    assert worker._typing_content == "hello world"
 
 
-def test_constructor_no_removed_params(qapp):
-    from src.opencode_worker import OpencodeWorker
-    worker = OpencodeWorker("hi")
-    assert not hasattr(worker, "_modes")
-    assert not hasattr(worker, "_memory_context")
-    assert not hasattr(worker, "_history_context")
-    assert not hasattr(worker, "_idle_seconds")
-    assert not hasattr(worker, "_last_action")
-    assert not hasattr(worker, "_continue_session")
-    assert not hasattr(worker, "_injection_in_flight")
+# ── Session lifecycle (stateless burst) tests ────────────────────────────
 
 
-# ── _post_message tests ─────────────────────────────────────────────────────
+def test_run_creates_and_deletes_session(qapp):
+    """Every burst must create a session, use it, and delete it."""
+    from src.llm.opencode_worker import OpencodeWorker
 
+    call_log = []
 
-def test_post_message_creates_session_when_none(qapp):
-    from src.opencode_worker import OpencodeWorker
-    session_resp = _mock_response(200, {"id": "new_ses"})
-    msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": "hello"}]})
+    def fake_post(url, **kw):
+        call_log.append(("post", url))
+        if "/session" == url.rstrip("/").split("/")[-1] or url.endswith("/session"):
+            return _mock_response(200, {"id": "sess_burst"})
+        return _mock_response(200, {"parts": [{"type": "text", "text": '[{"dialogue":"hi","thought":"ok","type":"observation"}]'}]})
 
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.side_effect = [session_resp, msg_resp]
-        session_ids = []
-        worker = OpencodeWorker("hi")
-        worker.session_created.connect(session_ids.append)
-        result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
-    assert result == "hello"
-    assert session_ids == ["new_ses"]
-    assert worker._session_id == "new_ses"
-    assert mock_req.call_count == 2
+    def fake_delete(url, **kw):
+        call_log.append(("delete", url))
 
+    with patch("src.llm.opencode_worker.requests.post", fake_post), \
+         patch("src.llm.opencode_worker.requests.delete", fake_delete):
+        items = []
+        worker = OpencodeWorker(prompt="test")
+        worker.response_ready.connect(items.append)
+        worker.run()
 
-def test_post_message_reuses_existing_session(qapp):
-    from src.opencode_worker import OpencodeWorker
-    msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": "response"}]})
-
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.return_value = msg_resp
-        worker = OpencodeWorker("hi", session_id="ses_existing")
-        result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
-    assert result == "response"
-    assert mock_req.call_count == 1
-    called_url = mock_req.call_args.args[0]
-    assert called_url.endswith("/session/ses_existing/message")
-
-
-def test_post_message_returns_none_on_connection_error(qapp):
-    from src.opencode_worker import OpencodeWorker
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.side_effect = _real_requests.exceptions.ConnectionError("refused")
-        worker = OpencodeWorker("hi")
-        result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
-    assert result is None
-
-
-def test_post_message_returns_none_on_timeout(qapp):
-    from src.opencode_worker import OpencodeWorker
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.side_effect = _real_requests.exceptions.Timeout("slow")
-        worker = OpencodeWorker("hi")
-        result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
-    assert result is None
-
-
-def test_post_message_returns_none_on_4xx(qapp):
-    from src.opencode_worker import OpencodeWorker
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.return_value = _mock_response(status_code=500, text="boom")
-        worker = OpencodeWorker("hi")
-        result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
-    assert result is None
-
-
-def test_post_message_returns_none_on_no_text_parts(qapp):
-    from src.opencode_worker import OpencodeWorker
-    resp = _mock_response(200, {"parts": [{"type": "reasoning", "text": "hmm"}]})
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.return_value = resp
-        worker = OpencodeWorker("hi")
-        result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
-    assert result is None
-
-
-def test_post_message_returns_none_on_session_create_fail(qapp):
-    from src.opencode_worker import OpencodeWorker
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.return_value = _mock_response(status_code=500, text="error")
-        worker = OpencodeWorker("hi")
-        result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
-    assert result is None
-
-
-def test_post_message_returns_none_on_session_no_id(qapp):
-    from src.opencode_worker import OpencodeWorker
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.return_value = _mock_response(200, {"no": "id"})
-        worker = OpencodeWorker("hi")
-        result = worker._post_message({"parts": [{"type": "text", "text": "test"}]})
-    assert result is None
-
-
-# ── send tests ────────────────────────────────────────────────────────────────
-
-
-def test_send_emits_response_ready(qapp):
-    from src.opencode_worker import OpencodeWorker
-    payload = '[{"thought":"t","dialogue":"hello","action":"idle"}]'
-    msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.return_value = msg_resp
-        captured = []
-        worker = OpencodeWorker("hi", session_id="ses_xyz")
-        worker.response_ready.connect(captured.append)
-        worker.send("test prompt")
-    assert len(captured) == 1
-    assert captured[0][0]["dialogue"] == "hello"
-
-
-def test_send_includes_structured_schema(qapp):
-    from src.opencode_worker import OpencodeWorker
-    from src.constants import STRUCTURED_SCHEMA
-    payload = '[{"thought":"t","dialogue":"hi","action":"idle"}]'
-    msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.return_value = msg_resp
-        worker = OpencodeWorker("hi", session_id="ses_xyz")
-        worker.send("test prompt")
-    sent_json = mock_req.call_args.kwargs.get("json") or mock_req.call_args.args[1]
-    assert "structured" in sent_json
-    assert sent_json["structured"] == STRUCTURED_SCHEMA
-    assert sent_json["parts"][0]["text"] == "test prompt"
-
-
-def test_send_emits_schema_error_on_garbage(qapp):
-    from src.opencode_worker import OpencodeWorker
-    msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": "not json at all"}]})
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.return_value = msg_resp
-        captured = []
-        worker = OpencodeWorker("hi", session_id="ses_xyz")
-        worker.response_ready.connect(captured.append)
-        worker.send("test prompt")
-    assert len(captured) == 1
-    assert "dialogue" in captured[0][0]
-    assert "thought" in captured[0][0]
-
-
-def test_handle_schema_error_returns_safe_default(qapp):
-    from src.opencode_worker import OpencodeWorker
-    worker = OpencodeWorker("hi")
-    items = worker._handle_schema_error("garbage")
     assert len(items) == 1
-    assert "dialogue" in items[0]
-    assert "thought" in items[0]
+    post_urls = [u for a, u in call_log if a == "post"]
+    delete_urls = [u for a, u in call_log if a == "delete"]
+    assert len(delete_urls) == 1, "Session must be deleted after burst"
+    assert any("sess_burst" in u for u in delete_urls)
 
 
-# ── brain_update signal emission tests ────────────────────────────────────────
+def test_session_deleted_on_parse_error(qapp):
+    """Session must be deleted even if JSON parse fails."""
+    from src.llm.opencode_worker import OpencodeWorker
+
+    deleted_sessions = []
+
+    def fake_post(url, **kw):
+        if "/session" == url.rstrip("/").split("/")[-1] or url.endswith("/session"):
+            return _mock_response(200, {"id": "sess_err"})
+        return _mock_response(200, {"parts": [{"type": "text", "text": "not json at all }{{"}]})
+
+    def fake_delete(url, **kw):
+        deleted_sessions.append(url)
+
+    with patch("src.llm.opencode_worker.requests.post", fake_post), \
+         patch("src.llm.opencode_worker.requests.delete", fake_delete):
+        worker = OpencodeWorker(prompt="test")
+        worker.run()
+    assert len(deleted_sessions) > 0
+    assert any("sess_err" in u for u in deleted_sessions)
 
 
-def test_send_emits_brain_update_ready_when_items_have_brain_update(qapp):
-    """send() must emit brain_update_ready with the brain_update dict
+def test_abort_prevents_run(qapp):
+    """Calling abort() before run() should skip all work."""
+    from src.llm.opencode_worker import OpencodeWorker
+
+    call_log = []
+
+    def fake_post(url, **kw):
+        call_log.append(url)
+        return _mock_response(200, {"id": "sess"})
+
+    worker = OpencodeWorker(prompt="test")
+    worker.abort()
+    with patch("src.llm.opencode_worker.requests.post", fake_post):
+        worker.run()
+    assert len(call_log) == 0
+
+
+# ── brain_update signal emission tests ────────────────────────────────────
+
+
+def test_brain_update_extracted_when_present(qapp):
+    """run() must emit brain_update_ready with the brain_update dict
     and strip brain_update from items emitted via response_ready."""
-    from src.opencode_worker import OpencodeWorker
-    payload = '[{"thought":"t","dialogue":"hello","type":"observation","brain_update":{"user_habits":["codes at night"]}}]'
-    msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.return_value = msg_resp
+    from src.llm.opencode_worker import OpencodeWorker
+
+    def fake_post(url, **kw):
+        if "/session" == url.rstrip("/").split("/")[-1] or url.endswith("/session"):
+            return _mock_response(200, {"id": "bu_sess"})
+        payload = '[{"thought":"t","dialogue":"hello","type":"observation","brain_update":{"user_habits":["codes at night"]}}]'
+        return _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
+
+    with patch("src.llm.opencode_worker.requests.post", fake_post), \
+         patch("src.llm.opencode_worker.requests.delete"):
         brain_updates = []
         response_items = []
-        worker = OpencodeWorker("hi", session_id="ses_xyz")
+        worker = OpencodeWorker(prompt="test")
         worker.brain_update_ready.connect(brain_updates.append)
         worker.response_ready.connect(response_items.append)
-        worker.send("test prompt")
+        worker.run()
+
     assert len(brain_updates) == 1
     assert brain_updates[0] == {"user_habits": ["codes at night"]}
     assert len(response_items) == 1
     assert "brain_update" not in response_items[0][0]
 
 
-def test_send_brain_update_extracts_only_first_item(qapp):
+def test_brain_update_extracts_only_first_item(qapp):
     """When multiple items have brain_update, only emit the first one."""
-    from src.opencode_worker import OpencodeWorker
-    payload = ('[{"thought":"t1","dialogue":"d1","type":"observation","brain_update":{"user_habits":["a"]}},'
-               '{"thought":"t2","dialogue":"d2","type":"observation","brain_update":{"pet_quirks":["b"]}}]')
-    msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.return_value = msg_resp
+    from src.llm.opencode_worker import OpencodeWorker
+
+    def fake_post(url, **kw):
+        if "/session" == url.rstrip("/").split("/")[-1] or url.endswith("/session"):
+            return _mock_response(200, {"id": "bu2_sess"})
+        payload = ('[{"thought":"t1","dialogue":"d1","type":"observation","brain_update":{"user_habits":["a"]}},'
+                   '{"thought":"t2","dialogue":"d2","type":"observation","brain_update":{"pet_quirks":["b"]}}]')
+        return _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
+
+    with patch("src.llm.opencode_worker.requests.post", fake_post), \
+         patch("src.llm.opencode_worker.requests.delete"):
         brain_updates = []
         response_items = []
-        worker = OpencodeWorker("hi", session_id="ses_xyz")
+        worker = OpencodeWorker(prompt="test")
         worker.brain_update_ready.connect(brain_updates.append)
         worker.response_ready.connect(response_items.append)
-        worker.send("test prompt")
+        worker.run()
+
     assert len(brain_updates) == 1
     assert brain_updates[0] == {"user_habits": ["a"]}
-    # Both items should have brain_update stripped
     for item in response_items[0]:
         assert "brain_update" not in item
 
 
-def test_send_does_not_emit_brain_update_when_not_present(qapp):
+def test_brain_update_not_emitted_when_not_present(qapp):
     """When items have no brain_update, nothing should be emitted on that signal."""
-    from src.opencode_worker import OpencodeWorker
-    payload = '[{"thought":"t","dialogue":"hello","type":"observation"}]'
-    msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.return_value = msg_resp
+    from src.llm.opencode_worker import OpencodeWorker
+
+    def fake_post(url, **kw):
+        if "/session" == url.rstrip("/").split("/")[-1] or url.endswith("/session"):
+            return _mock_response(200, {"id": "bu3_sess"})
+        payload = '[{"thought":"t","dialogue":"hello","type":"observation"}]'
+        return _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
+
+    with patch("src.llm.opencode_worker.requests.post", fake_post), \
+         patch("src.llm.opencode_worker.requests.delete"):
         brain_updates = []
-        worker = OpencodeWorker("hi", session_id="ses_xyz")
+        worker = OpencodeWorker(prompt="test")
         worker.brain_update_ready.connect(brain_updates.append)
-        worker.send("test prompt")
+        worker.run()
     assert len(brain_updates) == 0
 
 
-# ── run() tests ─────────────────────────────────────────────────────────────
+# ── Parse strategy tests ─────────────────────────────────────────────────
 
 
-def test_run_delegates_to_send(qapp):
-    from src.opencode_worker import OpencodeWorker
-    payload = '[{"thought":"t","dialogue":"from prompt","action":"idle"}]'
-    msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": payload}]})
-    with patch("src.llm.opencode_worker.requests.post") as mock_req:
-        mock_req.return_value = msg_resp
-        captured = []
-        paths = []
-        worker = OpencodeWorker("hi", session_id="ses_xyz", prompt="prebuilt prompt")
-        worker.response_ready.connect(captured.append)
-        worker.path_used.connect(paths.append)
-        worker.run()
-    assert len(captured) == 1
-    assert captured[0][0]["dialogue"] == "from prompt"
-    assert paths == ["api"]
-
-
-def test_run_does_nothing_without_prebuilt_prompt(qapp):
-    from src.opencode_worker import OpencodeWorker
-    worker = OpencodeWorker("hi")
-    captured = []
-    worker.response_ready.connect(captured.append)
-    worker.run()
-    assert len(captured) == 0
-
-
-# ── Error signal tests ──────────────────────────────────────────────────────
-
-
-def test_error_occurred_signal_exists(qapp):
-    from src.opencode_worker import OpencodeWorker
-    worker = OpencodeWorker("hi")
-    assert hasattr(worker, "error_occurred")
-    emitted = []
-    worker.error_occurred.connect(emitted.append)
-
-
-def test_session_created_signal_exists(qapp):
-    from src.opencode_worker import OpencodeWorker
-    worker = OpencodeWorker("hi")
-    assert hasattr(worker, "session_created")
-
-
-def test_path_used_signal_exists(qapp):
-    from src.opencode_worker import OpencodeWorker
-    worker = OpencodeWorker("hi")
-    assert hasattr(worker, "path_used")
-
-
-def test_brain_update_ready_signal_exists(qapp):
-    from src.opencode_worker import OpencodeWorker
-    worker = OpencodeWorker("hi")
-    assert hasattr(worker, "brain_update_ready")
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Edge-case tests: session lifecycle
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-class TestEdgeCaseSessionLifecycle:
-
-    def test_session_id_persists_after_send(self, qapp):
-        from src.opencode_worker import OpencodeWorker
-        session_resp = _mock_response(200, {"id": "persist_ses"})
-        resp1 = _mock_response(200, {"parts": [{"type": "text", "text": '[{"thought":"t","dialogue":"hi","action":"idle"}]'}]})
-        resp2 = _mock_response(200, {"parts": [{"type": "text", "text": '[{"thought":"t","dialogue":"hi","action":"idle"}]'}]})
-        with patch("src.llm.opencode_worker.requests.post") as mock_req:
-            mock_req.side_effect = [session_resp, resp1, resp2]
-            worker = OpencodeWorker("hi")
-            worker.send("first message")
-            assert worker._session_id == "persist_ses"
-            worker.send("second message")
-        assert mock_req.call_count == 3
-        last_url = mock_req.call_args_list[2].args[0]
-        assert "persist_ses" in last_url
-
-    def test_two_stage_worker_sends_two_messages(self, qapp):
-        """Two-stage worker posts two messages — first without schema, second with."""
-        from src.opencode_worker import OpencodeWorker
-        from unittest.mock import MagicMock
-        handler = MagicMock()
-        with patch.object(OpencodeWorker, "_post_message") as mock_post:
-            mock_post.side_effect = [
-                "Tool result: user is coding at terminal",
-                '[{"thought": "t", "dialogue": "hi"}]',
-            ]
-            worker = OpencodeWorker(
-                user_input="",
-                two_stage_prompts=("investigate", "generate 5"),
-            )
-            worker.response_ready.connect(handler)
-            worker._send_two_stage()
-
-        assert mock_post.call_count == 2
-        payload1 = mock_post.call_args_list[0][0][0]
-        payload2 = mock_post.call_args_list[1][0][0]
-        assert "structured" not in payload1
-        from src.constants import STRUCTURED_SCHEMA
-        assert payload2.get("structured") == STRUCTURED_SCHEMA
-        assert "user is coding" in payload2["parts"][0]["text"]
-        handler.assert_called_once_with([{"thought": "t", "dialogue": "hi"}])
-
-    def test_session_created_emitted_on_send_when_no_session(self, qapp):
-        from src.opencode_worker import OpencodeWorker
-        session_resp = _mock_response(200, {"id": "send_new_ses"})
-        msg_resp = _mock_response(200, {"parts": [{"type": "text", "text": '[{"thought":"t","dialogue":"hi","action":"idle"}]'}]})
-        with patch("src.llm.opencode_worker.requests.post") as mock_req:
-            mock_req.side_effect = [session_resp, msg_resp]
-            session_ids = []
-            worker = OpencodeWorker("hi")
-            worker.session_created.connect(session_ids.append)
-            worker.send("system context")
-        assert len(session_ids) == 1
-        assert session_ids[0] == "send_new_ses"
-
-
-# ── Pool refill JSON parse fixes ──────────────────────────────────────
-
-
-def test_parse_pool_response_handles_markdown_fence():
-    """Must strip markdown fences from pool refill responses."""
-    from src.llm.opencode_worker import _parse_pool_response
-
-    text = '''```json
-[{"thought": "t1", "dialogue": "d1", "type": "observation"}]
-```'''
-    result = _parse_pool_response(text)
-    assert len(result) == 1
-    assert result[0]["thought"] == "t1"
-
-
-def test_parse_pool_response_handles_preamble():
-    """Must skip preamble before JSON array."""
-    from src.llm.opencode_worker import _parse_pool_response
-
-    text = """Here are my thoughts on the system:
-
-[{"thought": "thinking", "dialogue": "hello", "type": "observation"}]"""
-    result = _parse_pool_response(text)
+def test_parse_direct_array(qapp):
+    """_parse_response should handle direct JSON array."""
+    from src.llm.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(prompt="test")
+    result = worker._parse_response('[{"dialogue":"hello","thought":"hi","type":"observation"}]')
+    assert result is not None
     assert len(result) == 1
     assert result[0]["dialogue"] == "hello"
 
 
-def test_parse_pool_response_strips_forbidden_fields():
-    """Must strip fields not in schema: action, priority, target_fsm."""
-    from src.llm.opencode_worker import _parse_pool_response
-
-    text = '''[{"thought": "t", "dialogue": "d", "type": "observation", "action": "nod", "priority": 3, "target_fsm": "CELEBRATE"}]'''
-    result = _parse_pool_response(text)
+def test_parse_markdown_fence(qapp):
+    """_parse_response should handle markdown-wrapped JSON."""
+    from src.llm.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(prompt="test")
+    result = worker._parse_response('```json\n[{"dialogue":"hi","thought":"ok"}]\n```')
+    assert result is not None
     assert len(result) == 1
-    assert "action" not in result[0]
-    assert "priority" not in result[0]
-    assert "target_fsm" not in result[0]
-    assert result[0]["thought"] == "t"
 
 
-def test_parse_pool_response_rejects_empty_list():
-    """Empty array must return empty list without error."""
-    from src.llm.opencode_worker import _parse_pool_response
-    result = _parse_pool_response("[]")
-    assert result == []
+def test_parse_single_object(qapp):
+    """_parse_response should handle a single JSON object."""
+    from src.llm.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(prompt="test")
+    result = worker._parse_response('{"dialogue":"hello","thought":"hi"}')
+    assert result is not None
+    assert len(result) == 1
 
 
-def test_parse_pool_response_rejects_non_array():
-    """Non-array valid JSON must return empty list."""
-    from src.llm.opencode_worker import _parse_pool_response
-    result = _parse_pool_response('{"type": "observation", "thought": "t"}')
-    assert result == []
+def test_parse_jsonl(qapp):
+    """_parse_response should handle JSONL (multiple objects on separate lines)."""
+    from src.llm.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(prompt="test")
+    raw = '{"dialogue":"first","thought":"a"}\n{"dialogue":"second","thought":"b"}'
+    result = worker._parse_response(raw)
+    assert result is not None
+    assert len(result) == 2
+
+
+def test_parse_returns_none_for_garbage(qapp):
+    from src.llm.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(prompt="test")
+    result = worker._parse_response("This is not JSON at all.")
+    assert result is None
+
+
+def test_error_emitted_on_parse_failure(qapp):
+    """When all parse strategies fail, error signal is emitted."""
+    from src.llm.opencode_worker import OpencodeWorker
+
+    def fake_post(url, **kw):
+        if "/session" == url.rstrip("/").split("/")[-1] or url.endswith("/session"):
+            return _mock_response(200, {"id": "sess_parsefail"})
+        return _mock_response(200, {"parts": [{"type": "text", "text": "not json at all"}]})
+
+    with patch("src.llm.opencode_worker.requests.post", fake_post), \
+         patch("src.llm.opencode_worker.requests.delete"):
+        errors = []
+        worker = OpencodeWorker(prompt="test")
+        worker.error_occurred.connect(errors.append)
+        worker.error.connect(errors.append)
+        worker.run()
+    assert any("parse_failed" in str(e) for e in errors)
+
+
+# ── Backward compat: call site pattern tests ──────────────────────────────
+
+
+def test_call_pattern_user_query(qapp):
+    """Verify pattern used by pet_window for user queries."""
+    from src.llm.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(
+        prompt="some prompt",
+        is_autonomous=False,
+    )
+    assert worker._prompt == "some prompt"
+    assert hasattr(worker, "response_ready")
+    assert hasattr(worker, "error_occurred")
+
+
+def test_call_pattern_autonomous_trigger(qapp):
+    """Verify pattern used by pet_window for autonomous triggers."""
+    from src.llm.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(
+        prompt="autonomous thought",
+        is_autonomous=True,
+    )
+    assert worker._is_autonomous is True
+    assert hasattr(worker, "brain_update_ready")
+    assert hasattr(worker, "response_ready")
+
+
+def test_call_pattern_refill(qapp):
+    """Verify pattern used by pet_window for thought pool refill."""
+    from src.llm.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(
+        "",
+        is_autonomous=True,
+        session_id=None,
+        prompt="pool refill prompt",
+    )
+    assert worker._prompt == "pool refill prompt"
+    assert worker._is_autonomous is True
+
+
+def test_call_pattern_summary(qapp):
+    """Verify pattern used by pet_window for summary generation."""
+    from src.llm.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(
+        prompt="summarize this",
+        session_id="existing_sess",
+        is_autonomous=True,
+    )
+    assert worker._prompt == "summarize this"
+    assert hasattr(worker, "response_ready")

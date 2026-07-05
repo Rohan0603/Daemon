@@ -1,4 +1,5 @@
 from __future__ import annotations
+import datetime as _dt
 import difflib
 import hashlib
 import logging
@@ -160,8 +161,72 @@ class DiaryStore(StorageBackend):
     def _entries(self):
         return self._diary_entries
 
+    def compact(self, max_entries: int = 150) -> None:
+        """Compact diary entries when exceeding threshold.
+
+        If there are more entries than max_entries, merge day-clusters:
+        - Group entries by their timestamp's date (YYYY-MM-DD)
+        - If a day has more than 3 entries, replace with single summary entry
+        - Summary format: "Diary: {count} entries from {date}"
+        - Summary entry retains earliest timestamp from group
+        - Summary hash is based on summary text
+
+        This method is idempotent - repeated calls have same effect after first.
+        """
+        current_entries = self._diary_entries
+        if len(current_entries) <= max_entries:
+            return
+
+        # Group entries by date
+        entries_by_date = {}
+        for entry in current_entries:
+            timestamp = entry.get("timestamp", 0)
+            if isinstance(timestamp, str):
+                try:
+                    timestamp = float(timestamp)
+                except (ValueError, TypeError):
+                    timestamp = 0
+
+            date = _dt.datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
+            entries_by_date.setdefault(date, []).append(entry)
+
+        # Build new entries list
+        new_entries = []
+        for date, day_entries in entries_by_date.items():
+            if len(day_entries) <= 3:
+                # Keep individual entries
+                new_entries.extend(day_entries)
+            else:
+                # Create summary entry
+                earliest_timestamp = min(
+                    e.get("timestamp", 0) for e in day_entries
+                )
+                if isinstance(earliest_timestamp, str):
+                    try:
+                        earliest_timestamp = float(earliest_timestamp)
+                    except (ValueError, TypeError):
+                        earliest_timestamp = time.time()
+
+                summary_content = f"Diary: {len(day_entries)} entries from {date}"
+                summary_hash = calculate_content_hash(summary_content)
+
+                summary_entry = {
+                    "content": summary_content,
+                    "timestamp": earliest_timestamp,
+                    "hash": summary_hash,
+                }
+                new_entries.append(summary_entry)
+
+        # Sort by timestamp (oldest first) and ensure we don't exceed max_entries
+        new_entries.sort(key=lambda e: e.get("timestamp", 0))
+        self._diary_entries = new_entries[-max_entries:] if len(new_entries) > max_entries else new_entries
+        self._has_written = True
+
     def add(self, text: str) -> bool:
-        return self.add_diary_entry(text)
+        result = self.add_diary_entry(text)
+        if result and len(self._diary_entries) > self._max_entries * 0.75:
+            self.compact()
+        return result
 
     def get(self, key: str) -> dict | None:
         for entry in self._entries:

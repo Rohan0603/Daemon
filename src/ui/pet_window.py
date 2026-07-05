@@ -11,7 +11,7 @@ import warnings
 from datetime import datetime
 from pathlib import Path
 from PyQt6.QtWidgets import QWidget, QApplication, QLineEdit, QSystemTrayIcon, QMenu, QDialog
-from PyQt6.QtCore import Qt, QTimer, QPoint, QRect, QEvent, QThread
+from PyQt6.QtCore import Qt, QTimer, QPoint, QRect, QEvent, QThread, pyqtSlot
 from PyQt6.QtGui import QPainter, QPixmap, QIcon, QColor
 
 from src.constants import (
@@ -45,10 +45,6 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, message="Opencode
 from src.llm import (
     ContextManager,
     OpencodeWorker,
-    StrandsAutonomousWorker,
-    load_session,
-    save_session,
-    LLMSessionState,
 )
 from src.memory import Memory
 from src.history import History
@@ -256,7 +252,8 @@ class PetWindow(QWidget):
         self._diary_store = DiaryStore(self._diary_path)
         self._action_layer = ActionLayer()
         self._fsm_bridge.action_triggered.connect(self._on_mcp_expression_action)
-        self._mcp_server = MCPServer(self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, history=self._history, config=self._config)
+        self._fsm_bridge.action_requested.connect(self.trigger_state_override)
+        self._mcp_server = MCPServer(fsm_bridge=self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, history=self._history, config=self._config, action_layer=self._action_layer)
         self._write_coalescer = WriteCoalescer(
             memory=self._memory, history=self._history,
             memory_manager=self._firebase_mem,
@@ -324,27 +321,20 @@ class PetWindow(QWidget):
         self._opencode_worker: OpencodeWorker | None = None
         self._boredom_timer_ms: int = BOREDOM_TIMEOUT_SEC * 1000
         self._autonomous_query_pending: bool = False
+        self._boredom_retry_count: int = 0
+        self._boredom_retry_timer: QTimer | None = None
+        self._boredom_retry_max: int = 3
+        self._boredom_retry_delay: int = 2000  # 2 seconds
+        self._animation_override_active: bool = False
         self._session_active: bool = False
-        self._opencode_session_id: str | None = None
         self._opencode_worker: OpencodeWorker | None = None
+        self._opencode_session_id: str | None = None
         self._triggered_action: str | None = None
         self._last_daemon_action: str = "idle"
         self._refill_workers: dict[str, OpencodeWorker] = {}
         self._refill_workers_lock = threading.Lock()
-        # Persistent LLM session — resume across restarts
-        self._llm_session_state = load_session()
-        if self._llm_session_state.session_id:
-            # Opencode serve was killed and respawned — the saved session ID is
-            # guaranteed dead. Keep the history for context injection, but clear
-            # the stale session so the first query creates a fresh one without
-            # a 404-retry cycle.
-            logger.info(
-                "Clearing stale session %s (opencode serve was respawned); "
-                "%d history turns preserved for context injection",
-                self._llm_session_state.session_id,
-                len(self._llm_session_state.history),
-            )
-            self._llm_session_state.session_id = None
+        # Persistent LLM session — removed as part of stateless MCP pipeline migration
+        # self._llm_session_state = load_session()  # Removed: strands/session
 
         self._consecutive_silent = 0
         self._consecutive_engaged = ENGAGED_THRESHOLD
@@ -409,7 +399,7 @@ class PetWindow(QWidget):
         self._boot_timer.setInterval(500)
         self._boot_timer.timeout.connect(self._on_boot_check_auth)
         self._boot_timer.start()
-        self._mcp_server.start(self._action_layer)
+        self._mcp_server.start()
 
         # Wire EventBus subscriber for autonomous triggers from BehaviorController
         self._events.subscribe(
@@ -498,6 +488,11 @@ class PetWindow(QWidget):
         if apm > 0:
             self._boredom_timer_ms = BOREDOM_TIMEOUT_SEC * 1000
             self._behavior.on_activity_detected()
+            # Cancel any pending boredom retry — activity detected
+            self._boredom_retry_count = 0
+            if self._boredom_retry_timer is not None:
+                self._boredom_retry_timer.stop()
+                self._boredom_retry_timer = None
 
         # APM Hysteresis - prevent overreactions to normal variations
         current_time = time.time()
@@ -736,7 +731,6 @@ class PetWindow(QWidget):
         self._summary_worker = OpencodeWorker(
             user_input="",
             prompt=prompt,
-            session_id=self._opencode_session_id,
             is_autonomous=True
         )
         self._summary_worker.response_ready.connect(self._on_summary_ready)
@@ -837,7 +831,7 @@ class PetWindow(QWidget):
             _cleanup_uia()
         except Exception:
             pass
-        # Persist LLM session state for next boot
+        # Persist LLM session state for next boot - REMOVED as part of stateless migration
         try:
             if hasattr(self, '_llm_session_state') and self._llm_session_state is not None:
                 save_session(self._llm_session_state, generate_summary=True)
@@ -2032,6 +2026,9 @@ class PetWindow(QWidget):
 
     def _should_fire_autonomous(self, mode: str) -> bool:
         """Return True if autonomous tick is allowed to fire right now."""
+        if self._animation_override_active:
+            logger.debug("[%s] Skipping: animation override active", mode)
+            return False
         if self._forced_sleep:
             return False
         if mode == "boredom":
@@ -2164,15 +2161,16 @@ class PetWindow(QWidget):
         logger.info("Boredom query triggered.")
         if self._autonomous_query_pending:
             logger.debug("[boredom] Skipping: autonomous query pending")
+            self._schedule_boredom_retry()
             return
         if self._fsm.current_state in (
             PetState.THINKING, PetState.DRAGGED, PetState.FALLING,
             PetState.SLEEP,
         ):
             logger.debug("[boredom] Skipping: FSM state=%s", self._fsm.current_state.name)
+            self._schedule_boredom_retry()
             return
             
-
         current_hash = normalize_window_title(get_active_window_title())
         items = self._response_manager.draw("idle_thought", current_context_hash=current_hash)
         if not items:
@@ -2183,6 +2181,25 @@ class PetWindow(QWidget):
             item = random.choice(self._BOREDOM_FALLBACK_JOKES)
         self._dispatch_structured(item)
         self._on_output_displayed(engaged=False)
+        self._boredom_retry_count = 0
+
+    def _schedule_boredom_retry(self) -> None:
+        if self._boredom_retry_count >= self._boredom_retry_max:
+            logger.debug("[boredom] Max retries (%d) reached, giving up", self._boredom_retry_max)
+            return
+        
+        if self._boredom_retry_timer is not None:
+            self._boredom_retry_timer.stop()
+            self._boredom_retry_timer = None
+        
+        self._boredom_retry_count += 1
+        logger.debug("[boredom] Scheduling retry %d/%d in %dms", 
+                    self._boredom_retry_count, self._boredom_retry_max, self._boredom_retry_delay)
+        self._boredom_retry_timer = QTimer()
+        self._boredom_retry_timer.setSingleShot(True)
+        self._boredom_retry_timer.setInterval(self._boredom_retry_delay)
+        self._boredom_retry_timer.timeout.connect(self._trigger_boredom_query)
+
 
     def _on_output_displayed(self, engaged: bool) -> None:
         if self._behavior:
@@ -2316,7 +2333,6 @@ class PetWindow(QWidget):
         worker.error_occurred.connect(self._on_opencode_error)
         worker.session_created.connect(self._on_session_created)
         worker.brain_update_ready.connect(self._on_brain_update)
-        worker.session_turn_completed.connect(self._on_session_turn_completed)
         worker.start()
         self._opencode_worker = worker
 
@@ -2438,6 +2454,25 @@ class PetWindow(QWidget):
             if target_y is not None:
                 self._fsm._ctx.target_y = int(target_y)
             self._fsm.transition_to(pet_state)
+
+    # ── Animation Bridge ────────────────────────────────────────────────────
+
+    @pyqtSlot(str, int)
+    def trigger_state_override(self, state: str, duration_ms: int = 2000) -> None:
+        """Thread-safe animation override. Called by MCP server via FSMActionBridge signal."""
+        from src.pet_fsm import PetState
+        fsm_states = {"IDLE": PetState.IDLE, "THINKING": PetState.THINKING}
+        action_states = {"FRUSTRATED", "SMUG", "SHOCKED", "LAUGHING"}
+
+        if state in fsm_states:
+            self._fsm.transition_to(fsm_states[state])
+        elif state in action_states:
+            self._action_layer.trigger(state.lower(), duration_ms)
+            self._animation_override_active = True
+            QTimer.singleShot(duration_ms, self._clear_animation_override)
+
+    def _clear_animation_override(self) -> None:
+        self._animation_override_active = False
 
     def _on_mcp_expression_action(self, name: str, duration_ms: int, params: dict) -> None:
         """Slot: MCP layer='expression' -> ActionLayer."""
@@ -2697,23 +2732,12 @@ class PetWindow(QWidget):
                     self._refill_failed_count = 0
 
     def _on_session_created(self, session_id: str) -> None:
-        self._opencode_session_id = session_id
-        # Also update the persisted session state
-        if self._llm_session_state:
-            self._llm_session_state.session_id = session_id
+        # Removed: strands/session handling
+        pass
 
     def _on_session_turn_completed(self, session_state, user_prompt: str, response_text: str) -> None:
-        """Save conversation turn to persistent session state."""
-        try:
-            if session_state and hasattr(session_state, "add_turn"):
-                session_state.add_turn("user", user_prompt[:2000])
-                session_state.add_turn("assistant", response_text[:3000])
-                save_session(session_state, generate_summary=False)
-                # Keep our copy in sync
-                self._llm_session_state = session_state
-                self._opencode_session_id = session_state.session_id
-        except Exception as e:
-            logger.warning("Failed to persist session turn: %s", e)
+        # COMPLETELY REMOVED: strands/session handling
+        pass
 
 
     def _on_brain_update(self, update: dict) -> None:

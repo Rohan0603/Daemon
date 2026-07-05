@@ -665,6 +665,19 @@ def clear_screen_cache() -> None:
     _clear()
 
 
+def compute_dynamic_idle_threshold() -> float:
+    """Return an adaptive boredom threshold based on chattiness.
+
+    High-chattiness pets get bored faster (lower threshold).
+    Clamped to [30, BOREDOM_TIMEOUT_SEC * 5].
+    """
+    from src.config import config_get
+    chattiness = config_get("pet.chattiness", 5)
+    # base + scaling: low chattiness → much longer threshold
+    dynamic = float(BOREDOM_TIMEOUT_SEC) + (10 - chattiness) * 10
+    return max(30.0, min(float(BOREDOM_TIMEOUT_SEC * 5), dynamic))
+
+
 # ── Export public class ───────────────────────────────────────────
 
 __all__ = ["BehaviorController"]

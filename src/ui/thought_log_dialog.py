@@ -1,4 +1,4 @@
-# src/thought_log_dialog.py
+# src/ui/thought_log_dialog.py
 import logging
 from pathlib import Path
 from PyQt6.QtCore import QTimer
@@ -18,6 +18,12 @@ class ThoughtLogDialog(DataViewerDialog):
         self._update_timer.timeout.connect(self._update_log)
         self._update_timer.start()
         self._update_log()
+
+    def showEvent(self, event) -> None:
+        """Override to prefetch UIA text when the dialog is first shown."""
+        super().showEvent(event)
+        from src.system.screen_reader import prefetch_uia
+        prefetch_uia()
 
     def _update_log(self) -> None:
         try:

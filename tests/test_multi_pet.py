@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from src.config import load_config, save_config
+from src.config import load_config
 from daemon import _resolve_skill_path
 
 def test_config_user_and_pet_schema():

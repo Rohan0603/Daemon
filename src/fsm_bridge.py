@@ -15,6 +15,7 @@ class FSMActionBridge(QObject):
     reminder_request = pyqtSignal(str, object) # action, data
     action_triggered = pyqtSignal(str, int, dict)  # name, duration_ms, params
     fsm_action_requested = pyqtSignal(str)
+    action_requested = pyqtSignal(str, int)  # state, duration_ms — for Animation Bridge
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -29,6 +30,10 @@ class FSMActionBridge(QObject):
 
     def emit_summarize_requested(self, provider_id: str, model_id: str) -> None:
         self.summarize_requested.emit(provider_id, model_id)
+
+    def emit_animation_action(self, state: str, duration_ms: int = 2000) -> None:
+        """Emit animation bridge action from MCP thread to main thread."""
+        self.action_requested.emit(state, duration_ms)
 
     def emit_action_triggered(self, name: str, duration_ms: int, params: dict) -> None:
         self.action_triggered.emit(name, duration_ms, params)

@@ -8,7 +8,8 @@ from src.pet_window import PetWindow
 def test_onboarding_bubbles_skipped_if_done(app):
     with patch("src.ui.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
-         patch("src.ui.pet_window.APMWorker"):
+         patch("src.ui.pet_window.APMWorker"), \
+         patch("src.ui.pet_window.MCPServer"):
         window = PetWindow(
             opencode_enabled=True,
             skill_ready=True,
@@ -26,7 +27,8 @@ def test_recall_memory_opens_dialog(app, tmp_path):
     with patch("src.ui.pet_window.ClickThroughManager"), \
          patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
          patch("src.ui.pet_window.APMWorker"), \
-         patch("src.ui.pet_window.MemoryManager", return_value=mock_firebase):
+         patch("src.ui.pet_window.MemoryManager", return_value=mock_firebase), \
+         patch("src.ui.pet_window.MCPServer"):
         mem_path = str(tmp_path / "test_memory.json")
         hist_path = str(tmp_path / "test_history.json")
         window = PetWindow(opencode_enabled=False, memory_path=mem_path, history_path=hist_path)

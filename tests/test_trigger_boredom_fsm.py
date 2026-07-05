@@ -14,6 +14,10 @@ class TestTriggerBoredomFsm:
             self.pw._current_apm = 0
             self.pw._idle_seconds = 100
             self.pw._boredom_tick_count = 0
+            self.pw._boredom_retry_count = 0
+            self.pw._boredom_retry_max = 3
+            self.pw._boredom_retry_delay = 2000
+            self.pw._boredom_retry_timer = None
             self.pw._response_manager = MagicMock()
             self.pw._response_manager.draw.return_value = [{"dialogue": "test", "action": "idle", "target_x": 0}]
             self.pw._dispatch_structured = MagicMock()

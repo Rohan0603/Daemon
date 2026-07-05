@@ -1,8 +1,9 @@
 # src/llm/context_manager.py
-"""ContextManager -- builds minimal trigger prompts."""
+
+"""ContextManager — builds minimal trigger prompts and XML-structured blocks."""
 from __future__ import annotations
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,50 @@ def _apm_bucket(apm: int) -> str:
     if apm <= 150:
         return "medium"
     return "high"
+
+
+# ── XML block builders (Phase 4 Task 4.2) ─────────────────────────────────
+
+_XML_TRUNCATE = 1500  # max chars per dynamic-block field
+
+
+def build_static_block(mode: str, apm: int, idle_seconds: float = 0.0,
+                       persona: str = "") -> str:
+    """Build XML-wrapped static context block (context that doesn't change rapidly)."""
+    lines = ["<static>"]
+    if persona:
+        lines.append(f"  <persona>{_xml_escape(persona)}</persona>")
+    lines.extend([
+        f"  <mode>{_xml_escape(mode)}</mode>",
+        f"  <apm>{apm}</apm>",
+        f"  <idle_seconds>{int(idle_seconds)}</idle_seconds>",
+    ])
+    lines.append("</static>")
+    return "\n".join(lines)
+
+
+def build_dynamic_block(*, user_input: str = "", typing_content: str = "",
+                        screen_text: str = "") -> str:
+    """Build XML-wrapped dynamic context block (rapidly changing fields)."""
+    lines = ["<dynamic>"]
+    if user_input:
+        lines.append(f"  <user_input>{_xml_escape(user_input[:_XML_TRUNCATE])}</user_input>")
+    if typing_content:
+        lines.append(f"  <typing>{_xml_escape(typing_content[:_XML_TRUNCATE])}</typing>")
+    if screen_text:
+        lines.append(f"  <screen>{_xml_escape(screen_text[:_XML_TRUNCATE])}</screen>")
+    if len(lines) == 1:
+        return ""  # no dynamic fields
+    lines.append("</dynamic>")
+    return "\n".join(lines)
+
+
+def _xml_escape(text: str) -> str:
+    """Escape & < > for safe XML embedding."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+# ── Existing ContextManager class ─────────────────────────────────────────
 
 
 class ContextManager:

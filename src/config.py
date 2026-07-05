@@ -7,6 +7,7 @@ import logging
 import copy
 import os
 import shutil
+import threading
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -310,13 +311,13 @@ def _apply_env_overrides(cfg: dict) -> dict:
 def validate_config(cfg: dict) -> None:
     """Validates that mandatory config fields and environmental dependencies are present."""
     missing = []
-    
+
     # 1. Top-Level Structure Checks
     required_sections = ["user", "llm", "pet", "tts", "consent", "window", "firebase", "mcp", "behavior", "logging", "storage", "visuals", "triggers"]
     for section in required_sections:
         if section not in cfg or not isinstance(cfg[section], dict):
             missing.append(f"Section '{section}'")
-            
+
     if missing:
         raise MissingConfigurationError(f"Missing or invalid configuration sections: {', '.join(missing)}. Please restore them from assets/daemon_config_template.json.")
 
@@ -331,10 +332,10 @@ def validate_config(cfg: dict) -> None:
         missing.append("firebase.api_key")
     if not cfg.get("firebase", {}).get("project_id"):
         missing.append("firebase.project_id")
-        
+
     if missing:
         raise MissingConfigurationError(f"Missing mandatory configuration fields: {', '.join(missing)}")
-        
+
     # 3. Environmental Checks
     cred_path = cfg.get("firebase", {}).get("credentials_path")
     if cred_path:
@@ -351,7 +352,7 @@ def validate_config(cfg: dict) -> None:
 
 def load_config() -> dict:
     """Load configuration merging template, JSON, and environment overrides.
-    
+
     Order of priority (highest to lowest):
     1. Environment variables (OPENCODE_API_KEY, OPENCODE_ZEN_API_KEY, etc.)
     2. ~/.hermes/data/daemon_config.json (if exists)
@@ -360,7 +361,7 @@ def load_config() -> dict:
     template_path = Path(__file__).parent.parent / "assets" / "daemon_config_template.json"
     if not template_path.exists():
         raise FileNotFoundError(f"Config template not found at {template_path}")
-    
+
     try:
         with open(template_path, "r", encoding="utf-8") as f:
             cfg = json.load(f)
@@ -401,37 +402,109 @@ def load_config() -> dict:
 
 def flatten_config(cfg: dict) -> dict:
     """Flatten nested config dict to environment variable format.
-    
+
     Args:
         cfg: Nested configuration dict with sections like "llm", "firebase", etc.
-        
+
     Returns:
         Dict with environment variable names as keys and config values as values.
     """
     flat = {}
-    
+
     for env_var, (section, key) in FLAT_TO_NESTED.items():
         if section in cfg and key in cfg[section]:
             flat[env_var] = cfg[section][key]
-    
+
     return flat
 
 
 def unflatten_config(flat: dict) -> dict:
     """Convert environment variable format back to nested config.
-    
+
     Args:
         flat: Dict with environment variable names as keys.
-        
+
     Returns:
         Nested configuration dict with sections like "llm", "firebase", etc.
     """
     cfg = {}
-    
+
     for (section, key), env_var in NESTED_TO_FLAT.items():
         if env_var in flat:
             if section not in cfg:
                 cfg[section] = {}
             cfg[section][key] = flat[env_var]
-    
+
     return cfg
+
+
+# ── Runtime Config Cache ─────────────────────────────────────────────────────
+
+_RUNTIME_CONFIG: dict = {}
+
+
+def _init_runtime_config() -> None:
+    """Load config into the runtime cache once at module import."""
+    global _RUNTIME_CONFIG
+    try:
+        loaded = load_config()
+        _RUNTIME_CONFIG.update(loaded)
+    except Exception:
+        logger.debug("_init_runtime_config: could not load (first-run safe)")
+
+
+def config_get(key_path: str, default=None):
+    """Read a dot-path value from _RUNTIME_CONFIG without disk I/O.
+
+    Examples:
+        config_get("pet.chattiness")          # returns 5
+        config_get("behavior.dnd_enabled")    # returns False
+        config_get("missing.key", default=3)  # returns 3
+    """
+    parts = key_path.split(".")
+    node = _RUNTIME_CONFIG
+    for part in parts:
+        if not isinstance(node, dict) or part not in node:
+            return default
+        node = node[part]
+    return node
+
+
+def config_set(key_path: str, value) -> None:
+    """Write a dot-path value into _RUNTIME_CONFIG and persist asynchronously.
+
+    Creates nested dicts as needed.  The disk write runs on a daemon thread so
+    callers never block on I/O.
+    """
+    parts = key_path.split(".")
+    node = _RUNTIME_CONFIG
+    for part in parts[:-1]:
+        if part not in node or not isinstance(node[part], dict):
+            node[part] = {}
+        node = node[part]
+    node[parts[-1]] = value
+    threading.Thread(target=_async_save, daemon=True).start()
+
+
+def _async_save() -> None:
+    """Persist the current _RUNTIME_CONFIG to disk (daemon thread entry)."""
+    try:
+        save_config(_RUNTIME_CONFIG)
+    except Exception as exc:
+        logger.warning("config async save failed: %s", exc)
+
+
+def save_config(cfg: dict, path=None) -> None:
+    """Write *cfg* to the JSON config file, creating parent dirs on demand."""
+    save_path = path or CONFIG_PATH
+    try:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(save_path, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error("Failed to save config: %s", e)
+        raise
+
+
+# Initialise cache at module import
+_init_runtime_config()

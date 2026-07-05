@@ -4,6 +4,7 @@ import hashlib
 import logging
 import sys
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +17,11 @@ except ImportError:
 
 _uia_local = threading.local()
 _last_screen_hash: str | None = None
+
+# UIA text cache for overlay caching
+_cached_uia_text: str | None = None
+_cached_uia_timestamp: float | None = None
+_CACHE_TTL_SECONDS = 5.0
 
 
 def _get_uia_automation():
@@ -169,14 +175,32 @@ def get_foreground_text_delta() -> str:
     Returns empty string when no foreground window is detected.
     """
     global _last_screen_hash
+
+    # First, try to return cached fresh text
+    cached_text = get_cached_uia()
+    if cached_text is not None:
+        # Use cached raw text to construct the final output with URL prepending
+        text = cached_text
+        url = get_browser_url_via_uia()
+        if url:
+            text = f"[URL: {url}] {text}" if text else f"[URL: {url}]"
+        text = text[:2000]
+        if not text:
+            _last_screen_hash = None
+            return ""
+        current_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if current_hash == _last_screen_hash:
+            return "[Screen unchanged]"
+        _last_screen_hash = current_hash
+        return text
+
+    # No fresh cache — fall back to normal extraction flow
     text = get_text_via_uia()
     if not text:
         text = get_text_via_wm_gettext()
-
     url = get_browser_url_via_uia()
     if url:
         text = f"[URL: {url}] {text}" if text else f"[URL: {url}]"
-
     text = text[:2000]
     if not text:
         _last_screen_hash = None
@@ -192,6 +216,51 @@ def clear_screen_cache() -> None:
     """Force the next call to return fresh text instead of '[Screen unchanged]'."""
     global _last_screen_hash
     _last_screen_hash = None
+
+
+def prefetch_uia() -> None:
+    """Force-fetch foreground text and cache it with a 5-second TTL.
+    
+    This will fetch text from UI or fallback methods and store it in the module-level
+    cache for subsequent calls within the TTL window.
+    """
+    global _cached_uia_text, _cached_uia_timestamp
+    if not sys.platform.startswith("win"):
+        _cached_uia_text = None
+        _cached_uia_timestamp = None
+        return
+    
+    raw_text = get_text_via_uia()
+    if not raw_text:
+        raw_text = get_text_via_wm_gettext()
+    
+    _cached_uia_text = raw_text[:2000] if raw_text else ""
+    _cached_uia_timestamp = time.time()
+
+
+def get_cached_uia() -> str | None:
+    """Return cached UIA text if still within TTL, otherwise return None.
+    
+    Returns the cached text if it was stored within the last 5 seconds.
+    If the cache is expired or empty, returns None.
+    """
+    global _cached_uia_text, _cached_uia_timestamp
+    if _cached_uia_text is not None and _cached_uia_timestamp is not None:
+        now = time.time()
+        if now - _cached_uia_timestamp <= _CACHE_TTL_SECONDS:
+            return _cached_uia_text
+        else:
+            # Expired, reset cache
+            _cached_uia_text = None
+            _cached_uia_timestamp = None
+    return None
+
+
+def clear_uia_cache() -> None:
+    """Clear the UIA cache (internal)."""
+    global _cached_uia_text, _cached_uia_timestamp
+    _cached_uia_text = None
+    _cached_uia_timestamp = None
 
 
 class ScreenReader:
