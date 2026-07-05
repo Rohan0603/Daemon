@@ -14,6 +14,32 @@
 
 ## Phase 0: Strands Rip-Out
 
+### Task 0.0: Create feature branch
+
+**Files:** none
+
+- [ ] **Step 1: Verify you are on master and it is clean**
+
+```powershell
+git status
+git checkout master
+git pull
+```
+
+Expected: `nothing to commit, working tree clean`.
+
+- [ ] **Step 2: Create and checkout the feature branch**
+
+```powershell
+git checkout -b task-75-stateless-mcp-pipeline
+```
+
+Expected: `Switched to a new branch 'task-75-stateless-mcp-pipeline'`
+
+All subsequent commits in this plan land on this branch. Do NOT commit directly to master.
+
+---
+
 ### Task 0.1: Delete strands files
 
 **Files:**
@@ -2187,41 +2213,166 @@ git commit -m "feat(diary): rolling compaction loop with P4 boredom tick retry"
 
 ## Final Integration
 
-### Task 6.1: Squash-merge to master and update dev memory
+### Task 6.1: Full regression and user confirmation gate
 
 - [ ] **Step 1: Run full regression on feature branch**
 
 ```powershell
+git branch  # confirm you are on task-75-stateless-mcp-pipeline, NOT master
 py -m pytest tests/ -v --timeout=30
 ```
 
-Expected: all tests pass.
+Expected: all tests pass, `0 failed`. If any test fails, fix it before proceeding. Do NOT merge with a red suite.
 
-- [ ] **Step 2: Squash-merge to master**
+- [ ] **Step 2: Print branch summary and STOP — wait for user confirmation**
+
+Output the following to the user and wait for explicit approval before continuing:
+
+```
+✅ Branch task-75-stateless-mcp-pipeline is green.
+
+Ready to squash-merge to master. This will:
+  - Squash all branch commits into one clean commit on master
+  - Delete the feature branch
+  - Update AGENTS.md, README.md, docs/architecture.md, memory/project-dev-memory.md
+
+Confirm: proceed with squash-merge? (yes / no)
+```
+
+**Do not execute Step 3 until the user replies "yes".**
+
+---
+
+### Task 6.2: Squash-merge to master
+
+- [ ] **Step 1: Squash-merge**
 
 ```powershell
 git checkout master
-git merge --squash task-stateless-pipeline
+git merge --squash task-75-stateless-mcp-pipeline
 git commit -m "feat: stateless MCP burst pipeline — FastMCP SSE, ephemeral sessions, XML prompts, diary compaction"
 ```
 
-- [ ] **Step 3: Update `memory/project-dev-memory.md`**
+Expected: `1 file changed` or more, clean commit on master.
 
-Add a new phase entry covering:
-- Phase 0: Strands rip-out (files deleted, imports swept)
-- Phase 1: Config cache (`config_get`/`config_set`, DND gate, adaptive threshold, probability gate)
-- Phase 2: FastMCP SSE server (4 new tools + 13 migrated, COM init, `MCPServerThread`)
-- Phase 3: Animation bridge (`trigger_state_override`, override lock, pre-fetch TTL)
-- Phase 4: Stateless burst executor (ephemeral sessions, XML payload, dual-trigger)
-- Phase 5: Diary compaction (threshold check, deferred retry via P4 tick)
-
-Update test count, file map, and pitfalls sections.
-
-- [ ] **Step 4: Final commit**
+- [ ] **Step 2: Delete the feature branch**
 
 ```powershell
-git add memory/project-dev-memory.md
-git commit -m "docs: update dev memory for stateless MCP pipeline phases 0-5"
+git branch -D task-75-stateless-mcp-pipeline
+```
+
+Expected: `Deleted branch task-75-stateless-mcp-pipeline`.
+
+- [ ] **Step 3: Verify master is clean**
+
+```powershell
+git status
+git log --oneline -5
+```
+
+Expected: most recent commit is the squash-merge commit. Working tree clean.
+
+---
+
+### Task 6.3: Update all relevant docs
+
+**Files:**
+- Modify: `memory/project-dev-memory.md`
+- Modify: `AGENTS.md`
+- Modify: `README.md`
+- Modify: `docs/architecture.md`
+
+- [ ] **Step 1: Update `memory/project-dev-memory.md`**
+
+Append a new phase section at the end (before "Done — End of Project Dev Memory") with the following structure:
+
+```markdown
+### Phase 75 — Stateless MCP-Driven Pipeline (2026-07-05)
+**Branch:** `task-75-stateless-mcp-pipeline` (squash-merged)
+
+**Goal:** Replace Strands SDK stateful session model with lean stateless burst pipeline.
+
+**What was built:**
+
+| Phase | Work | Status |
+|-------|------|--------|
+| 0: Rip-out | Deleted strands_worker.py, llm_session_persistence.py, test files. Swept all imports from pet_window.py, opencode_worker.py, daemon.py, conftest.py. Removed strands from requirements.txt. | ✅ |
+| 1: Config cache | _RUNTIME_CONFIG live dict, config_get()/config_set() dot-path API, DND circuit breaker in apm_worker/event_worker, adaptive idle threshold, probability gate on window switches. | ✅ |
+| 2: FastMCP SSE | Replaced http.server MCPServer with FastMCP SSE QThread on :4097. Same opencode.json URL. COM pythoncom.CoInitialize() in thread. 4 new tools: get_screen_context (pruned UIA XML, depth 7), get_browser_context (sniper URL, depth 5), execute_os_action (guarded + clipboard-paste path), trigger_pet_animation (6 states → FSMActionBridge). 13 existing tools migrated. | ✅ |
+| 3: Animation bridge | trigger_state_override() @pyqtSlot, _animation_override_active flag, QTimer.singleShot clear. Pre-fetch UIA tree on overlay open, 5s TTL synchronous re-fetch on expiry. | ✅ |
+| 4: Stateless executor | OpencodeWorker rewritten: ephemeral session per burst (POST /session → message → DELETE /session). XML payload: build_static_block() ≤1200 tokens (prefix cache target) + build_dynamic_block() (runtime telemetry). Dual-trigger dispatcher: user workflow injects pre-fetched screen XML, autonomous workflow sends minimal telemetry and lets LLM call MCP tools. | ✅ |
+| 5: Diary compaction | DiaryStore.check_compaction_needed() (threshold=10 fresh entries), _run_compaction() via ephemeral LLM burst, _compaction_deferred flag. BehaviorController P4 boredom tick retries deferred compaction. | ✅ |
+
+**Key architectural decisions:**
+- Ephemeral sessions: POST /session → message → DELETE /session. Zero SQLite accumulation in OpenCode serve.
+- FastMCP SSE stays in-process — all PyQt singletons (Memory, DiaryStore, FSMActionBridge) accessible. No subprocess IPC needed.
+- pyqtSignal cross-thread for MCP→UI calls: auto QueuedConnection. No queue.Queue.
+- Static XML block ≤1200 tokens for provider prefix cache. Dynamic block always fresh.
+- execute_os_action use_clipboard=True: Win32 clipboard write + Ctrl+V paste. Bypasses 50-char keystroke cap.
+
+**Files deleted:**
+- src/llm/strands_worker.py
+- src/llm/llm_session_persistence.py
+- tests/test_strands_worker.py
+- tests/test_llm_session_persistence.py
+
+**Files created:**
+- tests/test_config_cache.py
+- tests/test_mcp_server_fastmcp.py
+- tests/test_animation_bridge.py
+- tests/test_opencode_worker_stateless.py
+- tests/test_diary_compaction.py
+
+**Files modified:**
+- src/config.py, src/system/apm_worker.py, src/system/event_worker.py
+- src/autonomy/behavior_controller.py, src/mcp_server.py
+- src/fsm_bridge.py, src/ui/pet_window.py
+- src/llm/opencode_worker.py, src/llm/context_manager.py
+- src/diary_store.py, requirements.txt
+
+**Test results:** [UPDATE WITH ACTUAL COUNT] passed, 0 failed.
+```
+
+- [ ] **Step 2: Update `AGENTS.md` — Boot Sequence section**
+
+Find the **Boot Sequence** block in `AGENTS.md`. Update the `MCPServer` line:
+
+```
+# Before:
+  ├─ MCPServer (JSON-RPC 2.0 on :4097)
+# After:
+  ├─ MCPServerThread (FastMCP SSE on :4097) — 17 tools, COM initialized
+```
+
+Update the **MCP Server** section tool count from 13 → 17 and list the 4 new tools:
+- `get_screen_context` — pruned UIA interactive XML (depth 7, 2000 char cap)
+- `get_browser_context` — sniper URL via ValuePattern (depth 5)
+- `execute_os_action` — guarded OS control with clipboard-paste path (`use_clipboard=True`)
+- `trigger_pet_animation` — 6 states: IDLE, THINKING, FRUSTRATED, SMUG, SHOCKED, LAUGHING
+
+Update test count to match actual result.
+
+- [ ] **Step 3: Update `README.md`**
+
+Find any section referencing "Strands", "StrandsWorker", "LLMSessionPersistence", or "session persistence" — remove or replace with:
+
+> Daemon uses a stateless burst model: every LLM interaction creates a fresh ephemeral OpenCode session, sends a full XML context payload, receives a response, then immediately deletes the session — preventing SQLite accumulation and ensuring zero cross-call state bleed.
+
+Update the MCP tools table if present (add 4 new tools, bump count to 17).
+
+- [ ] **Step 4: Update `docs/architecture.md`**
+
+Find the MCP Server section. Replace the old `http.server` / `MCPHandler` description with:
+
+> **MCP Server:** FastMCP SSE (`mcp` package) running in `MCPServerThread(QThread)` on port 4097. Communicates with OpenCode via the existing `opencode.json` `"type": "remote"` URL (no config change). COM apartment initialized via `pythoncom.CoInitialize()` in `QThread.run()`. 17 tools total: 4 new (screen context, browser context, OS actions, pet animations) + 13 migrated from previous `http.server` implementation.
+
+Update the **Data Flow Pipelines** section to reflect the stateless burst pattern (ephemeral session, XML payload, no session persistence).
+
+- [ ] **Step 5: Commit all docs**
+
+```powershell
+git add memory/project-dev-memory.md AGENTS.md README.md docs/architecture.md
+git commit -m "docs: update all docs for Phase 75 stateless MCP pipeline"
 ```
 
 ---
