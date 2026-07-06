@@ -15,6 +15,36 @@ def test_returns_empty_string_on_non_windows():
     assert result == ""
 
 
+def test_is_ide_window_vscode():
+    from src.system.active_window import is_ide_window
+    assert is_ide_window("main.py - Visual Studio Code") is True
+
+
+def test_is_ide_window_pycharm():
+    from src.system.active_window import is_ide_window
+    assert is_ide_window("my_project - PyCharm") is True
+
+
+def test_is_ide_window_non_ide():
+    from src.system.active_window import is_ide_window
+    assert is_ide_window("Discord") is False
+
+
+def test_is_ide_window_empty():
+    from src.system.active_window import is_ide_window
+    assert is_ide_window("") is False
+
+
+def test_is_ide_window_intellij():
+    from src.system.active_window import is_ide_window
+    assert is_ide_window("project [main] - IntelliJ IDEA") is True
+
+
+def test_is_ide_window_sublime():
+    from src.system.active_window import is_ide_window
+    assert is_ide_window("untitled - Sublime Text") is True
+
+
 def test_returns_empty_string_on_ctypes_exception():
     import ctypes
     with patch("ctypes.windll") as mock_windll:

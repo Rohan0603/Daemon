@@ -2,6 +2,10 @@
 
 A mischievous, always-on-top Windows desktop pet built with PyQt6. Lives on your screen, reacts to system activity, and talks to the `opencode` multi-agent platform via HTTP API. Kenny personality — an anxious, profane, surveillance-obsessed companion that roasts you relentlessly.
 
+## Features
+
+- **IDE Coding Assistant Mode** — automatically detects when you're in VS Code, PyCharm, IntelliJ, or other IDEs; switches to a teal-tinted body, blinking terminal cursor, and `code_assist`-type autonomous prompts for coding-focused interaction.
+
 ---
 
 ## Architecture Overview

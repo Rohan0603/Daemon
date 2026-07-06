@@ -81,6 +81,10 @@ class EventType(Enum):
     PET_BOOT_COMPLETED = "pet_boot_completed"
     PET_SHUTDOWN_STARTED = "pet_shutdown_started"
 
+    # IDE / Coding Mode Events
+    IDE_MODE_ENTERED = "ide_mode_entered"
+    IDE_MODE_EXITED = "ide_mode_exited"
+
 
 @dataclass(frozen=True)
 class Event:
@@ -207,11 +211,22 @@ class EventBus:
             data={"text": text}
         ))
 
-    def emit_autonomous_trigger(self, mode: str, apm: int, idle_seconds: float, source: str = "autonomy") -> None:
+    def emit_autonomous_trigger(self, mode: str, apm: int, idle_seconds: float,
+                                 draw_type: str = "typing_reaction",
+                                 ide_mode: bool = False,
+                                 ide_name: str = "",
+                                 source: str = "autonomy") -> None:
         self.publish(Event(
             type=EventType.AUTONOMOUS_TRIGGER_FIRED,
             source=source,
-            data={"mode": mode, "apm": apm, "idle_seconds": idle_seconds}
+            data={
+                "mode": mode,
+                "apm": apm,
+                "idle_seconds": idle_seconds,
+                "draw_type": draw_type,
+                "ide_mode": ide_mode,
+                "ide_name": ide_name,
+            },
         ))
 
     def emit_llm_response(self, session_id: str, items_count: int, source: str = "llm") -> None:

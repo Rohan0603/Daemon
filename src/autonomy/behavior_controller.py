@@ -18,7 +18,7 @@ import logging
 import time
 from typing import Any
 
-from src.active_window import get_active_window_title
+from src.active_window import get_active_window_title, is_ide_window
 from src.animator import Emotion, EmotionAnimator
 from src.constants import (
     ACTIVE_CHAT_INTERVAL_SEC,
@@ -79,6 +79,7 @@ class BehaviorController:
         self._autonomous_query_pending = False
         self._brain_disconnected = False
         self._last_risky_match: str | None = None
+        self._in_ide_mode: bool = False
 
         # Timer accumulators (accumulated via tick())
         self._chat_timer_sec = 0.0
@@ -300,6 +301,9 @@ class BehaviorController:
             # Affinity silence decay: -1 per hour of inactivity
             self._apply_affinity_silence_decay(master_dt)
 
+            # IDE mode transition detection
+            self._check_ide_mode_transition()
+
             # Window switch tracking for WONDER
             current_window = get_active_window_title()
             if current_window and current_window != self._last_evaluated_window:
@@ -428,6 +432,22 @@ class BehaviorController:
         if app_name.lower() in [d.lower() for d in PROCRASTINATION_DOMAINS]:
             self._trigger_screen_time_roast(app_name, minutes * 60)
 
+    def _check_ide_mode_transition(self) -> None:
+        """Detect IDE enter/exit and publish the appropriate event."""
+        current_window = get_active_window_title()
+        now_in_ide = is_ide_window(current_window)
+        if now_in_ide == self._in_ide_mode:
+            return
+        self._in_ide_mode = now_in_ide
+        event_type = EventType.IDE_MODE_ENTERED if now_in_ide else EventType.IDE_MODE_EXITED
+        self._event_bus.publish(
+            Event(
+                type=event_type,
+                source="behavior_controller",
+                data={"window": current_window},
+            )
+        )
+
     def _trigger_screen_time_roast(self, app_name: str, duration: int) -> None:
         if self._gcd_expiry_timestamp > time.time():
             return
@@ -457,8 +477,12 @@ class BehaviorController:
             return
 
         self._last_autonomous_fire_time = time.time()
+        draw_type = "code_assist" if self._in_ide_mode else "typing_reaction"
+        from src.active_window import normalize_window_title
+        ide_name = normalize_window_title(get_active_window_title()) if self._in_ide_mode else ""
         self._event_bus.emit_autonomous_trigger(
-            "active_chat", self._current_apm, self._idle_seconds
+            "active_chat", self._current_apm, self._idle_seconds,
+            draw_type=draw_type, ide_mode=self._in_ide_mode, ide_name=ide_name
         )
         try:
             from src.observability import record_autonomous_trigger
@@ -493,8 +517,12 @@ class BehaviorController:
             return
 
         self._last_autonomous_fire_time = time.time()
+        draw_type = "code_assist" if self._in_ide_mode else "idle_thought"
+        from src.active_window import normalize_window_title
+        ide_name = normalize_window_title(get_active_window_title()) if self._in_ide_mode else ""
         self._event_bus.emit_autonomous_trigger(
-            "boredom", self._current_apm, self._idle_seconds
+            "boredom", self._current_apm, self._idle_seconds,
+            draw_type=draw_type, ide_mode=self._in_ide_mode, ide_name=ide_name
         )
         try:
             from src.observability import record_autonomous_trigger

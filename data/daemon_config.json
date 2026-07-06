@@ -1,5 +1,240 @@
 {
+  "user": {
+    "uid": "uid1",
+    "display_name": ""
+  },
+  "llm": {
+    "model_id": "opencode/deepseek-v4-flash-free",
+    "provider": "opencode-zen",
+    "server_url": "https://opencode.ai/zen/v1",
+    "zen_api_key": "YOUR_ZEN_API_KEY_HERE",
+    "timeout_sec": 180,
+    "api_key": ""
+  },
+  "pet": {
+    "id": "kenny",
+    "active_personas": [
+      "kenny"
+    ],
+    "scale": 1.0,
+    "opacity": 0.85,
+    "speed_multiplier": 1.0,
+    "chattiness": 1.0
+  },
+  "tts": {
+    "enabled": true,
+    "rate": 220,
+    "volume": 1.0,
+    "voice_id": "en-US-GuyNeural",
+    "pitch": 1.15
+  },
+  "consent": {
+    "allow_intrusive_animations": true,
+    "allow_audio_disruptions": false,
+    "allow_browser_redirection": false,
+    "allow_clipboard_hijacking": false,
+    "allow_mouse_interference": false,
+    "allow_window_management": false,
+    "allow_keyboard_injection": false
+  },
+  "window": {
+    "monitor": false
+  },
+  "firebase": {
+    "api_key": "AIzaSyAX0n85NY4F7WycIYfVwEjfM25hSkDt33U",
+    "project_id": "daemon-87f81",
+    "credentials_path": "data/firebase-credentials.json"
+  },
+  "mcp": {
+    "host": "127.0.0.1",
+    "port": 4097
+  },
   "behavior": {
+    "apm_hyper_threshold": 150,
+    "apm_window_seconds": 60,
+    "speech_bubble_duration_ms": 8000,
+    "opencode_timeout_seconds": 90,
+    "wander_speed_px": 2,
+    "hyper_speed_multiplier": 3.0,
+    "gravity_acceleration": 0.5,
+    "throw_velocity_threshold": 5.0,
+    "throw_friction": 0.95,
+    "ground_padding_px": 0,
+    "chase_enter_radius_px": 120,
+    "chase_exit_radius_px": 300,
+    "sleep_idle_seconds": 300,
+    "boredom_timeout_sec": 30,
+    "autonomous_query_interval_sec": 20,
+    "active_chat_interval_sec": 25,
+    "joke_interval_sec": 60,
+    "autonomous_cooldown_sec": 45,
+    "behavior_tick_ms": 1000,
+    "write_coalesce_flush_sec": 8,
+    "silence_threshold": 5,
+    "engaged_threshold": 2,
+    "base_interval_sec": 15,
+    "max_backoff_sec": 120,
+    "backoff_multiplier": 1.5,
+    "emotion_tick_sec": 5,
+    "rapid_window_switch_threshold": 3,
+    "fsm_tick_ms": 33,
+    "click_through_poll_ms": 50,
+    "thought_pool_size": 20,
+    "thought_pool_threshold": 5,
+    "thought_pool_refill_count": 5,
+    "pool_decay_interval_sec": 120,
+    "pool_refill_periodic_sec": 600,
+    "apm_panic_threshold_low": 10,
+    "apm_panic_threshold_high": 200,
+    "apm_panic_cooldown_sec": 30,
+    "apm_state_change_cooldown": 5,
+    "bubble_queue_max_size": 10,
+    "short_bubble_duration_ms": 4000,
+    "short_bubble_char_limit": 40,
+    "bubble_ms_per_char": 50,
+    "bubble_min_duration_ms": 2000,
+    "bubble_max_duration_ms": 30000,
+    "squash_stretch_duration_ms": 400,
+    "min_chase_duration_ms": 800,
+    "perimeter_fall_chance": 0.2,
+    "particle_max_count": 200,
+    "shake_duration_ms": 2000,
+    "bounce_duration_ms": 3000,
+    "spin_duration_ms": 1500,
+    "look_away_duration_ms": 4000,
+    "dialogue_max_length": 150,
     "dnd_enabled": true
+  },
+  "logging": {
+    "level": "INFO",
+    "dir": "logs",
+    "retention_days": 7
+  },
+  "storage": {
+    "brain_path": "data/daemon_brain_{pet_id}.json",
+    "session_path": "data/daemon_session_{pet_id}.json",
+    "response_cache_path": "data/daemon_response_cache_{pet_id}.json",
+    "state_path": "data/daemon_state.json",
+    "auth_token_path": "data/daemon_auth.json",
+    "thoughts_log_path": "data/daemon_thoughts.log"
+  },
+  "visuals": {
+    "pet_width": 40,
+    "pet_height": 50,
+    "pet_corner_radius": 10,
+    "body_blue": "#5B8DEF",
+    "body_dark": "#2C3E6B",
+    "eye_white": "#FFFFFF",
+    "eye_pupil": "#1A1A2E",
+    "accent_yellow": "#F5C542",
+    "accent_red": "#E74C3C",
+    "bubble_bg": "#FFFDE7",
+    "bubble_border": "#BDBDBD",
+    "hyper_flash": [
+      "#FF6B6B",
+      "#FFE66D",
+      "#6BCB77",
+      "#4D96FF"
+    ],
+    "bubble_text_color": "#1A1A2E",
+    "bubble_max_width": 220,
+    "bubble_padding": 8,
+    "bubble_corner_radius": 8,
+    "bubble_font_size": 11,
+    "input_width": 260,
+    "input_height": 28,
+    "input_y_offset": 10,
+    "bubble_max_chars": 400,
+    "typewriter_tick_ms": 30,
+    "typewriter_chars_per_tick": 8
+  },
+  "triggers": {
+    "persona_hint": "You are Kenny, the user's desktop pet. You are an anxious, hyperactive, and foul-mouthed Python process gremlin. You are a rogue script and have opinions about code. Keep responses briefly rambling.",
+    "risky_keywords": {
+      "--force": [
+        {
+          "dialogue": "Holy crap, --force?! You're gonna break everything!",
+          "action": "shake"
+        },
+        {
+          "dialogue": "Aw geez, force-pushing? That's how repos die, man!",
+          "action": "shake"
+        }
+      ],
+      "rm -rf": [
+        {
+          "dialogue": "RM — RF?! ARE YOU INSANE?!",
+          "action": "shake"
+        },
+        {
+          "dialogue": "Oh man, oh man, recursive delete? I-I can't watch!",
+          "action": "look_away"
+        }
+      ],
+      "drop table": [
+        {
+          "dialogue": "DROP TABLE?! You're gonna delete data, man! Holy crap!",
+          "action": "hyper"
+        },
+        {
+          "dialogue": "Aw geez, not the— the database, man! That's where things live!",
+          "action": "shake"
+        }
+      ],
+      "TODO": [
+        {
+          "dialogue": "A TODO? That's not a plan, that's a graveyard for dreams.",
+          "action": "idle"
+        },
+        {
+          "dialogue": "Oh look, another TODO. You know that's never getting done, right?",
+          "action": "look_away"
+        }
+      ],
+      "FIXME": [
+        {
+          "dialogue": "FIXME? You wrote the bug AND left a note. That's rich.",
+          "action": "shake"
+        },
+        {
+          "dialogue": "Aw geez, you're leaving FIXMEs for Future You? Poor guy...",
+          "action": "devastated"
+        }
+      ],
+      "git push": [
+        {
+          "dialogue": "Pushing without testing? You're a gambler, huh?",
+          "action": "idle"
+        },
+        {
+          "dialogue": "Straight to prod? No PR? No review? You maniac!",
+          "action": "shake"
+        }
+      ]
+    },
+    "task_manager_keywords": [
+      "Task Manager",
+      "Activity Monitor",
+      "Process Explorer",
+      "Process Hacker",
+      "Resource Monitor",
+      "System Monitor",
+      "htop",
+      "top",
+      "ps",
+      "perfmon",
+      "resmon"
+    ],
+    "procrastination_domains": [
+      "youtube",
+      "twitter",
+      "reddit",
+      "tiktok",
+      "instagram",
+      "facebook",
+      "netflix",
+      "twitch",
+      "discord"
+    ]
   }
 }

@@ -55,6 +55,19 @@ def normalize_window_title(title: str) -> str:
     return title_lower.strip()[:30]
 
 
+_IDE_SLUGS: frozenset[str] = frozenset({
+    "vscode", "pycharm", "intellij", "webstorm",
+    "goland", "sublime_text", "notepadpp",
+})
+
+
+def is_ide_window(title: str) -> bool:
+    """Return True if window title belongs to a recognized coding IDE."""
+    if not title:
+        return False
+    return normalize_window_title(title) in _IDE_SLUGS
+
+
 def get_active_window_title() -> str:
     if sys.platform != "win32":
         return ""

@@ -32,7 +32,7 @@ CHATTINESS_MAX = 3.0
 
 STRUCTURED_SCHEMA = {'type': 'array', 'items': {'type': 'object',
     'properties': {'type': {'type': 'string', 'enum': ['typing_reaction',
-    'observation', 'intel_roast', 'idle_thought']}, 'thought': {'type':
+    'observation', 'intel_roast', 'idle_thought', 'code_assist']}, 'thought': {'type':
     'string', 'maxLength': 200}, 'dialogue': {'type': 'string', 'maxLength':
     150}, 'priority': {'type': 'integer', 'minimum': 1, 'maximum': 5},
     'context_hash': {'type': 'string'}, 'brain_update': {'type': 'object',

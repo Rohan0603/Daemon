@@ -3050,3 +3050,46 @@ py -m pytest tests/test_response_pool.py tests/test_diary_store.py tests/test_hi
 | 3 | Re-entrant publish false positive | `src/events.py` | Boolean `_publishing` → integer `_publish_count` counter |
 
 **Config note:** `daemon_config.json:llm.server_url` still reads `https://opencode.ai/zen/v1` — this is now used only by the Settings UI and event worker, NOT for session management. The worker always uses localhost:4096.
+
+---
+
+## IDE Coding Assistant Mode (2026-07-06)
+
+**Branch:** `task-48-ide-coding-mode` (9 tasks, ~50 subagent steps)
+**Plan:** `docs/superpowers/plans/2026-07-06-ide-coding-assistant-mode.md`
+**Test count:** 760 passed, 1 skipped (baseline + 25 new tests across 4 new test files)
+
+### What Was Built
+
+Automatic detection of coding IDEs (VS Code, PyCharm, IntelliJ, WebStorm, GoLand, Sublime Text, Notepad++) triggers visual, behavioral, and prompt-level changes:
+
+| Task | What | File(s) | Commit |
+|------|------|---------|--------|
+| 1 | `is_ide_window()` detection + `_IDE_SLUGS` | `src/system/active_window.py` | `e1b8b3d` |
+| 2 | `IDE_MODE_ENTERED`/`EXITED` events (w=500) | `src/events.py` | `038fd08` |
+| 3 | `code_assist` in `STRUCTURED_SCHEMA` | `src/constants.py` | `b5013a3` |
+| 4 | BehaviorController: `_in_ide_mode`, `_check_ide_mode_transition()`, draw-type switching | `src/autonomy/behavior_controller.py` | `07d8dad` |
+| 5 | RenderContext: `ide_mode` field, teal body color (#00CED1), blinking cursor overlay | `src/ui/pet_renderer.py` | `da2a7a0` |
+| 6 | PetWindow: wiring `ide_mode` from events into RenderContext | `src/ui/pet_window.py` | `6827b48` |
+| 7 | ContextManager: `ide_slug` injected into prompt context | `src/llm/context_manager.py` | `b6ddcf2` |
+| 8 | Docs: `CODING_ASSISTANT_MODE.md` + README mention | `docs/superpowers/behaviors/CODING_ASSISTANT_MODE.md`, `README.md` | `c245d73` |
+| 9 | Integration + full regression | all above | current |
+
+### Key Design Decisions
+
+- **`is_ide_window()`** returns `True` when the lowercased window title contains any slug from `_IDE_SLUGS` (frozenset for O(1) lookup)
+- **Teal overrides all state-based colors** — even HYPER flash is suppressed when in IDE mode, keeping the visual signal clear
+- **Cursor blink** uses `anim_tick` (33ms tick): 15 ticks visible / 15 ticks hidden for ~500ms phases
+- **`draw_type="code_assist"`** routes through the existing `code_assist` type in `STRUCTURED_SCHEMA` for ThoughtPool integration
+- **IDE context in prompts** is optional — `ide_slug` param defaults to `""`, and cache key includes `ide_slug` to prevent stale cached prompts
+- **No new FSM states** — the feature uses existing events and behavior controller infrastructure
+
+### Test Files Added
+
+| File | Tests |
+|------|-------|
+| `tests/test_active_window.py` | 5 (extended existing) |
+| `tests/test_behavior_controller_ide.py` | 8 |
+| `tests/test_pet_renderer_ide.py` | 7 |
+| `tests/test_context_manager_ide.py` | 5 |
+

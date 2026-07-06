@@ -78,10 +78,12 @@ class ContextManager:
 
     def _build_cache_key(self, prefix: str, mode: str, user_input: str = "",
                          apm: int = 0, idle_seconds: float = 0.0,
-                         typing_content: str = "", screen_text: str = "") -> tuple:
+                         typing_content: str = "", screen_text: str = "",
+                         ide_slug: str = "") -> tuple:
         return (prefix, mode, user_input, _apm_bucket(apm), int(idle_seconds),
                 hash(typing_content) if typing_content else "",
-                hash(screen_text) if screen_text else "")
+                hash(screen_text) if screen_text else "",
+                ide_slug or "")
 
     def _get_memory_block(self) -> str:
         facts = self._memory.get_all() if getattr(self, "_memory", None) else {}
@@ -110,9 +112,11 @@ class ContextManager:
 
     def build_user_trigger(self, mode: str, user_input: str, apm: int,
                            idle_seconds: float, typing_content: str = "",
-                           screen_text: str = "") -> str:
+                           screen_text: str = "",
+                           ide_slug: str = "") -> str:
         key = self._build_cache_key("user", mode, user_input, apm, idle_seconds,
-                                     typing_content, screen_text)
+                                     typing_content, screen_text,
+                                     ide_slug)
         if key == self._cache_key and self._cached_prompt:
             return self._cached_prompt
         
@@ -127,6 +131,8 @@ class ContextManager:
             f"APM (actions per minute — primary signal): {apm}",
             f"Idle seconds: {int(idle_seconds)}",
         ]
+        if ide_slug:
+            lines.append(f"Context: you are in {ide_slug}. The user is coding.")
         if user_input:
             lines.append(f"User said: {user_input}")
         if typing_content:
@@ -142,9 +148,11 @@ class ContextManager:
 
     def build_autonomous_trigger(self, mode: str, apm: int,
                                  idle_seconds: float, typing_content: str = "",
-                                 screen_text: str = "") -> str:
+                                 screen_text: str = "",
+                                 ide_slug: str = "") -> str:
         key = self._build_cache_key("auto", mode, "", apm, idle_seconds,
-                                     typing_content, screen_text)
+                                     typing_content, screen_text,
+                                     ide_slug)
         if key == self._cache_key and self._cached_prompt:
             return self._cached_prompt
         
@@ -160,6 +168,8 @@ class ContextManager:
             f"Mode: {mode}",
             f"Idle seconds: {int(idle_seconds)}",
         ]
+        if ide_slug:
+            lines.append(f"Context: the user is in {ide_slug}. They are coding.")
         if typing_content:
             lines.append("")
             lines.append(typing_content)

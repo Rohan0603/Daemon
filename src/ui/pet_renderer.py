@@ -47,6 +47,7 @@ class RenderContext:
     title_land_elapsed_ms: float = 0.0
     prepare_jump_elapsed_ms: float = 0.0
     action_stack: list = field(default_factory=list)
+    ide_mode: bool = False          # True when a coding IDE is the foreground window
 
 
 class PetRenderer:
@@ -209,6 +210,10 @@ class PetRenderer:
         return 1.0, 1.0, 0.0
 
     def _body_color(self, ctx: RenderContext) -> QColor:
+        # IDE mode: override with dark turquoise tint
+        if ctx.ide_mode:
+            return QColor(0, 206, 209)  # #00CED1 — dark turquoise
+
         state = ctx.state
         if state == PetState.HYPER:
             return QColor(HYPER_FLASH[ctx.hyper_color_index % 4])
@@ -479,11 +484,36 @@ class PetRenderer:
                     sy = py + PET_HEIGHT // 2 - jump_y + int(25 * math.sin(rad))
                     painter.drawEllipse(QPointF(sx, sy), 3, 3)
 
+        # IDE mode: blinking terminal cursor overlay
+        if ctx.ide_mode:
+            self._draw_ide_cursor(painter, ctx)
 
 
         painter.restore()
 
-    # ── Emotion Overlays ─────────────────────────────────────────────────
+    def _draw_ide_cursor(self, painter: QPainter, ctx: RenderContext) -> None:
+        """Draw a blinking '|' terminal cursor in the bottom-right of the body."""
+        # Blink: visible for 500ms, hidden for 500ms (anim_tick is 33ms per tick)
+        # 500ms / 33ms ≈ 15 ticks per half-cycle
+        half_cycle = 15
+        if (ctx.anim_tick // half_cycle) % 2 == 1:
+            return  # hidden phase
+
+        size = int(32 * ctx.scale)
+        x = ctx.pet_x + size // 2 - 4
+        y = ctx.pet_y + size - 8
+
+        painter.save()
+        painter.setPen(QColor(0, 255, 200, 220))  # bright cyan-green, slightly transparent
+        font = painter.font()
+        font.setFamily("Consolas")
+        font.setPointSize(9)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(x, y, "▋")
+        painter.restore()
+
+
 
     def _draw_overlay(self, painter: QPainter, ctx: RenderContext,
                       overlay: tuple) -> None:

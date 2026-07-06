@@ -322,6 +322,7 @@ class PetWindow(QWidget):
         self._boredom_timer_ms: int = BOREDOM_TIMEOUT_SEC * 1000
         self._autonomous_query_pending: bool = False
         self._boredom_retry_count: int = 0
+        self._ide_mode: bool = False
         self._boredom_retry_timer: QTimer | None = None
         self._boredom_retry_max: int = 3
         self._boredom_retry_delay: int = 2000  # 2 seconds
@@ -405,6 +406,16 @@ class PetWindow(QWidget):
         self._events.subscribe(
             EventType.AUTONOMOUS_TRIGGER_FIRED,
             self._on_autonomous_trigger_fired,
+        )
+
+        # Wire IDE mode transition handlers
+        self._events.subscribe(
+            EventType.IDE_MODE_ENTERED,
+            self._on_ide_mode_entered,
+        )
+        self._events.subscribe(
+            EventType.IDE_MODE_EXITED,
+            self._on_ide_mode_exited,
         )
 
     def _setup_window(self) -> None:
@@ -1407,6 +1418,7 @@ class PetWindow(QWidget):
                 title_land_elapsed_ms=title_land_elapsed_ms,
                 prepare_jump_elapsed_ms=prepare_jump_elapsed_ms,
                 action_stack=self._action_layer.get_active(),
+                ide_mode=self._ide_mode,
             )
             self._renderer.render(painter, ctx)
             self._bubble_rect = ctx.bubble_rect
@@ -1955,8 +1967,14 @@ class PetWindow(QWidget):
         self._thought_log_dialog.show()
 
     def _dispatch_multiplexed(self, modes: list[str]) -> None:
+        ide_slug = ""
+        if self._ide_mode:
+            from src.active_window import normalize_window_title, get_active_window_title
+            ide_slug = normalize_window_title(get_active_window_title())
+
         base = self._context_manager.build_autonomous_trigger(
             mode=modes[0], apm=self._current_apm, idle_seconds=self._idle_seconds,
+            ide_slug=ide_slug,
         )
         prompt = base + f"\nmodes: {json.dumps(modes)}"
         
@@ -2051,6 +2069,12 @@ class PetWindow(QWidget):
             logger.debug("[%s] Skipping: FSM state=%s", mode, self._fsm.current_state.name)
             return False
         return True
+
+    def _on_ide_mode_entered(self, event=None):
+        self._ide_mode = True
+
+    def _on_ide_mode_exited(self, event=None):
+        self._ide_mode = False
 
     def _on_autonomous_trigger_fired(self, event=None):
         try:
@@ -2271,16 +2295,24 @@ class PetWindow(QWidget):
         if is_autonomous:
             self._autonomous_query_pending = True
         screen_text = ScreenReader.get_foreground_text()
+
+        # Compute IDE context slug if pet is in IDE mode
+        ide_slug = ""
+        if self._ide_mode:
+            from src.active_window import normalize_window_title, get_active_window_title
+            ide_slug = normalize_window_title(get_active_window_title())
+
         if is_autonomous:
             prompt = self._context_manager.build_autonomous_trigger(
                 mode=mode, apm=apm, idle_seconds=idle_seconds,
                 typing_content=typing_content, screen_text=screen_text,
+                ide_slug=ide_slug,
             )
         else:
             prompt = self._context_manager.build_user_trigger(
                 mode=mode, user_input=user_input, apm=apm,
                 idle_seconds=idle_seconds, typing_content=typing_content,
-                screen_text=screen_text,
+                screen_text=screen_text, ide_slug=ide_slug,
             )
         if isinstance(self._opencode_worker, QThread) and self._opencode_worker.isRunning():
             if not is_autonomous:
