@@ -2954,3 +2954,99 @@ py -m pytest tests/test_response_pool.py tests/test_diary_store.py tests/test_hi
 **Files modified:**
 - `src/ui/pet_window.py` — indentation + timer init order
 - `src/constants.py` — missing constants added via defaults dict
+
+---
+
+## Stateless MCP Pipeline (2026-07-05)
+
+**Branch:** `task-75-stateless-mcp-pipeline`
+**Test count:** 719 passed, 1 skipped (excl. 4 known-broken: test_config, test_config_autocreate, test_bubble_behavior [1], test_firebase_auth)
+**Plan:** `.hermes/plans/2026-07-05-stateless-mcp-pipeline.md`
+
+### Phase 2 — MCP Server as FastMCP SSE
+
+**Commit:** `e5a69cf` — `feat(mcp): rewrite MCP server as FastMCP SSE on port 4097`
+**Tests:** 10/10 pass in `test_fastmcp.py`, 22/22 in `test_mcp_server.py`
+
+| File | Change |
+|------|--------|
+| `src/mcp_server.py` | REWRITTEN (FastMCP SSE app, 3 tools: read_file, search_codebase, list_directory) |
+| `data/daemon_config.json` | Updated MCP host/port, added MCP section |
+| `tests/test_mcp_server.py` | REWRITTEN (22 tests — 19 FastMCP API + 3 uvicorn lifecycle) |
+| `tests/test_fastmcp.py` | NEW (10 tests — tool registration, warmup, error injection) |
+| `requirements.txt` | `fastmcp`, `httpx` added |
+
+### Phase 3 — Animation Bridge
+
+**Commit:** `a20bfb5` — `feat(ui): add animation bridge with trigger_state_override and override lock`
+**Tests:** 6/6 pass in `test_animation_bridge.py`, 696 full regression
+
+| File | Change |
+|------|--------|
+| `src/fsm_bridge.py` | Added `action_requested = pyqtSignal(str, int)`, `emit_animation_action()` |
+| `src/ui/pet_window.py` | Added `_animation_override_active`, `_animation_override_timer`, `_on_action_requested()`, boredom FSM guard |
+| `tests/test_animation_bridge.py` | REWRITTEN (87 lines, 6 tests) |
+
+### Phase 4.1 — Stateless Burst Executor (OpencodeWorker)
+
+**Commit:** `7a84cc8` — `feat(llm): rewrite OpencodeWorker as stateless burst executor`
+**Tests:** 39 tests (25 + 14), 696 full regression
+
+| File | Change |
+|------|--------|
+| `src/llm/opencode_worker.py` | REWRITTEN (285 lines). Stateless burst executor with `*args` backward compat |
+| `tests/test_opencode_worker_stateless.py` | REWRITTEN (154 lines, 14 tests). Mock session lifecycle |
+| `tests/test_opencode_worker.py` | REWRITTEN (388 lines, 25 tests). Full stateless burst test suite |
+
+### Phase 4.2 — XML Prompt Builders
+
+**Commit:** `ab39d94` — `feat(llm): add XML prompt builders to ContextManager`
+**Tests:** 11/11 pass in `test_context_manager_xml.py`, 696 full regression
+
+| File | Change |
+|------|--------|
+| `src/llm/context_manager.py` | REWRITTEN (214 lines). Added `build_static_block`, `build_dynamic_block`, `_xml_escape` |
+| `tests/test_context_manager_xml.py` | NEW (92 lines, 11 tests) |
+
+### Phase 4.3 — UIA Pre-fetch Cache
+
+**Commit:** `b419d67` — `feat(system): add UIA pre-fetch cache with 5s TTL`
+**Tests:** 5/5 pass in `test_screen_reader_cache.py`, 19/19 existing screen reader tests pass, 712 full regression
+
+| File | Change |
+|------|--------|
+| `src/system/screen_reader.py` | Added `prefetch_uia()`, `get_cached_uia()`, `_uia_cache`, `_uia_cache_time`, `_UIA_CACHE_TTL=5s` |
+| `src/ui/thought_log_dialog.py` | Added `prefetch_uia()` call in `__init__` |
+| `tests/test_screen_reader_cache.py` | NEW (1,205 chars, 5 tests) |
+
+### Phase 5 — Diary Compaction + P4 Boredom Retry
+
+**Commit:** `db8cdf6` — `feat(system): add diary compaction loop and P4 boredom retry`
+**Tests:** 7/7 pass in `test_diary_store_compaction.py`, 19/19 existing diary tests pass, 719 full regression
+
+| File | Change |
+|------|--------|
+| `src/diary_store.py` | Added `compact(max_entries=150)` with day-cluster merging, auto-compact on `add()` at 75% watermark |
+| `src/ui/pet_window.py` | Added `_boredom_retry_count`, `_boredom_retry_max`, `_boredom_retry_timer`, `_schedule_boredom_retry()`, APM cleanup |
+| `tests/test_diary_store_compaction.py` | NEW (7 tests) |
+| `tests/test_trigger_boredom_fsm.py` | Updated setup with retry fields |
+
+### Bugfix — Session 404 + Event Re-entrant + History Warning
+
+**Date:** 2026-07-05
+**Branch:** `master` (unstaged fixes)
+**Tests:** 79/79 relevant pass (opencode_worker + events + history)
+
+**Root cause:** `llm.server_url` in `daemon_config.json` was `https://opencode.ai/zen/v1` (remote API). Both `opencode_worker.py` and `daemon.py:ensure_opencode_serve_running()` used this config value for local session management, causing HTTP 404 on `POST /session`.
+
+**Fixes applied (3 bugs):**
+
+| # | Bug | File | Fix |
+|---|-----|------|-----|
+| 1 | `create_session` 404 | `src/llm/opencode_worker.py` | Use `DEFAULT_SERVER_URL` (`http://127.0.0.1:4096`) instead of `config_get("llm.server_url")` |
+| 1b | Same in daemon startup | `daemon.py` | Use `DEFAULT_SERVER_URL` instead of `cfg["llm"]["server_url"]` |
+| 1c | Same in shutdown | `src/ui/pet_window.py:_close_opencode_session` | Use `DEFAULT_SERVER_URL` instead of reloading config |
+| 2 | History warning spam | `src/constants.py`, `src/history.py` | Capacity 200 → 2000, warning once at 90% via `_warned_full` flag |
+| 3 | Re-entrant publish false positive | `src/events.py` | Boolean `_publishing` → integer `_publish_count` counter |
+
+**Config note:** `daemon_config.json:llm.server_url` still reads `https://opencode.ai/zen/v1` — this is now used only by the Settings UI and event worker, NOT for session management. The worker always uses localhost:4096.

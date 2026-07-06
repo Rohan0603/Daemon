@@ -111,7 +111,7 @@ class EventBus:
         self._wildcard_subscribers: WeakSet[Callable[[Event], None]] = WeakSet()
         self._history: List[Event] = []
         self._history_size = history_size
-        self._publishing = False
+        self._publish_count = 0
 
     def subscribe(self, event_type: EventType, callback: Callable[[Event], None]) -> None:
         """Subscribe to a specific event type."""
@@ -140,10 +140,10 @@ class EventBus:
 
     def publish(self, event: Event) -> int:
         """Publish event to all subscribers. Returns number of callbacks invoked."""
-        if self._publishing:
+        if self._publish_count > 0:
             logger.warning("Re-entrant publish detected for %s", event.type.value)
 
-        self._publishing = True
+        self._publish_count += 1
         try:
             # Add to history
             self._history.append(event)
@@ -172,7 +172,7 @@ class EventBus:
 
             return count
         finally:
-            self._publishing = False
+            self._publish_count -= 1
 
     def publish_async(self, event: Event) -> None:
         """Publish event from non-main thread via Qt signal (placeholder).

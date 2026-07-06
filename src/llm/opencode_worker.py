@@ -14,7 +14,7 @@ from typing import Any
 import requests
 from PyQt6.QtCore import QThread, pyqtSignal
 
-from src.config import config_get
+from src.config import config_get, DEFAULT_SERVER_URL
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +55,8 @@ class OpencodeWorker(QThread):
         self._abort = False
         self._last_raw_response = ""
 
-        # Config — read once at construction
-        self._server_url = config_get("llm.server_url") or "http://127.0.0.1:4096"
+        # Config — local opencode serve URL for session management
+        self._server_url = DEFAULT_SERVER_URL
         timeout = int(config_get("llm.timeout_sec") or 30)
         self._post_timeout = min(timeout, 60)
         # Refill operations get a longer timeout
