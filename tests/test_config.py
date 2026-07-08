@@ -1,9 +1,12 @@
 import json
 import os
+import shutil
 import pytest
 from unittest.mock import patch
 from pathlib import Path
 from src.config import load_config, flatten_config, unflatten_config, validate_config, MissingConfigurationError
+
+_ORIGINAL_COPY2 = shutil.copy2
 
 
 def _get_minimal_valid_cfg():
@@ -16,11 +19,12 @@ def _get_minimal_valid_cfg():
     }
 
 
-@patch("shutil.copy2")
+@patch("src.config.shutil.copy2")
 def test_load_config_default_fallback(mock_copy, tmp_path):
+    mock_copy.side_effect = _ORIGINAL_COPY2
     mock_conf = tmp_path / "test_config.json"
     
-    with patch.dict(os.environ, {}, clear=True):
+    with patch.dict(os.environ, {"FIREBASE_API_KEY": "dummy-key"}, clear=True):
         with patch("src.config._CONFIG_PATH", mock_conf):
             cfg = load_config()
             assert isinstance(cfg, dict)

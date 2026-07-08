@@ -297,9 +297,10 @@ class TestContextPreservation:
     def test_context_snapshot_has_all_fields(self, app):
         with patch("src.ui.pet_window.ClickThroughManager"), \
              patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
-             patch("src.ui.pet_window.APMWorker"), \
+             patch("src.ui.pet_window.APMWorker") as mock_apm_class, \
              patch("src.ui.pet_window.MCPServer"), \
              patch("src.ui.pet_window.BehaviorController"):
+            mock_apm_class.return_value.apm = 0
             from src.ui.pet_window import PetWindow
             window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
             ctx = window._build_context_snapshot()
@@ -313,16 +314,17 @@ class TestContextPreservation:
             assert ctx.get("apm") == 0
             assert "idle_seconds" not in ctx
 
-    def test_strands_worker_receives_full_context(self, app):
-        """The strands worker is created with context dict containing env signals."""
+    def test_opencode_worker_receives_full_context(self, app):
+        """The opencode worker is created with context dict containing env signals."""
         with patch("src.ui.pet_window.ClickThroughManager"), \
              patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
-             patch("src.ui.pet_window.APMWorker"), \
+             patch("src.ui.pet_window.APMWorker") as mock_apm_class, \
              patch("src.ui.pet_window.MCPServer"), \
              patch("src.ui.pet_window.BehaviorController"), \
-             patch("src.ui.pet_window.StrandsAutonomousWorker") as mock_worker:
+             patch("src.ui.pet_window.OpencodeWorker") as mock_worker:
+            mock_apm_class.return_value.apm = 0
             from src.ui.pet_window import PetWindow
-            from src.ui.pet_window import StrandsAutonomousWorker
+            from src.ui.pet_window import OpencodeWorker
             window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
             ctx = window._build_context_snapshot()
             assert "active_window" in ctx
@@ -338,10 +340,11 @@ class TestLowLatencyPlaceholder:
     def test_placeholder_shown_during_streaming(self, app):
         with patch("src.ui.pet_window.ClickThroughManager"), \
              patch("PyQt6.QtWidgets.QSystemTrayIcon"), \
-             patch("src.ui.pet_window.APMWorker"), \
+             patch("src.ui.pet_window.APMWorker") as mock_apm_class, \
              patch("src.ui.pet_window.MCPServer"), \
              patch("src.ui.pet_window.BehaviorController"), \
-             patch("src.ui.pet_window.StrandsAutonomousWorker") as mock_worker_class:
+             patch("src.ui.pet_window.OpencodeWorker") as mock_worker_class:
+            mock_apm_class.return_value.apm = 0
             from src.ui.pet_window import PetWindow
             window = PetWindow(opencode_enabled=False, initial_state={"first_run_done": True})
             # Simulate user input submission: shows "..." with 60s timeout

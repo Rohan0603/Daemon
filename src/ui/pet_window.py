@@ -788,11 +788,6 @@ class PetWindow(QWidget):
             self._summary_on_complete()
 
     def _finalize_quit(self) -> None:
-        try:
-            from src.llm import StrandsSession
-            StrandsSession.get_instance().close()
-        except Exception:
-            pass
         if hasattr(self, '_click_through') and self._click_through is not None:
             self._click_through.stop()
         self._mcp_server.stop()
@@ -1504,63 +1499,27 @@ class PetWindow(QWidget):
         self._current_user_input = text
         self._last_mode = "user_input"
 
-        # Safely halt any existing in-flight ReAct loop to prevent memory leaks/crashes
-        if hasattr(self, 'strands_worker') and self.strands_worker is not None:
-            if self.strands_worker.isRunning():
-                self.strands_worker.abort()
-                # Move to zombie workers for async cleanup instead of blocking
-                if not hasattr(self, '_zombie_workers'):
-                    self._zombie_workers = set()
-                w = self.strands_worker
-                self.strands_worker = None
-                self._zombie_workers.add(w)
-                def _cleanup_strands(w=w):
-                    if hasattr(self, '_zombie_workers'):
-                        self._zombie_workers.discard(w)
-                w.finished.connect(_cleanup_strands)
-                w.finished.connect(w.deleteLater)
-            else:
-                self.strands_worker.deleteLater()
-                self.strands_worker = None
-
-        current_context = self._build_context_snapshot() 
-        profanity_level = self._config.get("pet", {}).get("profanity_level", "moderate")
-
-        # Pull last 10 turns for context injection
-        recent_chat_raw = self._history.get_recent(10)
-        recent_chat = []
-        for item in recent_chat_raw:
-            if item.get("user_input"):
-                recent_chat.append({"role": "user", "content": item["user_input"]})
-            if item.get("daemon_response"):
-                recent_chat.append({"role": "assistant", "content": item["daemon_response"]})
-
-        # Append current user query
-        recent_chat.append({"role": "user", "content": text})
-
         self._typewriter_timer.stop()
         self._typewriter_active = False
         self._accumulated_stream_text = ""
         self._bubble_text = "..."
         self._bubble_timer_ms = 60000
-        self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, self._config.get("llm", {}).get("zen_api_key", ""), self._uid, self._pet_id, is_autonomous=False)
-        self.strands_worker.execution_complete.connect(self._on_response_ready)
-        from src.log_context import get_correlation_id
-        self.strands_worker._correlation_id = get_correlation_id()
-        self.strands_worker.partial_text.connect(self._on_partial_response)
-
-        # Handle failures gracefully to un-stick the FSM
-        def handle_failure(err):
-            logger.error("Strands error: %s", err)
-            self._fsm.transition_to(PetState.IDLE)
-            self._current_user_input = ""
-            self._autonomous_query_pending = False
-
-        self.strands_worker.execution_failed.connect(handle_failure)
 
         # Force FSM into thinking state
         self._fsm.transition_to(PetState.THINKING)
-        self.strands_worker.start()
+
+        # Dispatch via opencode worker
+        typing = self._typing_buffer.get_context() if self._typing_buffer else ""
+        apm = self._apm_worker.apm if self._apm_worker else 0
+        self._dispatch_trigger(
+            mode="user_input",
+            user_input=text,
+            context_hint=context,
+            apm=apm,
+            idle_seconds=0.0,
+            typing_content=typing,
+            is_autonomous=False,
+        )
 
 
     def _on_opencode_result(self, text: str) -> None:
@@ -1587,6 +1546,21 @@ class PetWindow(QWidget):
         # Invalidate session ID — the worker that errored may have been aborted,
         # leaving a stale server-side session. Next worker will create a fresh one.
         self._opencode_session_id = None
+
+        if getattr(self, "_opencode_worker", None) is not None:
+            w = self._opencode_worker
+            self._opencode_worker = None
+            if w.isRunning():
+                if not hasattr(self, '_zombie_workers'):
+                    self._zombie_workers = set()
+                self._zombie_workers.add(w)
+                def _cleanup_oc(w=w):
+                    if hasattr(self, '_zombie_workers'):
+                        self._zombie_workers.discard(w)
+                w.finished.connect(_cleanup_oc)
+                w.finished.connect(w.deleteLater)
+            else:
+                w.deleteLater()
 
         user_name = self._memory.get_all().get("user_name")
         name = "Appi"
@@ -1941,11 +1915,6 @@ class PetWindow(QWidget):
         self._check_mcp_health()
 
     def _on_restart_brain(self) -> None:
-        try:
-            from src.llm import StrandsSession
-            StrandsSession.get_instance().close()
-        except Exception:
-            pass
         from src.opencode_serve_manager import ensure_opencode_serve_running
         ensure_opencode_serve_running()
         self._on_health_check()
@@ -2105,59 +2074,15 @@ class PetWindow(QWidget):
                 self._on_output_displayed(engaged=True)
                 return
 
-            # No local cache hit — trigger Strands worker dispatch
-            # 1. Safely halt any existing in-flight ReAct loop to prevent memory leaks/crashes
-            if hasattr(self, 'strands_worker') and self.strands_worker is not None:
-                if self.strands_worker.isRunning():
-                    self.strands_worker.abort()
-                    # Move to zombie workers for async cleanup instead of blocking
-                    if not hasattr(self, '_zombie_workers'):
-                        self._zombie_workers = set()
-                    w = self.strands_worker
-                    self.strands_worker = None
-                    self._zombie_workers.add(w)
-                    def _cleanup_strands(w=w):
-                        if hasattr(self, '_zombie_workers'):
-                            self._zombie_workers.discard(w)
-                    w.finished.connect(_cleanup_strands)
-                    w.finished.connect(w.deleteLater)
-                else:
-                    self.strands_worker.deleteLater()
-                    self.strands_worker = None
-
-            current_context = self._build_context_snapshot()
-            profanity_level = self._config.get("pet", {}).get("profanity_level", "moderate")
-            
-            # 2. Pull last 10 turns for context injection
-            recent_chat_raw = self._history.get_recent(10)
-            recent_chat = []
-            for item in recent_chat_raw:
-                if item.get("user_input"):
-                    recent_chat.append({"role": "user", "content": item["user_input"]})
-                if item.get("daemon_response"):
-                    recent_chat.append({"role": "assistant", "content": item["daemon_response"]})
-            
-            self._accumulated_stream_text = ""
-            self.strands_worker = StrandsAutonomousWorker(current_context, recent_chat, self._config.get("llm", {}).get("zen_api_key", ""), self._uid, self._pet_id, is_autonomous=True)
-            self.strands_worker.execution_complete.connect(self._on_response_ready)
-            self.strands_worker.partial_text.connect(self._on_partial_response)
-            from src.log_context import get_correlation_id
-            self.strands_worker._correlation_id = get_correlation_id()
-            
-            # 3. Handle failures gracefully to un-stick the FSM
-            def handle_failure(err):
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error("Strands error: %s", err)
-                self._fsm.transition_to(PetState.IDLE)
-                self._autonomous_query_pending = False
-
-            self.strands_worker.execution_failed.connect(handle_failure)
-            
-            # Force FSM into tracking state
-            self._autonomous_query_pending = True
+            # No local cache hit — trigger opencode worker dispatch
             self._fsm.transition_to(PetState.AUTONOMOUS_THINKING)
-            self.strands_worker.start()
+            self._dispatch_trigger(
+                mode=mode,
+                apm=event.data.get("apm", 0) if event and hasattr(event, "data") else self._current_apm,
+                idle_seconds=event.data.get("idle_seconds", 0.0) if event and hasattr(event, "data") else self._idle_seconds,
+                typing_content=self._typing_buffer.get_context() if self._typing_buffer else "",
+                is_autonomous=True,
+            )
         except Exception:
             import logging
             logger = logging.getLogger(__name__)
@@ -2278,13 +2203,16 @@ class PetWindow(QWidget):
         apm = self._apm_worker.apm if self._apm_worker else 0
         screen_text = ScreenReader.get_foreground_text() or ""
         
-        return {
+        snapshot = {
             "active_window": context,
             "apm": apm,
-            "idle_seconds": getattr(self, "_idle_seconds", 0.0),
             "typing_content": typing,
             "screen_text": screen_text[:1500]  # truncate to prevent prompt ballooning
         }
+        idle = getattr(self, "_idle_seconds", 0.0)
+        if idle > 30:
+            snapshot["idle_seconds"] = idle
+        return snapshot
 
     def _dispatch_trigger(self, mode: str, user_input: str = "",
                           context_hint: str = "", apm: int = 0,
@@ -2354,12 +2282,8 @@ class PetWindow(QWidget):
                 )
                 return
         worker = OpencodeWorker(
-            user_input=user_input, context_hint=context_hint,
-            apm=apm, is_autonomous=is_autonomous,
-            # Use fresh session for autonomous triggers to avoid history contamination
-            session_id=None if is_autonomous else self._opencode_session_id,
-            prompt=prompt, typing_content=typing_content,
-            session_state=self._llm_session_state if (self._llm_session_state and not is_autonomous) else None,
+            prompt=prompt,
+            is_autonomous=is_autonomous,
         )
         worker.response_ready.connect(self._on_response_ready)
         worker.error_occurred.connect(self._on_opencode_error)
@@ -2387,20 +2311,7 @@ class PetWindow(QWidget):
                 w.finished.connect(w.deleteLater)
             else:
                 w.deleteLater()
-        if getattr(self, "strands_worker", None) is not None:
-            w = self.strands_worker
-            self.strands_worker = None
-            if w.isRunning():
-                if not hasattr(self, '_zombie_workers'):
-                    self._zombie_workers = set()
-                self._zombie_workers.add(w)
-                def _cleanup_sw(w=w):
-                    if hasattr(self, '_zombie_workers'):
-                        self._zombie_workers.discard(w)
-                w.finished.connect(_cleanup_sw)
-                w.finished.connect(w.deleteLater)
-            else:
-                w.deleteLater()
+
         if not items:
             self._fire_deferred_trigger()
             return
@@ -2422,7 +2333,7 @@ class PetWindow(QWidget):
         if getattr(self, "_events", None) is not None:
             self._events.publish(Event(
                 type=EventType.LLM_RESPONSE_RECEIVED,
-                source="strands_worker",
+                source="opencode_worker",
                 data={"items": items}
             ))
 
@@ -2712,7 +2623,17 @@ class PetWindow(QWidget):
         self._refill_in_progress = False
         worker = self._refill_workers.pop("thought_pool", None)
         if worker is not None:
-            worker.deleteLater()
+            if worker.isRunning():
+                if not hasattr(self, '_zombie_workers'):
+                    self._zombie_workers = set()
+                self._zombie_workers.add(worker)
+                def _cleanup_oc(w=worker):
+                    if hasattr(self, '_zombie_workers'):
+                        self._zombie_workers.discard(w)
+                worker.finished.connect(_cleanup_oc)
+                worker.finished.connect(worker.deleteLater)
+            else:
+                worker.deleteLater()
         if not items:
             self._response_manager.thought_pool.on_refill_result(None)
             return
@@ -2744,7 +2665,17 @@ class PetWindow(QWidget):
         self._refill_in_progress = False
         worker = self._refill_workers.pop("thought_pool", None)
         if worker is not None:
-            worker.deleteLater()
+            if worker.isRunning():
+                if not hasattr(self, '_zombie_workers'):
+                    self._zombie_workers = set()
+                self._zombie_workers.add(worker)
+                def _cleanup_oc(w=worker):
+                    if hasattr(self, '_zombie_workers'):
+                        self._zombie_workers.discard(w)
+                worker.finished.connect(_cleanup_oc)
+                worker.finished.connect(worker.deleteLater)
+            else:
+                worker.deleteLater()
         self._response_manager.thought_pool.on_refill_result(None)
         
         # Enhanced error recovery for refill failures

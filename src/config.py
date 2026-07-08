@@ -368,12 +368,12 @@ def load_config() -> dict:
     except json.JSONDecodeError as e:
         raise MissingConfigurationError(f"Invalid JSON in config template at {template_path}: {e}")
 
-    # Always create data/ directory if missing
-    data_dir = Path(__file__).parent.parent / "data"
+    # Always create directory for the config file if missing
+    data_dir = _CONFIG_PATH.parent
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    # Copy template to data/daemon_config.json if it doesn't exist (first-run bootstrap)
-    config_file = data_dir / "daemon_config.json"
+    # Copy template to config file path if it doesn't exist (first-run bootstrap)
+    config_file = _CONFIG_PATH
     if not config_file.exists():
         try:
             shutil.copy2(template_path, config_file)
@@ -387,6 +387,20 @@ def load_config() -> dict:
         raise MissingConfigurationError(f"Invalid JSON in config file at {config_file}: {e}")
     except Exception as e:
         raise MissingConfigurationError(f"Failed to read config file at {config_file}: {e}")
+
+    # Migrate flat config keys to nested structure if present
+    flat_part = {}
+    nested_part = {}
+    for k, v in file_cfg.items():
+        if isinstance(v, dict):
+            nested_part[k] = v
+        else:
+            flat_part[k] = v
+
+    if flat_part:
+        unflattened = unflatten_config(flat_part)
+        _deep_merge(nested_part, unflattened)
+        file_cfg = nested_part
 
     # Deep merge template and file configs (file overrides template)
     _deep_merge(cfg, file_cfg)

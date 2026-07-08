@@ -16,7 +16,6 @@ def _make_pw():
     pw._idle_seconds = 0
     pw._deferred_trigger_params = None
     pw._opencode_worker = None
-    pw.strands_worker = None
     pw._zombie_workers = set()
     pw._dispatch_trigger = MagicMock()
     return pw

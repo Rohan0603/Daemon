@@ -142,7 +142,7 @@ class OpencodeWorker(QThread):
         try:
             resp = requests.post(
                 f"{self._server_url}/session/{session_id}/message",
-                json={"content": [{"type": "text", "text": payload_text}]},
+                json={"parts": [{"type": "text", "text": payload_text}]},
                 timeout=self._post_timeout,
             )
             if resp.status_code >= 400:
@@ -272,8 +272,16 @@ class OpencodeWorker(QThread):
         if items:
             return items
 
-        logger.warning("All parse strategies failed. Raw (first 200): %s", raw[:200])
-        return None
+        # Strategy 5: Free-form text fallback to prevent showing generic error bubbles
+        logger.info("All JSON parse strategies failed; using free-form text fallback")
+        from src.constants import BUBBLE_MAX_CHARS
+        truncated = text if len(text) <= BUBBLE_MAX_CHARS else text[:BUBBLE_MAX_CHARS - 3] + "..."
+        return [{
+            "thought": "Free-form text fallback",
+            "dialogue": truncated,
+            "type": "observation",
+            "priority": 1
+        }]
 
     def _extract_brain_update(self, items: list[dict]) -> None:
         """Emit brain_update_ready if any item contains a brain_update field."""

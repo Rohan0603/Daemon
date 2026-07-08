@@ -3093,3 +3093,24 @@ Automatic detection of coding IDEs (VS Code, PyCharm, IntelliJ, WebStorm, GoLand
 | `tests/test_pet_renderer_ide.py` | 7 |
 | `tests/test_context_manager_ide.py` | 5 |
 
+
+## Phase 69 — Stateless Opencode & QThread Error Recovery (2026-07-08)
+
+**Branch:** `master` (unstaged fixes)
+**Tests:** All 9 config tests and 23 bubble behavior tests pass.
+
+### What Was Built
+
+Removed remaining Strands references, corrected the `opencode serve` message payload key, fixed config flat-to-nested validation migration, and implemented safe QThread cleanup on worker execution failures:
+
+| # | Bug / Issue | File | Fix |
+|---|-------------|------|-----|
+| 1 | `NameError: StrandsAutonomousWorker` | `src/ui/pet_window.py` | Swept all active instantiations and imports, replacing with stateless `_dispatch_trigger` dispatches. |
+| 2 | `ImportError: extract_dialogue_stream` | `src/llm/__init__.py` | Restored and exported the regex-based `extract_dialogue_stream` helper. |
+| 3 | `HTTP 400: Missing key "parts"` | `src/llm/opencode_worker.py` | Corrected the JSON payload key of `POST /session/{id}/message` from `"content"` to `"parts"`. |
+| 4 | `QThread: Destroyed while running` | `src/ui/pet_window.py` | Added identical safe QThread zombie cleanup to both `_on_opencode_error` and ThoughtPool `_on_refill_result` / `_on_refill_error` callbacks, setting references to `None` immediately and performing deferred cleanup. |
+| 4b | Free-form response parse failures | `src/llm/opencode_worker.py` | Implemented Strategy 5 (free-form text fallback) in `_parse_response` to wrap raw text in a standard dialogue action dict if JSON parsing fails. |
+| 5 | Config flat migration failures | `src/config.py` | Updated `load_config()` to check for and unflatten flat configuration keys using `unflatten_config()`. |
+| 6 | APM worker mock type errors in tests | `tests/test_bubble_behavior.py` | Patched `APMWorker` to return `apm = 0` instead of `MagicMock` in bubble behavior tests. |
+
+

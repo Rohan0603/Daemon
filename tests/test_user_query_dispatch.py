@@ -20,7 +20,6 @@ class TestUserQueryDispatch:
         self.pw._response_manager.thought_pool = MagicMock()
         self.pw._response_manager.thought_pool._threshold = 5
         self.pw._opencode_worker = None
-        self.pw.strands_worker = None
         self.pw._fire_deferred_trigger = MagicMock()
         self.pw._fsm = MagicMock()
         self.pw._fsm.current_state = "IDLE"
