@@ -400,7 +400,8 @@ class PetWindow(QWidget):
         self._boot_timer.setInterval(500)
         self._boot_timer.timeout.connect(self._on_boot_check_auth)
         self._boot_timer.start()
-        self._mcp_server.start()
+        if hasattr(self._mcp_server, "start"):
+            self._mcp_server.start()
 
         # Wire EventBus subscriber for autonomous triggers from BehaviorController
         self._events.subscribe(
