@@ -4,6 +4,22 @@
 
 ---
 
+## Completed Tasks
+
+## 2026-07-09 — Codebase Cleanup & Agent Config Consolidation
+
+- CLAUDE.md and GEMINI.md replaced with forward pointers to AGENTS.md
+- Graphify rules consolidated into AGENTS.md (section already present, verified correct)
+- Deleted: crash_dump.log, coverage.txt, fix_tests.py, scratch_perf.py, temp_thoughts.json
+- Deleted: memory/thoughts_agents_md.json, memory/thoughts_test_pytest_ini.json
+- Deleted: memory/plans/typewriter-plan.md, docs/plans/log-analysis-fixes.md
+- Deleted: all 19 .hermes/plans/ files (Hermes-era plans, all completed)
+- Deleted: .worktrees/ (empty), parameter=pathsrc/ (malformed dir)
+- .gitignore updated with crash/temp/scratch patterns
+- graphify update . runs cleanly
+
+---
+
 ## Project Snapshot
 
 **Date updated:** 2026-06-23 (Phase 1 — Agent-First Replatform)
@@ -3115,7 +3131,7 @@ Removed remaining Strands references, corrected the `opencode serve` message pay
 
 
 
-### Phase 47 � Unit Test Optimization
+### Phase 47 � Unit Test Optimization
 **Branch:** master
 
 **What was built:**
@@ -3130,3 +3146,31 @@ Removed remaining Strands references, corrected the `opencode serve` message pay
 ### What Was Built
 - **Track A (Foundation Fixes):** Fixed re-entrant EventBus warnings via a queue-based depth guard. Deep UIA tree walk (_walk_for_text) implemented for screen_reader to capture code from child controls. get_foreground_text_full() added for absolute full capture without deltas. Fixed input field X coordinate centering and deduplicated FocusOut events (50ms guard).
 - **Track B (Active Coding Assistant Mode):** ModeManager implemented for toggleable desktop_pet vs coding_assistant modes. Added a Settings UI tab for Mode selection. Added CODING_SCAN_INTERVAL_SEC and CODE_ANALYSIS_SCHEMA. BehaviorController triggers CODING_SCAN_TRIGGERED based on chattiness intervals when in coding mode. PetWindow hooks this event, triggers OpencodeWorker, and maintains a rolling 50-issue code_issues buffer. A subtle <>/💻 badge rendered when active. SKILL.md updated with strict coding mode schema rules.
+
+## Phase 70 — Log Audit: FSM Oscillation, Timeout Handling, Shutdown Fixes (2026-07-09)
+
+**Branch:** master (unstaged)
+**Tests:** 790 passed, 1 skipped, 2 pre-existing failures (test_events.py)
+
+### Issues Found from Log Analysis
+
+Analyzed `logs/daemon_2026-07-09_14-39-58.log` and `logs/daemon_2026-07-09_14-27-21.log`. Found 5 bugs:
+
+| # | Bug | Root Cause | File | Fix |
+|---|-----|-----------|------|-----|
+| 1 | **FSM PERIMETER→CHASE oscillation** (dozens of transitions per second) | "Seeking & Super Jump" code at line 1108 force-transitions to PERIMETER when pet is outside window bounds, regardless of current state. This runs BEFORE FSM update, overriding CHASE every tick. | `src/ui/pet_window.py:1108` | Added state guard: only transition to PERIMETER from IDLE or PERIMETER states. |
+| 2 | **AUTONOMOUS_THINKING state never entered** | FSMContext hardcoded `autonomous_query_pending=False` instead of using `self._autonomous_query_pending` flag. | `src/ui/pet_window.py:1250` | Changed to `autonomous_query_pending=self._autonomous_query_pending`. |
+| 3 | **Timeout misreported as parse_failed** | When `_post_message` times out, it returns `""`, which `run()` treats as parse failure, emitting `"parse_failed"` instead of `"timeout"`. The timeout recovery code in `_on_opencode_error` (which checks `"timeout" in error.lower()`) never triggered. | `src/llm/opencode_worker.py` | Added `_timed_out` flag, emit `"timeout"` error for actual timeouts, `"parse_failed"` for genuine parse failures. |
+| 4 | **Incomplete Ghost Mode shutdown** | `_finalize_quit` only stopped FSM/behavior timers + MCP server. Didn't stop TTS, APM, typing buffer, write coalescer, response manager, or call `QApplication.quit()`. App kept running after shutdown. | `src/ui/pet_window.py:805` | Added full worker shutdown + `QApplication.quit()` to `_finalize_quit`. |
+| 5 | **Post-shutdown timer callbacks** | `_tick` and `_master_tick` continued processing after `_force_quit=True` because no guard check. | `src/ui/pet_window.py` | Added `self.__dict__.get('_force_quit', False)` guard at top of both functions. |
+
+### Files Changed
+- `src/llm/opencode_worker.py` — timeout flag + distinct error emission
+- `src/ui/pet_window.py` — FSM oscillation fix, autonomous_query_pending fix, _finalize_quit completion, _force_quit guards, timeout-specific error messages in _on_opencode_error
+- `tests/test_opencode_worker.py` — fixed pre-existing test assertion for fallback format
+- `tests/test_opencode_worker_stateless.py` — fixed pre-existing test assertion for fallback format
+
+### Notes
+- The LLM timeout itself (deepseek-v4-flash-free not responding within 60s) is an external/operational issue, not a code bug. The code now properly detects and reports it.
+- User query timeout is capped at 60s (`min(config_timeout, 60)`) — this is intentional for UX responsiveness.
+- Used `self.__dict__.get('_force_quit', False)` instead of `getattr()` for guards because test mocks create PetWindow without calling `__init__`, which causes `getattr` to raise `RuntimeError` on QWidget.
