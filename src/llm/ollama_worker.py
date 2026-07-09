@@ -62,6 +62,7 @@ class OllamaWorker(QThread):
     brain_update_ready = pyqtSignal(dict)
     tool_call_requested = pyqtSignal(str, dict)
     read_clipboard_requested = pyqtSignal()
+    session_created = pyqtSignal(str)
 
     def __init__(self, *args: Any, prompt: str = "", is_autonomous: bool = False,
                  pet_id: str = "kenny", parent: Any = None, **kwargs: Any):

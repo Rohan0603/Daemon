@@ -1727,6 +1727,9 @@ class PetWindow(QWidget):
         if self.__dict__.get('_force_quit', False):
             logger.debug("Skipping error handler during shutdown")
             return
+        if error == "timeout" and self._llm_provider == "ollama":
+            self._show_bubble("Kenny's brain is still loading... give it a moment")
+            return
         self._autonomous_query_pending = False
         self._deferred_trigger_params = None
         self._current_user_input = ""
