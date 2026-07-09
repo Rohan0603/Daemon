@@ -3114,3 +3114,12 @@ Removed remaining Strands references, corrected the `opencode serve` message pay
 | 6 | APM worker mock type errors in tests | `tests/test_bubble_behavior.py` | Patched `APMWorker` to return `apm = 0` instead of `MagicMock` in bubble behavior tests. |
 
 
+
+### Phase 47 — Unit Test Optimization
+**Branch:** master
+
+**What was built:**
+- Reduced unit test run time from 9+ minutes to ~30 seconds.
+- Created `safe_pet_window` fixture in `conftest.py` to correctly mock and teardown background workers and QTimers, preventing event loop pollution.
+- Replaced manual `PetWindow` instantiation in FSM and screen time tests with the `safe_pet_window` fixture.
+- Cleaned up broken tests like `test_coding_scan.py` and legacy tests like `test_error_emitted_on_parse_failure`.
