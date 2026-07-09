@@ -1702,6 +1702,7 @@ class PetWindow(QWidget):
                 f"Holy crap! Everything is failing! I'm having a moment, {name}!",
                 f"Okay, wow, alright... processing error! Existential crisis incoming, {name}!"
             ]
+        self._clear_bubble_queue()
         self._show_bubble(random.choice(err_choices))
         if self._opencode_worker is not None:
             self._opencode_worker.deleteLater()
