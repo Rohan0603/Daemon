@@ -36,6 +36,7 @@ class OllamaManager(QObject):
         if self._is_ollama_running():
             logger.info("Ollama already running on %s", self._ollama_url)
             self._ensure_model()
+            self._warm_model()
             self.status_changed.emit("ready")
             self.ready.emit()
             return
@@ -93,6 +94,25 @@ class OllamaManager(QObject):
         self._run_ollama_command(["create", self._model_name,
                                   "-f", str(self._modelfile_path)])
 
+    def _warm_model(self) -> None:
+        try:
+            payload = {
+                "model": self._model_name,
+                "messages": [{"role": "user", "content": "ping"}],
+                "stream": False,
+                "keep_alive": "10m",
+                "options": {"num_predict": 1},
+            }
+            resp = requests.post(
+                f"{self._ollama_url}/api/chat",
+                json=payload,
+                timeout=120,
+            )
+            if resp.status_code == 200:
+                logger.info("Model %s warmed up in memory", self._model_name)
+        except requests.RequestException as exc:
+            logger.debug("Model warm-up skipped (non-critical): %s", exc)
+
     def _spawn_serve(self, ollama_path: str) -> None:
         self._process = QProcess(self)
         self._process.setProgram(ollama_path)
@@ -117,6 +137,7 @@ class OllamaManager(QObject):
     def _check_health(self) -> None:
         if self._is_ollama_running():
             self._stop_health_timer()
+            self._warm_model()
             self.status_changed.emit("ready")
             self.ready.emit()
             return

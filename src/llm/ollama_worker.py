@@ -151,6 +151,7 @@ class OllamaWorker(QThread):
             "model": self._ollama_model,
             "messages": messages,
             "stream": False,
+            "keep_alive": "10m",
             "options": {"num_predict": 1024},
         }
         if tools_enabled:
