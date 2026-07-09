@@ -87,24 +87,30 @@ class OllamaWorker(QThread):
         try:
             if skill_path.exists():
                 text = skill_path.read_text(encoding="utf-8")
-                return self._strip_opencode_sections(text)
+                return self._summarize_for_ollama(text)
         except Exception as exc:
             logger.warning("Failed to load SKILL.md from %s: %s", skill_path, exc)
         return self._default_skill_fallback()
 
-    def _strip_opencode_sections(self, text: str) -> str:
+    def _summarize_for_ollama(self, text: str) -> str:
         lines = text.splitlines()
-        keep = True
-        stripped = []
+        keep = False
+        persona_lines = []
         for line in lines:
-            if line.strip().startswith("## Two-Stage Output Mode"):
-                keep = False
-            if line.strip().startswith("## Dialogue Examples"):
+            stripped = line.strip()
+            if stripped == "## Identity & Obsession":
                 keep = True
+            if stripped == "## Phonetics & Delivery (CRITICAL - TTS reads verbatim)":
+                keep = False
             if keep:
-                stripped.append(line)
-        result = "\n".join(stripped)
-        logger.debug("_strip_opencode_sections: %d chars -> %d chars", len(text), len(result))
+                persona_lines.append(line)
+        raw = "\n".join(persona_lines)
+        result = (
+            "You are Kenny, a hyperactive desktop pet. "
+            "Keep responses brief and in-character.\n"
+            f"Persona:\n{raw[:2000]}"
+        )
+        logger.debug("_summarize_for_ollama: %d chars -> %d chars", len(text), len(result))
         return result
 
     def _default_skill_fallback(self) -> str:
