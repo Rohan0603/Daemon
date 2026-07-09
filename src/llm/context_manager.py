@@ -138,7 +138,12 @@ class ContextManager:
         if screen_text:
             lines.append(f"Screen:\n{screen_text}")
         lines.append("")
-        lines.append("[Respond in the format specified by your system prompt.]")
+        lines.append(
+            "Respond as Kenny (the desktop pet personality from your system prompt). "
+            "Output ONLY a JSON array: "
+            '[{"dialogue": "...", "thought": "...", "type": "typing_reaction|observation|intel_roast|idle_thought", '
+            '"priority": 1-5}]'
+        )
         self._cached_prompt = "\n".join(lines)
         self._cache_key = key
         return self._cached_prompt
@@ -169,7 +174,13 @@ class ContextManager:
         if screen_text:
             lines.append(f"Screen:\n{screen_text}")
         lines.append("")
-        lines.append("[This is an internal monologue — you are NOT responding to the user.]")
+        lines.append(
+            "[This is an internal monologue — you are NOT responding to the user.] "
+            "Think as Kenny (the desktop pet personality from your system prompt). "
+            "Output ONLY a JSON array: "
+            '[{"dialogue": "...", "thought": "...", "type": "typing_reaction|observation|intel_roast|idle_thought", '
+            '"priority": 1-5}]'
+        )
         self._cached_prompt = "\n".join(lines)
         self._cache_key = key
         return self._cached_prompt

@@ -62,7 +62,7 @@ def test_build_user_trigger_has_response_framing():
     cm._cache_key = None
     cm._cached_prompt = None
     prompt = cm.build_user_trigger("user_input", "hello", 50, 0.0)
-    assert "Respond in the format" in prompt
+    assert "Respond as Kenny" in prompt
     assert "User: hello" in prompt
 
 
