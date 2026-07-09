@@ -1142,7 +1142,7 @@ class PetWindow(QWidget):
             self._chattiness = values["chattiness"]
 
     def _save_settings(self, values: dict) -> None:
-        from src.config import save_config, unflatten_config
+        from src.config import save_config, unflatten_config, config_set
         consent_keys = ("allow_intrusive_animations", "allow_audio_disruptions",
                         "allow_browser_redirection", "allow_clipboard_hijacking",
                         "allow_mouse_interference", "allow_window_management",
@@ -1156,6 +1156,12 @@ class PetWindow(QWidget):
         self._config = nested_cfg
         if self._mcp_server:
             self._mcp_server._config = self._config.get("consent", {})
+
+        # Push runtime config changes for Ollama so workers pick them up instantly
+        config_set("llm.engine", values.get("LLM_PROVIDER", "opencode"))
+        config_set("llm.ollama_url", values.get("OLLAMA_URL", "http://127.0.0.1:11434"))
+        config_set("llm.ollama_model", values.get("OLLAMA_MODEL", "daemon-local"))
+        self._llm_provider = values.get("LLM_PROVIDER", "opencode")
 
     def _restore_settings(self) -> None:
         self._apply_settings({
@@ -2480,7 +2486,8 @@ class PetWindow(QWidget):
         )
         worker.response_ready.connect(self._on_response_ready)
         worker.error_occurred.connect(self._on_opencode_error)
-        worker.session_created.connect(self._on_session_created)
+        if hasattr(worker, "session_created"):
+            worker.session_created.connect(self._on_session_created)
         worker.brain_update_ready.connect(self._on_brain_update)
         worker.start()
         self._opencode_worker = worker
