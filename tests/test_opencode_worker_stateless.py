@@ -142,9 +142,9 @@ def test_parse_strategy_jsonl():
     assert len(result) == 2
 
 
-def test_parse_returns_none_for_garbage():
+def test_parse_returns_fallback_for_garbage():
     """_parse_response should return None for completely invalid input."""
     from src.llm.opencode_worker import OpencodeWorker
     worker = OpencodeWorker(prompt="test")
     result = worker._parse_response("This is not JSON at all. And definitely not a list.")
-    assert result is None
+    assert result == [{"thought": "Free-form text fallback", "dialogue": "This is not JSON at all. And definitely not a list.", "type": "observation", "priority": 1}]

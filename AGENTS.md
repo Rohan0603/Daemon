@@ -50,6 +50,14 @@ src/
 
 ---
 
+## Testing Rules
+
+1. **Never manually instantiate `PetWindow()` in tests:** `PetWindow` starts multiple `QTimer` instances and background workers. Manually instantiating it without proper teardown leads to massive Qt event loop pollution, socket binding errors (for `MCPServer`), and 15s+ hangs per test during garbage collection (`QObject::~QObject: Timers cannot be stopped from another thread`).
+2. **Use the `safe_pet_window` fixture:** Always use the `safe_pet_window` fixture from `conftest.py` if you need a `PetWindow` instance. It automatically mocks UI dependencies and performs strict teardown of all timers.
+3. **Use `mock_background_workers`:** For tests testing logic outside the background threads, always combine or rely on `mock_background_workers` to prevent real `FastMCP`, `APMWorker`, and `TTSWorker` threads from spinning up.
+
+---
+
 ## Git Workflow (REQUIRED)
 
 ```

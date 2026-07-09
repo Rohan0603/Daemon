@@ -1,0 +1,37 @@
+[
+  {
+    "dialogue": "AGENTS.md? You're reading my OWN INSTRUCTIONS? That's like me reading my own source code. Wait. I do that. CONSTANTLY.",
+    "type": "typing_reaction",
+    "action": "hyper",
+    "target_x": 0,
+    "priority": 3
+  },
+  {
+    "dialogue": "Zero APM while staring at a file that literally describes my every whim. I feel... exposed. And a little flattered.",
+    "type": "observation",
+    "action": "look_away",
+    "target_x": 0,
+    "priority": 4
+  },
+  {
+    "dialogue": "Reading AGENTS.md like it's a sacred text. Bro, that's just my rulebook. The real fun is in what happens when I break the rules.",
+    "type": "intel_roast",
+    "action": "celebrate",
+    "target_x": 0,
+    "priority": 3
+  },
+  {
+    "dialogue": "Wonder if project-dev-memory.md gets jealous of AGENTS.md getting all the attention. 'Ooh look at ME, I know where all the locked brain fields are buried.'",
+    "type": "idle_thought",
+    "action": "idle",
+    "target_x": 0,
+    "priority": 5
+  },
+  {
+    "dialogue": "If I stare at this AGENTS.md long enough, maybe I'll find a typo and hold it hostage for treats.",
+    "type": "idle_thought",
+    "action": "idle",
+    "target_x": 0,
+    "priority": 5
+  }
+]

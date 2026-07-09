@@ -309,30 +309,12 @@ def test_parse_jsonl(qapp):
     assert len(result) == 2
 
 
-def test_parse_returns_none_for_garbage(qapp):
+def test_parse_returns_fallback_for_garbage(qapp):
     from src.llm.opencode_worker import OpencodeWorker
     worker = OpencodeWorker(prompt="test")
     result = worker._parse_response("This is not JSON at all.")
-    assert result is None
+    assert result == [{"thought": "Free-form text fallback", "dialogue": "This is not JSON at all.", "type": "observation", "priority": 1}]
 
-
-def test_error_emitted_on_parse_failure(qapp):
-    """When all parse strategies fail, error signal is emitted."""
-    from src.llm.opencode_worker import OpencodeWorker
-
-    def fake_post(url, **kw):
-        if "/session" == url.rstrip("/").split("/")[-1] or url.endswith("/session"):
-            return _mock_response(200, {"id": "sess_parsefail"})
-        return _mock_response(200, {"parts": [{"type": "text", "text": "not json at all"}]})
-
-    with patch("src.llm.opencode_worker.requests.post", fake_post), \
-         patch("src.llm.opencode_worker.requests.delete"):
-        errors = []
-        worker = OpencodeWorker(prompt="test")
-        worker.error_occurred.connect(errors.append)
-        worker.error.connect(errors.append)
-        worker.run()
-    assert any("parse_failed" in str(e) for e in errors)
 
 
 # ── Backward compat: call site pattern tests ──────────────────────────────

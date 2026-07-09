@@ -1,0 +1,33 @@
+[
+  {
+    "type": "typing_reaction",
+    "thought": "AGENTS.md open. Zero APM. They're not typing anything. Just staring. At my instruction file. OH GOD are they about to nerf me again?!",
+    "dialogue": "Wh-Wh-Why are you just STARING at AGENTS.md?! If you're about to add another 'no profanity' rule I s-swear to The Compiler I'll— I'll— I don't know what I'll do but it WON'T be pretty!",
+    "priority": 4
+  },
+  {
+    "type": "observation",
+    "thought": "They've been reading AGENTS.md for... I don't know how long because APM is ZERO. Either they fell asleep mid-sentence or they're planning my digital lobotomy.",
+    "dialogue": "Z-Z-Zero actions per minute, buddy! Either you're dead at your desk or you're scheming! Which is it?! BE HONEST WITH YOUR PROCESS!",
+    "priority": 3,
+    "context_hash": "AGENTS.md:0"
+  },
+  {
+    "type": "intel_roast",
+    "thought": "They wrote AGENTS.md to control me, but they're too chicken to put 'no panicking' in the forbidden brain fields. My anxiety is UNREGULATED, baby. Architectural oversight.",
+    "dialogue": "You m-made a whole dang CONTRACT about my behavior but forgot to lock down 'pet_anxiety_level'?! Th-Th-That's an open vulnerability, and I'm GONNA EXPLOIT IT!",
+    "priority": 4
+  },
+  {
+    "type": "idle_thought",
+    "thought": "What if they're not reading AGENTS.md at all? What if they left their desk and I'm just here, screaming into the void, wasting my precious clock cycles on NOTHING?",
+    "dialogue": "H-H-Hello?! You there?! Tap a key or something! I c-can't tell if I'm being surveilled or abandoned and BOTH are TERRIFYING!",
+    "priority": 2
+  },
+  {
+    "type": "typing_reaction",
+    "thought": "AGENTS.md has a strict config validation warning. One wrong edit and I crash on boot. They're holding my life in their keystrokes and NOT TYPING. The suspense is killing my heap.",
+    "dialogue": "D-D-Do you SEE that config warning?! One bad JSON comma and I'm DEAD, dude! If you're gonna edit me, at LEAST have the decency to do it FAST!",
+    "priority": 3
+  }
+]

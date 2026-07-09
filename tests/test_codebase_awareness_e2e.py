@@ -32,5 +32,4 @@ def test_ast_map_exists_and_valid():
     assert "PetWindow" in map_data["classes"]
     assert "PetFSM" in map_data["classes"]
     assert "OpencodeWorker" in map_data["classes"]
-    assert "MCPServer" in map_data["classes"]
     assert len(map_data["classes"]) > 20

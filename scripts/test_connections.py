@@ -9,7 +9,7 @@ from src.config import load_config, DEFAULT_SERVER_URL
 from src.firebase_auth import FirebaseAuth
 from src.firebase_crud import FirebaseCRUD
 
-def test_opencode(server_url: str):
+def check_opencode(server_url: str):
     print(f"Testing OpenCode LLM at {server_url}...")
     try:
         resp = requests.get(server_url, timeout=5)
@@ -53,7 +53,7 @@ if __name__ == "__main__":
     else:
         print("  [WARN] Failed to start OpenCode server.")
         
-    test_opencode(opencode_url)
+    check_opencode(opencode_url)
     print()
     test_firebase_api_key()
     print()
