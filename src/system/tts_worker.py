@@ -1,7 +1,9 @@
 # src/system/tts_worker.py
 from __future__ import annotations
 import asyncio
+import io
 import logging
+import math
 import os
 import queue
 import struct
@@ -44,6 +46,10 @@ class TTSWorker(QThread):
             self._voice_id = voice_id
             self._pitch = pitch
 
+        self._loop = asyncio.new_event_loop()
+        self._pyttsx3_engine = None
+        self._cancel = threading.Event()
+
     @property
     def pitch(self) -> float:
         return self._pitch
@@ -82,6 +88,7 @@ class TTSWorker(QThread):
         stripped = text.strip()
         if not stripped:
             return
+        self._cancel.clear()
         self._queue.put(stripped)
 
     def set_enabled(self, state: bool) -> None:
@@ -92,6 +99,7 @@ class TTSWorker(QThread):
             self.clear()
 
     def clear(self) -> None:
+        self._cancel.set()
         while not self._queue.empty():
             try:
                 self._queue.get_nowait()
@@ -103,28 +111,32 @@ class TTSWorker(QThread):
         self.clear()
         if self.isRunning():
             self.wait(2000)
+        if not self._loop.is_closed():
+            self._loop.close()
 
-    def _generate_voice(self, text: str) -> str | None:
-        """Use edge-tts or pyttsx3 to generate an audio file. Returns path."""
-        fd, tmp = tempfile.mkstemp(suffix=".mp3", prefix="daemon_tts_")
-        os.close(fd)
+    def _generate_voice(self, text: str) -> str | io.BytesIO | None:
         try:
             import edge_tts
             voice = self._voice_id or "en-US-GuyNeural"
             rate_pct = int((self._rate - 150) / 150 * 100)
             rate_str = f"{rate_pct:+d}%"
-            pitch_str = "+15Hz"
+            semitones = 12 * math.log2(self._pitch) if self._pitch > 0 else 0
+            hz_offset = int(semitones * 8.33)
+            pitch_str = f"{hz_offset:+d}Hz"
 
-            async def _gen():
+            mp3_buf = io.BytesIO()
+
+            async def _gen() -> None:
                 comm = edge_tts.Communicate(text, voice, rate=rate_str, pitch=pitch_str)
-                await comm.save(tmp)
+                async for chunk in comm.stream():
+                    if chunk["type"] == "audio":
+                        mp3_buf.write(chunk["data"])
 
-            loop = asyncio.new_event_loop()
-            try:
-                loop.run_until_complete(_gen())
-            finally:
-                loop.close()
-            return tmp
+            self._loop.run_until_complete(_gen())
+            mp3_buf.seek(0)
+            if mp3_buf.getbuffer().nbytes == 0:
+                raise RuntimeError("edge-tts returned empty audio")
+            return mp3_buf
 
         except Exception:
             logger.debug("edge-tts failed, falling back to pyttsx3")
@@ -135,7 +147,9 @@ class TTSWorker(QThread):
         os.close(fd)
         try:
             import pyttsx3
-            engine = pyttsx3.init()
+            if self._pyttsx3_engine is None:
+                self._pyttsx3_engine = pyttsx3.init()
+            engine = self._pyttsx3_engine
             voices = engine.getProperty("voices")
             if voices:
                 if self._voice_id:
@@ -151,28 +165,34 @@ class TTSWorker(QThread):
             return tmp
         except Exception as e:
             logger.warning("pyttsx3 fallback failed: %s", e)
+            self._pyttsx3_engine = None
             return None
 
-    def _apply_pitch_filter(self, audio_path: str) -> tuple[bytes, int, int, int] | None:
-        """Read audio file, apply pitch shift via framerate override.
-        Returns (raw_pcm, play_rate, nchannels, sampwidth) or None."""
+    def _apply_pitch_filter(
+        self, audio_source: str | io.BytesIO
+    ) -> tuple[bytes, int, int, int] | None:
         if not _PYDUB_AVAILABLE:
-            return self._apply_pitch_filter_wave(audio_path)
+            if isinstance(audio_source, io.BytesIO):
+                return None
+            return self._apply_pitch_filter_wave(audio_source)
         try:
             from pydub import AudioSegment
-            audio = AudioSegment.from_file(audio_path)
+            if isinstance(audio_source, io.BytesIO):
+                audio_source.seek(0)
+                audio = AudioSegment.from_file(audio_source, format="mp3")
+            else:
+                audio = AudioSegment.from_file(audio_source)
             orig_rate = audio.frame_rate
             new_rate = int(orig_rate * self._pitch)
-
             shifted = audio._spawn(audio.raw_data, overrides={"frame_rate": new_rate})
             shifted = shifted.set_frame_rate(orig_rate)
             shifted = shifted.high_pass_filter(120)
-
-            raw = shifted.raw_data
-            return raw, orig_rate, shifted.channels, shifted.sample_width
+            return shifted.raw_data, orig_rate, shifted.channels, shifted.sample_width
         except Exception as e:
-            logger.debug("pydub pitch shift failed: %s, falling back to wave", e)
-            return self._apply_pitch_filter_wave(audio_path)
+            logger.debug("pydub pitch shift failed: %s", e)
+            if isinstance(audio_source, str):
+                return self._apply_pitch_filter_wave(audio_source)
+            return None
 
     def _apply_pitch_filter_wave(self, audio_path: str) -> tuple[bytes, int, int, int] | None:
         """Fallback pitch shift using only stdlib wave module."""
@@ -236,37 +256,37 @@ class TTSWorker(QThread):
             self.speaking_finished.emit()
 
     def _process_utterance(self, text: str) -> None:
-        # Track all temp files for cleanup
-        temp_files = []  # Track instead of inline
-        audio_path = self._generate_voice(text)
-        if audio_path is None:
+        temp_files: list[str] = []
+        audio_source = self._generate_voice(text)
+        if audio_source is None:
             return
-        temp_files.append(audio_path)
 
-        result = self._apply_pitch_filter(audio_path)
-        if result is None and audio_path.endswith(".mp3"):
-            # Pitch filter failed on edge-tts MP3, try pyttsx3 fallback
-            if audio_path in temp_files:
-                temp_files.remove(audio_path)
+        if self._cancel.is_set():
+            return
+
+        result = self._apply_pitch_filter(audio_source)
+
+        if result is None and isinstance(audio_source, io.BytesIO):
+            audio_source = self._generate_pyttsx3(text)
+            if audio_source:
+                temp_files.append(audio_source)
+                result = self._apply_pitch_filter(audio_source)
+        elif result is None and isinstance(audio_source, str) and audio_source.endswith(".mp3"):
             try:
-                os.remove(audio_path)
+                os.remove(audio_source)
             except OSError:
                 pass
-            audio_path = self._generate_pyttsx3(text)
-            if audio_path:
-                temp_files.append(audio_path)
-                result = self._apply_pitch_filter(audio_path)
-        else:
-            # Pitch filter succeeded on edge-tts MP3
-            if audio_path in temp_files:
-                temp_files.remove(audio_path)
+            audio_source = self._generate_pyttsx3(text)
+            if audio_source:
+                temp_files.append(audio_source)
+                result = self._apply_pitch_filter(audio_source)
+        elif isinstance(audio_source, str):
             try:
-                os.remove(audio_path)
+                os.remove(audio_source)
             except OSError:
                 pass
 
         if result is None:
-            # Clean up any remaining temp files (e.g. pyttsx3 WAV that failed pitch)
             for p in temp_files:
                 try:
                     os.remove(p)
@@ -275,6 +295,15 @@ class TTSWorker(QThread):
             return
 
         raw, play_rate, nch, sw = result
+
+        if self._cancel.is_set():
+            for p in temp_files:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+            return
+
         fb_fd, fallback_path = tempfile.mkstemp(suffix=".wav", prefix="daemon_tts_playback_")
         os.close(fb_fd)
         temp_files.append(fallback_path)

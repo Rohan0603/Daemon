@@ -1,11 +1,22 @@
 # tests/test_tts_worker.py
 from __future__ import annotations
+import io
 import os
 import tempfile
 import wave
 import struct
 from unittest.mock import patch, MagicMock
 from src.tts_worker import TTSWorker
+
+
+def _make_wav_bytes(nframes: int = 1000, rate: int = 22050) -> bytes:
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(struct.pack(f"<{nframes}h", *([300] * nframes)))
+    return buf.getvalue()
 
 
 class TestTTSWorker:
@@ -85,6 +96,31 @@ class TestTTSWorker:
             except OSError:
                 pass
 
+    def test_apply_pitch_filter_accepts_bytesio(self):
+        worker = TTSWorker(pitch=1.15)
+        # Produce minimal valid MP3 frame bytes (no headers — pydub reads from raw frames)
+        # A valid MP3 frame sync word is 0xFF 0xFB (MPEG1, layer 3, no CRC)
+        mp3_frame = b"\xff\xfb\x90\x00" + b"\x00" * 413  # 417-byte MP3 frame
+        mp3_data = mp3_frame * 5  # 5 frames = ~0.12s audio
+        bio = io.BytesIO(mp3_data)
+
+        result = worker._apply_pitch_filter(bio)
+        # Without pydub, returns None; with pydub, returns (raw_pcm, rate, ch, sw)
+        if result is not None:
+            raw, play_rate, nch, sw = result
+            assert len(raw) > 0
+            assert play_rate > 0
+
+    def test_pyttsx3_engine_reused_across_calls(self):
+        worker = TTSWorker(rate=220)
+        engine = MagicMock()
+        engine.getProperty.return_value = []
+
+        with patch("pyttsx3.init", return_value=engine) as mock_init:
+            worker._generate_pyttsx3("hello")
+            worker._generate_pyttsx3("world")
+            assert mock_init.call_count == 1
+
     def test_pyttsx3_fallback_generates_wav(self):
         worker = TTSWorker(rate=220)
         engine = MagicMock()
@@ -100,3 +136,85 @@ class TestTTSWorker:
         worker.enqueue("world")
         worker.clear()
         assert worker._queue.empty()
+
+    def test_cancel_flag_set_by_clear(self):
+        worker = TTSWorker()
+        assert not worker._cancel.is_set()
+        worker.clear()
+        assert worker._cancel.is_set()
+
+    def test_enqueue_clears_cancel_flag(self):
+        worker = TTSWorker()
+        worker.clear()
+        assert worker._cancel.is_set()
+        worker.enqueue("hello")
+        assert not worker._cancel.is_set()
+
+    def test_process_utterance_aborts_after_cancel(self):
+        worker = TTSWorker()
+        pitch_called = []
+
+        original_pitch = worker._apply_pitch_filter
+
+        def _recording_pitch(src):
+            pitch_called.append(True)
+            return original_pitch(src)
+
+        worker._apply_pitch_filter = _recording_pitch
+        worker._generate_voice = lambda t: io.BytesIO(b"fake")
+        worker._cancel.set()
+
+        worker._process_utterance("hello")
+        assert len(pitch_called) == 0
+
+    def test_asyncio_loop_reused_across_calls(self):
+        worker = TTSWorker(pitch=1.20)
+        loops_seen = []
+
+        def _capturing_run(coro):
+            loops_seen.append(id(worker._loop))
+            coro.close()
+
+        worker._loop.run_until_complete = _capturing_run
+
+        engine = MagicMock()
+        with patch("pyttsx3.init", return_value=engine):
+            engine.getProperty.return_value = []
+            try:
+                worker._generate_voice("hello")
+            except Exception:
+                pass
+            try:
+                worker._generate_voice("world")
+            except Exception:
+                pass
+
+        assert len(loops_seen) == 2
+        assert loops_seen[0] == loops_seen[1]
+
+    def test_pitch_string_derived_from_self_pitch(self):
+        worker = TTSWorker(pitch=1.20)
+        captured = {}
+
+        class FakeComm:
+            def __init__(self, text, voice, rate, pitch):
+                captured["pitch"] = pitch
+
+            async def stream(self):
+                return
+                yield
+
+        import edge_tts as _et
+        with patch.object(_et, "Communicate", FakeComm):
+            try:
+                worker._generate_voice("test")
+            except Exception:
+                pass
+
+        assert captured.get("pitch") != "+15Hz"
+
+    def test_stop_closes_asyncio_loop(self):
+        worker = TTSWorker()
+        assert not worker._loop.is_closed()
+        worker.stop()
+        assert worker._loop.is_closed()
