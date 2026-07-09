@@ -11,6 +11,7 @@ import collections
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
+from types import MappingProxyType
 from typing import Any, Callable, Dict, List, Optional, Set
 from weakref import WeakSet
 
@@ -99,6 +100,8 @@ class Event:
     def __post_init__(self):
         if not self.source:
             object.__setattr__(self, 'source', 'unknown')
+        if isinstance(self.data, dict):
+            object.__setattr__(self, 'data', MappingProxyType(self.data))
 
 
 class EventBus:

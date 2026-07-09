@@ -252,5 +252,12 @@ class DiaryStore(StorageBackend):
     def all_entries(self) -> list[dict]:
         return self.query(limit=len(self._entries))
 
+    def clear(self) -> None:
+        """Remove all diary entries."""
+        self._diary_entries = []
+        self._diary_synced = 0
+        self._has_written = True
+        self._brain.save()
+
     def count(self) -> int:
         return len(self._entries)

@@ -27,7 +27,21 @@ ALLOWED_READ_EXTENSIONS = {".py", ".md", ".json", ".ps1", ".txt", ".log", ".yaml
 MAX_READ_LINES = 500
 _FILE_CACHE = {}
 _FILE_CACHE_TTL = 10  # seconds
+_FILE_CACHE_MAX_ENTRIES = 50
 _CACHE_TIMESTAMPS = {}
+
+
+def _evict_stale_file_cache() -> None:
+    now = time.time()
+    stale = [k for k, ts in _CACHE_TIMESTAMPS.items() if now - ts > _FILE_CACHE_TTL]
+    for k in stale:
+        _FILE_CACHE.pop(k, None)
+        _CACHE_TIMESTAMPS.pop(k, None)
+    if len(_FILE_CACHE) > _FILE_CACHE_MAX_ENTRIES:
+        oldest = sorted(_CACHE_TIMESTAMPS, key=_CACHE_TIMESTAMPS.get)
+        for k in oldest[:len(_FILE_CACHE) - _FILE_CACHE_MAX_ENTRIES]:
+            _FILE_CACHE.pop(k, None)
+            _CACHE_TIMESTAMPS.pop(k, None)
 def _validate_mcp_path(relative_path: str, root: str = PROJECT_ROOT) -> str:
     abs_root = os.path.normpath(os.path.abspath(root))
     normed = os.path.normpath(os.path.join(abs_root, relative_path))
@@ -706,6 +720,8 @@ def _read_file(file_path: str, start_line: int, end_line: int) -> dict:
         return {"content": [{"type": "text", "text": json.dumps({"error": f"File not found: {file_path}. Use list_directory to find available files."})}]}
     if not os.path.isfile(abs_path):
         return {"content": [{"type": "text", "text": json.dumps({"error": f"Not a file: {file_path}"})}]}
+
+    _evict_stale_file_cache()
 
     # Check cache
     import time

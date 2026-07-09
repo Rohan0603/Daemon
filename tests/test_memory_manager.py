@@ -296,8 +296,10 @@ def test_sync_to_local_writes_brain_fields_to_memory(tmp_path):
     mm.crud = mock_crud
     mm._uid = "test-uid"
     mm._pet_id = "kenny"
-    mm._pet_id = "kenny"
     mm._pending_writes = deque()
+    mm._cached_user_data = {}
+    mm._user_data_cache_time = 0.0
+    mm._USER_DATA_CACHE_TTL = 0.0
 
     mm.sync_to_local(mem)
 

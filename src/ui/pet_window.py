@@ -116,6 +116,14 @@ class PetWindow(QWidget):
         self._click_through: ClickThroughManager | None = None
         self._setup_window()
 
+        self._cached_window_rect = None
+        self._window_rect_cache_tick = 0
+        self._WINDOW_RECT_CACHE_TICKS = 10
+
+        self._screen_rect = QApplication.primaryScreen().availableGeometry()
+        QApplication.primaryScreen().geometryChanged.connect(self._on_screen_geometry_changed)
+        QApplication.primaryScreen().availableGeometryChanged.connect(self._on_screen_geometry_changed)
+
         from src.config import load_config
         self._config = load_config()
         self._pet_scale = self._config.get("pet", {}).get("scale", 1.0)
@@ -258,6 +266,7 @@ class PetWindow(QWidget):
             memory=self._memory, history=self._history,
             memory_manager=self._firebase_mem,
             diary_store=self._diary_store,
+            parent=self,
         )
         self._memory._coalescer = self._write_coalescer
         self._history._coalescer = self._write_coalescer
@@ -341,7 +350,6 @@ class PetWindow(QWidget):
         self._boredom_retry_delay: int = 2000  # 2 seconds
         self._animation_override_active: bool = False
         self._session_active: bool = False
-        self._opencode_worker: OpencodeWorker | None = None
         self._opencode_session_id: str | None = None
         self._triggered_action: str | None = None
         self._last_daemon_action: str = "idle"
@@ -467,8 +475,11 @@ class PetWindow(QWidget):
             rect = rect.united(QRect(input_tl, input_br))
         return rect
 
+    def _on_screen_geometry_changed(self, *_) -> None:
+        self._screen_rect = QApplication.primaryScreen().availableGeometry()
+
     def _compute_ground_y(self) -> int:
-        screen = QApplication.primaryScreen().availableGeometry()
+        screen = self._screen_rect
         return screen.bottom() - PET_HEIGHT - GROUND_PADDING_PX
 
     def _get_logical_window_rect(self):
@@ -952,7 +963,6 @@ class PetWindow(QWidget):
                 save_session(self._llm_session_state, generate_summary=True)
         except Exception as e:
             logger.warning("Failed to persist LLM session on shutdown: %s", e)
-        QApplication.quit()
 
     def _on_lsp_error_detected(self, payload: dict):
         if not self._lsp_debounce_timer.isActive():
@@ -1109,7 +1119,11 @@ class PetWindow(QWidget):
         if self.__dict__.get('_force_quit', False):
             return
         try:
-            current_rect = self._get_logical_window_rect()
+            self._window_rect_cache_tick += 1
+            if self._window_rect_cache_tick >= self._WINDOW_RECT_CACHE_TICKS:
+                self._window_rect_cache_tick = 0
+                self._cached_window_rect = self._get_logical_window_rect()
+            current_rect = self._cached_window_rect
             self._update_ground_y(current_rect)
             self._anim_tick += 1
             if not self._typewriter_active and self._bubble_timer_ms > 0:
@@ -1518,7 +1532,7 @@ class PetWindow(QWidget):
                 land_elapsed_ms=land_elapsed_ms,
                 edge=self._perimeter_edge,
                 facing=self._perimeter_facing,
-                screen_rect=QApplication.primaryScreen().availableGeometry(),
+                screen_rect=self._screen_rect,
                 emotion=self._animator.current_emotion,
                 animator=self._animator,
                 takeoff_elapsed_ms=takeoff_elapsed_ms,
@@ -1843,7 +1857,7 @@ class PetWindow(QWidget):
             self._bubble_page_index = 0
             self._start_typewriter(text)
         logger.info("_show_bubble called with text: '%s' (duration: %dms, pages: %d)", text, self._bubble_duration(text), len(pages))
-        # self._tts.enqueue(text)  # TTS paused
+        self._tts.enqueue(text)
         self.update()
 
 
@@ -1916,8 +1930,8 @@ class PetWindow(QWidget):
             self._show_bubble("Oh thank god, forced sleep mode! I-I-I can finally rest...")
 
     def _on_mute_toggle(self, muted: bool) -> None:
-        if self._tts_worker:
-            self._tts_worker.set_enabled(not muted)
+        if self._tts:
+            self._tts.set_enabled(not muted)
 
     def _on_wipe_memory(self) -> None:
         from PyQt6.QtWidgets import QMessageBox
@@ -1948,7 +1962,7 @@ class PetWindow(QWidget):
             
         self._memory.clear()
         self._history.clear()
-        self._diary.clear()
+        self._diary_store.clear()
         self._response_manager.clear()
         self._fsm.transition_to(PetState.IDLE)
         self._show_bubble("whoa... what... where am I? who are you?")
@@ -2176,7 +2190,7 @@ class PetWindow(QWidget):
                 return
 
             if mode == "boredom":
-                # Local action only — no GCD, no opencode
+                # Local action only — no opencode
                 actions = ["PERIMETER", "shake", "spin", "look_away", "bounce"]
                 import random
                 action = random.choice(actions)
@@ -2184,6 +2198,8 @@ class PetWindow(QWidget):
                     self._fsm.transition_to(PetState.PERIMETER)
                 else:
                     self._action_layer.trigger(action)
+                self._gcd_expiry_timestamp = time.time() + 5.0
+                self._behavior.set_gcd_expiry(self._gcd_expiry_timestamp)
                 self._on_output_displayed(engaged=False)
                 return
 
@@ -2268,7 +2284,7 @@ class PetWindow(QWidget):
         self._boredom_retry_count += 1
         logger.debug("[boredom] Scheduling retry %d/%d in %dms", 
                     self._boredom_retry_count, self._boredom_retry_max, self._boredom_retry_delay)
-        self._boredom_retry_timer = QTimer()
+        self._boredom_retry_timer = QTimer(self)
         self._boredom_retry_timer.setSingleShot(True)
         self._boredom_retry_timer.setInterval(self._boredom_retry_delay)
         self._boredom_retry_timer.timeout.connect(self._trigger_boredom_query)
@@ -2590,19 +2606,22 @@ class PetWindow(QWidget):
             )
 
     def _log_thought(self, thought: str, mode: str, dialogue: str) -> None:
-        print("DEBUG: _log_thought called")
         log_path = Path(THOUGHTS_LOG_PATH)
-        # Debug: print type and value
-        print(f"DEBUG: log_path type: {type(log_path)}, value: {log_path}")
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         entry = (
             f"[{timestamp}] [{mode}] Thought({len(thought)}c): {thought}\n"
             f"[{timestamp}] [{mode}] Dialogue: {dialogue}\n"
         )
-        if log_path.exists():
-            lines = log_path.read_text(encoding="utf-8").splitlines()
-            if len(lines) >= 1000:
-                log_path.write_text("\n".join(lines[-500:]) + "\n", encoding="utf-8")
+        MAX_LOG_BYTES = 50_000
+        try:
+            if log_path.exists() and log_path.stat().st_size > MAX_LOG_BYTES:
+                with open(log_path, "r", encoding="utf-8") as f:
+                    f.seek(MAX_LOG_BYTES // 2)
+                    f.readline()
+                    tail = f.read()
+                log_path.write_text(tail, encoding="utf-8")
+        except OSError:
+            pass
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(entry)
 

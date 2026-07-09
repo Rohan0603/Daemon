@@ -164,14 +164,15 @@ def test_stop_stops_timer(qapp, tmp_path):
     assert not c._timer.isActive()
 
 
-def test_flush_keeps_flag_set_on_failure(qapp, tmp_path):
+def test_flush_clears_flag_on_failure(qapp, tmp_path):
     mem = MagicMock()
     mem.save.side_effect = Exception("fail")
     c = _make_coalescer(tmp_path, memory=mem)
     c.mark_dirty("memory")
     c.flush()
     c.flush()
-    assert mem.save.call_count == 2
+    assert mem.save.call_count == 1
+    assert not c._dirty["memory"]
 
 
 class TestWriteCoalescerEdgeCases:

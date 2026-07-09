@@ -95,7 +95,6 @@ class OpencodeWorker(QThread):
                     # Extract brain_update before emitting
                     self._extract_brain_update(items)
                     self.response_ready.emit(items)
-                    self.trigger_ready.emit(items)
                     return
 
             if self._timed_out:

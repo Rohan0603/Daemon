@@ -112,7 +112,7 @@ class BehaviorController:
 
         # Monotonic time for drift-free behavioral timers
         self._last_master_tick_time = time.monotonic()
-        self._last_autonomous_fire_time = 0.0
+        self._last_autonomous_fire_time = time.monotonic()
 
         self._boredom_tick_count = 0
 
@@ -309,11 +309,13 @@ class BehaviorController:
             # Affinity silence decay: -1 per hour of inactivity
             self._apply_affinity_silence_decay(master_dt)
 
+            # Single window title fetch for this tick
+            current_window = get_active_window_title()
+
             # IDE mode transition detection
-            self._check_ide_mode_transition()
+            self._check_ide_mode_transition(current_window)
 
             # Window switch tracking for WONDER
-            current_window = get_active_window_title()
             if current_window and current_window != self._last_evaluated_window:
                 self._window_switch_count += 1
                 self._last_evaluated_window = current_window
@@ -367,7 +369,7 @@ class BehaviorController:
                         return
                     from src.system.screen_reader import get_foreground_text_full
                     screen_text = get_foreground_text_full()
-                    self._last_autonomous_fire_time = time.time()
+                    self._last_autonomous_fire_time = time.monotonic()
                     self._event_bus.publish(
                         Event(
                             type=EventType.CODING_SCAN_TRIGGERED,
@@ -385,7 +387,7 @@ class BehaviorController:
                 return
 
             # P2: Active Chat Delta
-            if self._chat_timer_sec >= chat_threshold and self._has_significant_delta():
+            if self._chat_timer_sec >= chat_threshold and self._has_significant_delta(current_window):
                 self._trigger_chat()
                 return
 
@@ -455,16 +457,17 @@ class BehaviorController:
 
     def _on_screen_time_threshold(self, event):
         app_name = event.data.get("app_name")
-        minutes = event.data.get("minutes")
-        logger.debug(f"[Screen Time] Threshold reached for {app_name}: {minutes} mins. Triggering roast!")
+        duration_sec = event.data.get("duration", 0)
+        logger.debug(f"[Screen Time] Threshold reached for {app_name}: {duration_sec} sec. Triggering roast!")
         
         # Check if distraction
         if app_name.lower() in [d.lower() for d in PROCRASTINATION_DOMAINS]:
-            self._trigger_screen_time_roast(app_name, minutes * 60)
+            self._trigger_screen_time_roast(app_name, duration_sec)
 
-    def _check_ide_mode_transition(self) -> None:
+    def _check_ide_mode_transition(self, current_window: str | None = None) -> None:
         """Detect IDE enter/exit and publish the appropriate event."""
-        current_window = get_active_window_title()
+        if current_window is None:
+            current_window = get_active_window_title()
         now_in_ide = is_ide_window(current_window)
         if now_in_ide == self._in_ide_mode:
             return
@@ -639,7 +642,7 @@ class BehaviorController:
     def _should_fire_autonomous(self, mode: str) -> bool:
         """Return True if autonomous tick is allowed to fire right now."""
         # Global debounce: never fire more than once per 15s regardless of mode
-        elapsed = time.time() - self._last_autonomous_fire_time
+        elapsed = time.monotonic() - self._last_autonomous_fire_time
         if elapsed < 15.0:
             logger.debug("[%s] Skipping: debounce (%.1fs < 15s)", mode, elapsed)
             return False
@@ -666,9 +669,10 @@ class BehaviorController:
 
     # ── Context Stability ───────────────────────────────────────────
 
-    def _has_significant_delta(self) -> bool:
+    def _has_significant_delta(self, current_window: str | None = None) -> bool:
         """Detect context switches: window change or typing burst."""
-        current_window = get_active_window_title()
+        if current_window is None:
+            current_window = get_active_window_title()
         current_typing = self._typing_buffer.get_context() if self._typing_buffer else ""
 
         window_changed = (

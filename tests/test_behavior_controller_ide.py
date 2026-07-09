@@ -38,6 +38,7 @@ def _make_controller():
         animator=animator,
         opencode_enabled=False,
     )
+    bc._last_autonomous_fire_time = 0.0
     return bc, event_bus
 
 

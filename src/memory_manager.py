@@ -25,6 +25,9 @@ class MemoryManager:
         self._last_sync_hash: str = ""
         self._batch_cache: dict[str, object] = {}
         self._batch_dirty: bool = False
+        self._cached_user_data: dict = {}
+        self._user_data_cache_time: float = 0.0
+        self._USER_DATA_CACHE_TTL: float = 30.0
 
     @property
     def _brain_collection(self) -> str:
@@ -86,7 +89,11 @@ class MemoryManager:
             return
         if brain is None:
             brain = self.load_current_brain()
-        user_data = self.crud.get("users", self._uid) or {}
+        now = time.time()
+        if now - self._user_data_cache_time > self._USER_DATA_CACHE_TTL:
+            self._cached_user_data = self.crud.get("users", self._uid) or {}
+            self._user_data_cache_time = now
+        user_data = self._cached_user_data
         merged = dict(brain)
         for key, value in user_data.items():
             if key in _BRAIN_SCHEMA:

@@ -29,12 +29,14 @@ class WriteCoalescer:
         memory_manager: "MemoryManager",
         diary_store: "DiaryStore | None" = None,
         flush_sec: float = 8.0,
+        parent: "QObject | None" = None,
     ) -> None:
         self._memory = memory
         self._history = history
         self._memory_manager = memory_manager
         self._diary_store = diary_store
         self._flush_sec = flush_sec
+        self._parent = parent
         self._timer: QTimer | None = None
         self._dirty: dict[str, bool] = {
             "memory": False,
@@ -66,8 +68,8 @@ class WriteCoalescer:
                     self._memory_manager.retry_pending_writes()
             except Exception as e:
                 logging.warning(f"[WriteCoalescer] {kind} flush failed: {e}")
-                continue
-            self._dirty[kind] = False
+            finally:
+                self._dirty[kind] = False
 
     def _flush_diary(self) -> None:
         if self._diary_store is None:
@@ -80,7 +82,9 @@ class WriteCoalescer:
     def start(self) -> None:
         if self._timer is not None:
             self._timer.stop()
-        self._timer = QTimer()
+        from PyQt6.QtCore import QObject
+        parent_obj = self._parent if isinstance(self._parent, QObject) else None
+        self._timer = QTimer(parent_obj)
         self._timer.setInterval(int(self._flush_sec * 1000))
         self._timer.timeout.connect(self.flush)
         self._timer.start()

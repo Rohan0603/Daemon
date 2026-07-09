@@ -25,6 +25,7 @@ class TestTriggerBoredomFsm:
             self.pw._fsm = MagicMock()
             self.pw._fsm.current_state = PetState.IDLE
             self.pw._on_output_displayed = MagicMock()
+            self.pw._schedule_boredom_retry = MagicMock()
 
     @patch('src.ui.pet_window.get_active_window_title')
     def test_triggers_draw_and_dispatch(self, mock_window):

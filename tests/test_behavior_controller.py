@@ -207,6 +207,7 @@ class TestBehaviorControllerGuardLogic(unittest.TestCase):
 
     def test_should_fire_when_conditions_met(self):
         controller = _make_controller()
+        controller._last_autonomous_fire_time = 0.0
         self.assertTrue(controller._should_fire_autonomous("active_chat"))
 
 
