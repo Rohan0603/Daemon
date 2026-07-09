@@ -23,3 +23,89 @@ class TestOllamaWorker:
     def test_tool_call_requested_signal(self):
         worker = OllamaWorker(prompt="test", pet_id="kenny")
         assert hasattr(worker, "tool_call_requested")
+
+    @patch("src.llm.ollama_worker.requests.post")
+    def test_handles_tool_calls_and_returns_content(self, mock_post):
+        mock_resp1 = MagicMock()
+        mock_resp1.status_code = 200
+        mock_resp1.json.return_value = {
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "function": {"name": "change_visual_state", "arguments": {"action": "shake"}}
+                }]
+            }
+        }
+        mock_resp2 = MagicMock()
+        mock_resp2.status_code = 200
+        mock_resp2.json.return_value = {
+            "message": {
+                "role": "assistant",
+                "content": '[{"dialogue": "done", "thought": "ok", "type": "observation", "priority": 3}]'
+            }
+        }
+        mock_post.side_effect = [mock_resp1, mock_resp2]
+
+        results = []
+        worker = OllamaWorker(prompt="test", pet_id="kenny")
+        worker.response_ready.connect(lambda items: results.append(items))
+        worker.run()
+        assert len(results) == 1
+        assert results[0][0]["dialogue"] == "done"
+
+    @patch("src.llm.ollama_worker.requests.post")
+    def test_http_error_emits_error(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.text = "Internal Server Error"
+        mock_post.return_value = mock_resp
+
+        errors = []
+        worker = OllamaWorker(prompt="test", pet_id="kenny")
+        worker.error_occurred.connect(lambda e: errors.append(e))
+        worker.run()
+        assert any("parse_failed" in e for e in errors)
+
+    @patch("src.llm.ollama_worker.requests.post")
+    def test_abort_stops_execution(self, mock_post):
+        worker = OllamaWorker(prompt="test", pet_id="kenny")
+        worker.abort()
+        worker.run()
+        mock_post.assert_not_called()
+
+    def test_parse_garbage_falls_back_to_freeform(self):
+        worker = OllamaWorker(prompt="test", pet_id="kenny")
+        result = worker._parse_response("   some free form text   ")
+        assert result is not None
+        assert result[0]["dialogue"] == "some free form text"
+        assert result[0]["type"] == "observation"
+
+    @patch("src.llm.ollama_worker.requests.post")
+    def test_read_clipboard_signal(self, mock_post):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "function": {"name": "read_clipboard", "arguments": {}}
+                }]
+            }
+        }
+        mock_resp2 = MagicMock()
+        mock_resp2.status_code = 200
+        mock_resp2.json.return_value = {
+            "message": {
+                "role": "assistant",
+                "content": '[{"dialogue": "ok", "thought": "", "type": "observation", "priority": 3}]'
+            }
+        }
+        mock_post.side_effect = [mock_resp, mock_resp2]
+
+        signals = []
+        worker = OllamaWorker(prompt="test", pet_id="kenny")
+        worker.read_clipboard_requested.connect(lambda: signals.append("read"))
+        worker.run()
+        assert "read" in signals

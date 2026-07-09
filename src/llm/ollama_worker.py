@@ -1,14 +1,13 @@
 # src/llm/ollama_worker.py
 from __future__ import annotations
-import json, logging, warnings, requests
+import json, logging, requests
 from typing import Any
 from PyQt6.QtCore import QThread, pyqtSignal
 from src.config import config_get
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="src.llm.ollama_worker")
-
+ 
 OLLAMA_TOOLS = [
     {
         "type": "function",
@@ -62,6 +61,7 @@ class OllamaWorker(QThread):
     error = pyqtSignal(str)
     brain_update_ready = pyqtSignal(dict)
     tool_call_requested = pyqtSignal(str, dict)
+    read_clipboard_requested = pyqtSignal()
 
     def __init__(self, *args: Any, prompt: str = "", is_autonomous: bool = False,
                  pet_id: str = "kenny", parent: Any = None, **kwargs: Any):
@@ -74,7 +74,7 @@ class OllamaWorker(QThread):
         self._timed_out = False
         self._server_url = config_get("llm.ollama_url") or "http://127.0.0.1:11434"
         self._ollama_model = config_get("llm.ollama_model") or "daemon-local"
-        self._post_timeout = min(int(config_get("llm.timeout_sec") or 30), 120)
+        self._post_timeout = min(int(config_get("llm.timeout_sec") or 30), 60)
         if is_autonomous:
             self._post_timeout = max(self._post_timeout, 120)
         self._skill_md = self._load_skill_md()
@@ -125,15 +125,19 @@ class OllamaWorker(QThread):
             "stream": False,
             "options": {"num_predict": 1024},
         }
-        has_tools = any(m["role"] == "system" for m in messages)
-        if has_tools:
-            payload["tools"] = OLLAMA_TOOLS
+        payload["tools"] = OLLAMA_TOOLS
 
-        resp = requests.post(
-            f"{self._server_url}/api/chat",
-            json=payload,
-            timeout=self._post_timeout,
-        )
+        try:
+            resp = requests.post(
+                f"{self._server_url}/api/chat",
+                json=payload,
+                timeout=self._post_timeout,
+            )
+        except requests.exceptions.Timeout:
+            logger.warning("Ollama request timed out after %ss", self._post_timeout)
+            self._timed_out = True
+            return None
+
         if resp.status_code >= 400:
             logger.warning("Ollama API error: HTTP %s %s", resp.status_code, resp.text[:200])
             return None
@@ -169,14 +173,8 @@ class OllamaWorker(QThread):
             self.tool_call_requested.emit(name, args)
             return json.dumps({"status": "ok"})
         elif name == "read_clipboard":
-            try:
-                import win32clipboard
-                win32clipboard.OpenClipboard()
-                data = win32clipboard.GetClipboardData()
-                win32clipboard.CloseClipboard()
-                return json.dumps({"text": data[:500]})
-            except Exception as exc:
-                return json.dumps({"error": str(exc)})
+            self.read_clipboard_requested.emit()
+            return json.dumps({"status": "ok", "note": "clipboard content dispatched to main thread"})
         return json.dumps({"error": f"Unknown tool: {name}"})
 
     def _emit_error(self, msg: str) -> None:
@@ -235,6 +233,19 @@ class OllamaWorker(QThread):
                         return [obj]
                 except json.JSONDecodeError:
                     pass
+        # Strategy 4: JSONL — objects on separate lines
+        items = []
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith("{"):
+                try:
+                    obj = json.loads(line)
+                    if isinstance(obj, dict):
+                        items.append(obj)
+                except json.JSONDecodeError:
+                    pass
+        if items:
+            return items
         truncated = raw[:400].strip()
         if truncated:
             return [{"dialogue": truncated, "action": "idle", "type": "observation",
