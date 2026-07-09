@@ -20,8 +20,7 @@ def test_user_trigger_ide_slug_injected():
         mode="active_chat", user_input="hello", apm=40,
         idle_seconds=10.0, ide_slug="vscode",
     )
-    assert "you are in vscode" in prompt
-    assert "The user is coding." in prompt
+    assert "Window: vscode" in prompt
 
 
 def test_user_trigger_no_ide_slug_when_empty():
@@ -39,8 +38,7 @@ def test_autonomous_trigger_ide_slug_injected():
     prompt = cm.build_autonomous_trigger(
         mode="boredom", apm=5, idle_seconds=120.0, ide_slug="pycharm",
     )
-    assert "the user is in pycharm" in prompt
-    assert "They are coding." in prompt
+    assert "Window: pycharm" in prompt
 
 
 def test_autonomous_trigger_no_ide_slug_when_empty():

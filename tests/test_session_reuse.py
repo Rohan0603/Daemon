@@ -8,9 +8,8 @@ class TestSessionReuse:
     """Verify refill workers do NOT share the main dialog session to prevent
     concurrent request mixing."""
 
-    @patch("src.ui.pet_window.OpencodeWorker")
-    def test_refill_worker_has_own_session(self, MockWorker):
-        """When _on_refill_needed fires, the OpencodeWorker must NOT receive the
+    def test_refill_worker_has_own_session(self):
+        """When _on_refill_needed fires, the refill worker must NOT receive the
         cached _opencode_session_id — refill workers get their own session."""
         pw = MagicMock(spec=PetWindow)
         pw._opencode_session_id = "ses_abc123"
@@ -20,13 +19,13 @@ class TestSessionReuse:
         pw._opencode_worker = None
         pw._refill_workers = {}
         pw._refill_workers_lock = threading.Lock()
+        pw._llm_provider = "opencode"
 
-        mock_worker = MagicMock()
-        MockWorker.return_value = mock_worker
+        pw._make_llm_worker = MagicMock(return_value=MagicMock())
 
         PetWindow._on_refill_needed(pw)
 
-        MockWorker.assert_called_once()
-        call_kwargs = MockWorker.call_args[1]
+        pw._make_llm_worker.assert_called_once()
+        call_kwargs = pw._make_llm_worker.call_args[1]
         assert call_kwargs.get("session_id") is None, \
             f"Expected session_id=None (own session), got {call_kwargs.get('session_id')}"

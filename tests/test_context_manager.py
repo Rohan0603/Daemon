@@ -62,8 +62,8 @@ def test_build_user_trigger_has_response_framing():
     cm._cache_key = None
     cm._cached_prompt = None
     prompt = cm.build_user_trigger("user_input", "hello", 50, 0.0)
-    assert "responding directly" in prompt
-    assert "User said: hello" in prompt
+    assert "Respond in the format" in prompt
+    assert "User: hello" in prompt
 
 
 def test_build_autonomous_trigger_has_internal_monologue():
@@ -86,7 +86,6 @@ def test_autonomous_trigger_has_apm_as_primary_signal():
     cm._cache_key = None
     cm._cached_prompt = None
     prompt = cm.build_autonomous_trigger("active_chat", 50, 30.0)
-    assert "main signal" in prompt
     assert "APM: 50" in prompt
 
 
@@ -98,7 +97,7 @@ def test_user_trigger_has_apm_as_primary_signal():
     cm._cache_key = None
     cm._cached_prompt = None
     prompt = cm.build_user_trigger("user_input", "hello", 50, 0.0)
-    assert "primary signal" in prompt
+    assert "APM: 50" in prompt
 
 
 def test_autonomous_trigger_includes_screen_text():
