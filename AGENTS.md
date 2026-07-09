@@ -16,6 +16,18 @@ After completing any task, update `memory/project-dev-memory.md` with the task r
 
 ---
 
+## Codebase Exploration (Graphify)
+
+**Before making cross-module changes** or when you need to understand architecture:
+1. Run `graphify query "<question>"` to map dependencies and trace data flows
+2. Use `graphify path "<A>" "<B>"` for relationship analysis
+3. Use `graphify explain "<concept>"` for focused concept exploration
+4. Fall back to `graphify-out/GRAPH_REPORT.md` only for broad architecture review
+
+**Skip graphify only if** the task is about stale/incorrect graph output, or you explicitly know the answer. After modifying code, run `graphify update .` to keep the graph current.
+
+---
+
 ## Project
 
 Transparent always-on-top Windows desktop companion built with PyQt6. Named **Daemon**. Reacts to system activity (APM, active window, typing), provides floating interface to the `opencode` multi-agent CLI, and maintains persistent memory via Firebase.
@@ -71,6 +83,14 @@ git branch -D task-<N>-<slug>
 ```
 
 Never commit directly to master. Never include AI assistant names in commit messages.
+
+### Strict Pre-Commit Verification
+
+Before every `git commit`, the following must be verified:
+
+1. **Run the full test suite:** `py -m pytest tests/ -v`
+2. **Verify runtime stays under 50 seconds:** Total test execution must remain under 50s (indicating clean Qt teardown with no zombie timers/threads). If it exceeds 50s, investigate component cleanup before committing.
+3. **Resolve all failures locally:** No blind or speculative commits allowed. All test failures must be fixed and re-verified before staging.
 
 ---
 
@@ -761,6 +781,20 @@ Daemon Threads:
 FSMActionBridge relays MCP handler thread → main Qt thread. No mutexes needed.
 - `contextvars.ContextVar` (correlation IDs) are thread-safe by default — each thread has its own copy.
 - Prometheus metric functions (`record_fsm_transition`, `update_apm`, etc.) use thread-safe counters from `prometheus_client`.
+
+---
+
+## Common Failures & Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---------|-------------|-----|
+| Qt timers/threads hang during test teardown | `PetWindow` manually instantiated without proper cleanup | Use `safe_pet_window` fixture from `conftest.py` — it mocks UI deps and performs strict teardown |
+| Port 4097 binding error on test run | Zombie Python process from previous test holds MCP port | Kill orphaned Python processes: `taskkill /F /IM python.exe` and retry |
+| `ImportError` / circular import | Violation of `ui → autonomy → {llm, system}` import boundary | Run `graphify path "<module>" "<module>"` to analyze import chains; ensure no reverse imports |
+| AttributeError: `_force_quit` not set | Test mock creates PetWindow without calling `__init__` | Use `self.__dict__.get('_force_quit', False)` instead of `self._force_quit` |
+| `Brain disconnected` on startup | opencode serve process not running or port 4096 in TIME_WAIT | Wait 60s for TIME_WAIT to expire, or manually run `opencode serve` from terminal |
+| JSON parse failure floods logs | LLM returns unexpected output format | Check `_is_fallback_flood` dedup in `strands_worker.py`; reduce model stutter in `context_manager.py` |
+| Config KeyError on boot | New config key added without updating `data/daemon_config.json` | Add the key to the config file or provide a migration script — there is NO `DEFAULT_CONFIG` |
 
 ---
 
