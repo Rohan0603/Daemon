@@ -78,6 +78,7 @@ class OllamaWorker(QThread):
         if is_autonomous:
             self._post_timeout = max(self._post_timeout, 120)
         self._skill_md = self._load_skill_md()
+        self._tools_disabled = False
 
     def _load_skill_md(self) -> str:
         skill_path = Path(__file__).parent.parent.parent / ".opencode" / "skills" / self._pet_id / "SKILL.md"
@@ -125,7 +126,8 @@ class OllamaWorker(QThread):
             "stream": False,
             "options": {"num_predict": 1024},
         }
-        payload["tools"] = OLLAMA_TOOLS
+        if not self._tools_disabled:
+            payload["tools"] = OLLAMA_TOOLS
 
         try:
             resp = requests.post(
@@ -139,6 +141,11 @@ class OllamaWorker(QThread):
             return None
 
         if resp.status_code >= 400:
+            error_text = resp.text[:200].lower()
+            if "does not support tools" in error_text and not self._tools_disabled:
+                logger.warning("Model does not support tools; retrying without tools")
+                self._tools_disabled = True
+                return self._chat_completion(messages)
             logger.warning("Ollama API error: HTTP %s %s", resp.status_code, resp.text[:200])
             return None
         data = resp.json()
