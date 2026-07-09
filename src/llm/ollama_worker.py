@@ -86,10 +86,26 @@ class OllamaWorker(QThread):
         skill_path = Path(__file__).parent.parent.parent / ".opencode" / "skills" / self._pet_id / "SKILL.md"
         try:
             if skill_path.exists():
-                return skill_path.read_text(encoding="utf-8")
+                text = skill_path.read_text(encoding="utf-8")
+                return self._strip_opencode_sections(text)
         except Exception as exc:
             logger.warning("Failed to load SKILL.md from %s: %s", skill_path, exc)
         return self._default_skill_fallback()
+
+    def _strip_opencode_sections(self, text: str) -> str:
+        lines = text.splitlines()
+        keep = True
+        stripped = []
+        for line in lines:
+            if line.strip().startswith("## Two-Stage Output Mode"):
+                keep = False
+            if line.strip().startswith("## Dialogue Examples"):
+                keep = True
+            if keep:
+                stripped.append(line)
+        result = "\n".join(stripped)
+        logger.debug("_strip_opencode_sections: %d chars -> %d chars", len(text), len(result))
+        return result
 
     def _default_skill_fallback(self) -> str:
         return (
