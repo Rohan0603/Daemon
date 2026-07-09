@@ -39,3 +39,5 @@ this_file_surely_does_not_exist_98765.json
 # Hermes Agent tooling artifacts (plan files, session state)
 .hermes/
 .worktrees/
+# Backup files
+*.bak
