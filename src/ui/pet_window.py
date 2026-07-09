@@ -590,6 +590,8 @@ class PetWindow(QWidget):
 
         Uses time.monotonic() for drift-free behavioral timing.
         """
+        if self.__dict__.get('_force_quit', False):
+            return
         try:
             now = time.monotonic()
             self._behavior.set_idle_seconds(self._idle_seconds)
@@ -803,14 +805,45 @@ class PetWindow(QWidget):
             self._summary_on_complete()
 
     def _finalize_quit(self) -> None:
-        if hasattr(self, '_click_through') and self._click_through is not None:
+        if getattr(self, '_click_through', None) is not None:
             self._click_through.stop()
         self._mcp_server.stop()
         self._fsm_timer.stop()
         self._behavior_timer.stop()
         self._hyper_flash_timer.stop()
         self._typing_debounce_timer.stop()
-        self._event_worker.stop()
+        if hasattr(self, '_event_worker') and self._event_worker:
+            self._event_worker.stop()
+        # Stop background workers
+        if hasattr(self, '_tts') and self._tts:
+            self._tts.stop()
+        if hasattr(self, '_apm_worker') and self._apm_worker:
+            self._apm_worker.stop()
+        if hasattr(self, '_typing_buffer') and self._typing_buffer:
+            self._typing_buffer.stop()
+        # Flush and stop write coalescer
+        if hasattr(self, '_write_coalescer') and self._write_coalescer:
+            self._write_coalescer.stop()
+            self._write_coalescer.flush()
+        # Abort active opencode worker
+        if getattr(self, '_opencode_worker', None) is not None:
+            self._opencode_worker.abort()
+            self._opencode_worker = None
+        # Abort refill workers
+        if hasattr(self, '_refill_workers_lock'):
+            with self._refill_workers_lock:
+                for worker in self._refill_workers.values():
+                    if hasattr(worker, 'abort'):
+                        worker.abort()
+                    if hasattr(worker, 'quit'):
+                        worker.quit()
+        # Stop response manager
+        if hasattr(self, '_response_manager') and self._response_manager:
+            if hasattr(self._response_manager, 'stop'):
+                self._response_manager.stop()
+        # Quit the application
+        from PyQt6.QtWidgets import QApplication
+        QApplication.quit()
 
     def _on_focus_out(self) -> None:
         import time
@@ -830,6 +863,9 @@ class PetWindow(QWidget):
         if not self._mode_manager.is_coding_mode():
             return
         if getattr(self, "_autonomous_query_pending", False):
+            return
+        from src.pet_fsm import PetState
+        if self._fsm.current_state in (PetState.THINKING, PetState.AUTONOMOUS_THINKING):
             return
         screen_text = event.data.get("screen_text", "")
         if not screen_text or len(screen_text.strip()) < 20:
@@ -1070,6 +1106,8 @@ class PetWindow(QWidget):
         })
 
     def _tick(self) -> None:
+        if self.__dict__.get('_force_quit', False):
+            return
         try:
             current_rect = self._get_logical_window_rect()
             self._update_ground_y(current_rect)
@@ -1106,9 +1144,10 @@ class PetWindow(QWidget):
                 pet_center_x = self._pet_x + PET_WIDTH // 2
                 
                 if pet_center_x < w_left or pet_center_x > w_right:
-                    self._fsm.transition_to(PetState.PERIMETER)
-                    self._perimeter_edge = "bottom"
-                    self._perimeter_facing = "right" if pet_center_x < w_left else "left"
+                    if self._fsm.current_state in (PetState.IDLE, PetState.PERIMETER):
+                        self._fsm.transition_to(PetState.PERIMETER)
+                        self._perimeter_edge = "bottom"
+                        self._perimeter_facing = "right" if pet_center_x < w_left else "left"
                 else:
                     if self._pet_y > self._ground_y and not is_perched:
                         d = self._pet_y - self._ground_y
@@ -1247,7 +1286,7 @@ class PetWindow(QWidget):
             is_dragged=self._fsm.current_state == PetState.DRAGGED,
             is_falling=self._fsm.current_state == PetState.FALLING and (self._pet_y < self._ground_y or getattr(self, '_fall_velocity', 0.0) != 0.0),
             query_pending=self._fsm.current_state == PetState.THINKING,
-            autonomous_query_pending=False,
+            autonomous_query_pending=self._autonomous_query_pending,
             build_event=build_event,
             idle_seconds=self._idle_seconds,
             wander_due=wander_due,
@@ -1612,6 +1651,9 @@ class PetWindow(QWidget):
 
     def _on_opencode_error(self, error: str) -> None:
         logger.warning("_on_opencode_error called with error: '%s'", error)
+        if self.__dict__.get('_force_quit', False):
+            logger.debug("Skipping error handler during shutdown")
+            return
         self._autonomous_query_pending = False
         self._deferred_trigger_params = None
         self._current_user_input = ""
@@ -1645,13 +1687,21 @@ class PetWindow(QWidget):
             else:
                 name = user_name
 
-        err_choices = [
-            f"Oh geez, something went wrong, {name}!",
-            f"Look, man... I can't think straight right now, {name}!",
-            f"Uh, I mean... my circuits are crossed, {name}!",
-            f"Holy crap! Everything is failing! I'm having a moment, {name}!",
-            f"Okay, wow, alright... processing error! Existential crisis incoming, {name}!"
-        ]
+        is_timeout = error.lower() == "timeout"
+        if is_timeout:
+            err_choices = [
+                f"Hold on, {name}... my brain's lagging behind. Give me a sec.",
+                f"Ugh, the connection's being slow as molasses, {name}.",
+                f"My thinker's stuttering, {name}! Just a moment...",
+            ]
+        else:
+            err_choices = [
+                f"Oh geez, something went wrong, {name}!",
+                f"Look, man... I can't think straight right now, {name}!",
+                f"Uh, I mean... my circuits are crossed, {name}!",
+                f"Holy crap! Everything is failing! I'm having a moment, {name}!",
+                f"Okay, wow, alright... processing error! Existential crisis incoming, {name}!"
+            ]
         self._show_bubble(random.choice(err_choices))
         if self._opencode_worker is not None:
             self._opencode_worker.deleteLater()
