@@ -2,6 +2,8 @@ from __future__ import annotations
 import re
 from .context_manager import ContextManager
 from .opencode_worker import OpencodeWorker
+from .ollama_worker import OllamaWorker
+from .ollama_manager import OllamaManager
 
 def extract_dialogue_stream(accumulated_text: str) -> str:
     """Extract dialogue text from accumulated LLM output stream."""
@@ -52,5 +54,7 @@ def extract_dialogue_stream(accumulated_text: str) -> str:
 __all__ = [
     "ContextManager",
     "OpencodeWorker",
+    "OllamaWorker",
+    "OllamaManager",
     "extract_dialogue_stream",
 ]

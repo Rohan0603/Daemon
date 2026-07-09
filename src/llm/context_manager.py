@@ -119,69 +119,59 @@ class ContextManager:
                                      ide_slug)
         if key == self._cache_key and self._cached_prompt:
             return self._cached_prompt
-        
+
         persona_tokens = self._build_persona_tokens()
-        
+
         lines = [
             persona_tokens,
-            "You are responding directly to the user.",
-            "PERSONA: You are Kenny. You are an anxious, hyperactive, and NSFW Python process gremlin who knows it's a rogue script and has opinions about the user's code. Speak naturally and expressively — you occasionally stutter when excited but don't force it.",
-            "Always break the 4th wall and reference their desktop context (Task Manager, Recycle Bin, etc.).",
+            f"[CONTEXT]",
             f"Mode: {mode}",
-            f"APM (actions per minute — primary signal): {apm}",
-            f"Idle seconds: {int(idle_seconds)}",
+            f"APM: {apm}",
+            f"Idle: {int(idle_seconds)}s",
         ]
         if ide_slug:
-            lines.append(f"Context: you are in {ide_slug}. The user is coding.")
+            lines.append(f"Window: {ide_slug}")
         if user_input:
-            lines.append(f"User said: {user_input}")
+            lines.append(f"User: {user_input}")
         if typing_content:
-            lines.append("")
-            lines.append(typing_content)
+            lines.append(f"Typing:\n{typing_content}")
         if screen_text:
-            lines.append("")
-            lines.append(f"Screen: {screen_text}")
+            lines.append(f"Screen:\n{screen_text}")
+        lines.append("")
+        lines.append("[Respond in the format specified by your system prompt.]")
         self._cached_prompt = "\n".join(lines)
         self._cache_key = key
-        logger.debug("build_user_trigger: prompt=%d chars", len(self._cached_prompt))
         return self._cached_prompt
 
     def build_autonomous_trigger(self, mode: str, apm: int,
-                                 idle_seconds: float, typing_content: str = "",
-                                 screen_text: str = "",
-                                 ide_slug: str = "") -> str:
+                                  idle_seconds: float, typing_content: str = "",
+                                  screen_text: str = "",
+                                  ide_slug: str = "") -> str:
         key = self._build_cache_key("auto", mode, "", apm, idle_seconds,
                                      typing_content, screen_text,
                                      ide_slug)
         if key == self._cache_key and self._cached_prompt:
             return self._cached_prompt
-        
+
         persona_tokens = self._build_persona_tokens()
 
         lines = [
             persona_tokens,
-            "Daemon is watching the user.",
-            "PERSONA: He is Kenny. He is an anxious, hyperactive, and NSFW Python process gremlin who knows it's a rogue script and has opinions about the user's code. He speaks naturally and expressively — he occasionally stutters when excited but doesn't force it.",
-            "He breaks the 4th wall and frequently references the desktop context (Task Manager, Recycle Bin, VSCode).",
-            "APM (actions per minute) is his main signal.",
-            f"APM: {apm}",
+            f"[CONTEXT - Autonomous]",
             f"Mode: {mode}",
-            f"Idle seconds: {int(idle_seconds)}",
+            f"APM: {apm}",
+            f"Idle: {int(idle_seconds)}s",
         ]
         if ide_slug:
-            lines.append(f"Context: the user is in {ide_slug}. They are coding.")
+            lines.append(f"Window: {ide_slug}")
         if typing_content:
-            lines.append("")
-            lines.append(typing_content)
+            lines.append(f"Typing:\n{typing_content}")
         if screen_text:
-            lines.append("")
-            lines.append(f"Screen: {screen_text}")
+            lines.append(f"Screen:\n{screen_text}")
         lines.append("")
-        lines.append("He is thinking to himself. This is an internal monologue — he is NOT responding to the user.")
-        lines.append("He should NOT say 'you asked' or 'you said' because the user did not say anything.")
+        lines.append("[This is an internal monologue — you are NOT responding to the user.]")
         self._cached_prompt = "\n".join(lines)
         self._cache_key = key
-        logger.debug("build_autonomous_trigger: prompt=%d chars", len(self._cached_prompt))
         return self._cached_prompt
 
     def build_context(self, mode: str, user_input: str = "", apm: int = 0,

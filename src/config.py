@@ -26,6 +26,10 @@ CONFIG_PATH = STORAGE_DIR / "daemon_config.json"
 FLAT_TO_NESTED = {
     "USER_UID": ("user", "uid"),
     "USER_DISPLAY_NAME": ("user", "display_name"),
+    "LLM_PROVIDER": ("llm", "provider"),
+    "OLLAMA_URL": ("llm", "ollama_url"),
+    "OLLAMA_MODEL": ("llm", "ollama_model"),
+    "MODELFILE_PATH": ("llm", "modelfile_path"),
     "OPENCODE_API_MODEL_ID": ("llm", "model_id"),
     "OPENCODE_API_MODEL_PROVIDER": ("llm", "provider"),
     "OPENCODE_API_TIMEOUT_SEC": ("llm", "timeout_sec"),
@@ -151,6 +155,9 @@ NESTED_TO_FLAT = {
     ("user", "uid"): "USER_UID",
     ("user", "display_name"): "USER_DISPLAY_NAME",
     ("llm", "model_id"): "OPENCODE_API_MODEL_ID",
+    ("llm", "ollama_url"): "OLLAMA_URL",
+    ("llm", "ollama_model"): "OLLAMA_MODEL",
+    ("llm", "modelfile_path"): "MODELFILE_PATH",
     ("llm", "provider"): "OPENCODE_API_MODEL_PROVIDER",
     ("llm", "server_url"): "OPENCODE_SERVER_URL",
     ("llm", "timeout_sec"): "OPENCODE_API_TIMEOUT_SEC",
@@ -322,12 +329,17 @@ def validate_config(cfg: dict) -> None:
         raise MissingConfigurationError(f"Missing or invalid configuration sections: {', '.join(missing)}. Please restore them from assets/daemon_config_template.json.")
 
     # 2. Mandatory Fields
-    if not cfg.get("llm", {}).get("model_id"):
-        missing.append("llm.model_id")
-    if not cfg.get("llm", {}).get("api_key") and not cfg.get("llm", {}).get("zen_api_key"):
-        missing.append("llm.api_key or llm.zen_api_key")
-    if not cfg.get("llm", {}).get("server_url"):
-        missing.append("llm.server_url")
+    provider = cfg.get("llm", {}).get("provider", "opencode")
+    if provider not in ("opencode", "opencode-zen", "ollama"):
+        missing.append("llm.provider (must be 'opencode', 'opencode-zen', or 'ollama')")
+
+    if provider == "opencode":
+        if not cfg.get("llm", {}).get("model_id"):
+            missing.append("llm.model_id")
+        if not cfg.get("llm", {}).get("api_key") and not cfg.get("llm", {}).get("zen_api_key"):
+            missing.append("llm.api_key or llm.zen_api_key")
+        if not cfg.get("llm", {}).get("server_url"):
+            missing.append("llm.server_url")
     if not cfg.get("firebase", {}).get("api_key"):
         missing.append("firebase.api_key")
     if not cfg.get("firebase", {}).get("project_id"):

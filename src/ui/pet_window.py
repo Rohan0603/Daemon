@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json
 import logging
+from typing import Any
 import random
 import re
 import sys
@@ -126,6 +127,21 @@ class PetWindow(QWidget):
 
         from src.config import load_config
         self._config = load_config()
+        self._llm_provider = self._config.get("llm", {}).get("provider", "opencode")
+        self._ollama_manager = None
+
+        if self._llm_provider == "ollama":
+            from src.llm.ollama_manager import OllamaManager
+            self._ollama_manager = OllamaManager(
+                modelfile_path=self._config.get("llm", {}).get("modelfile_path", "data/Modelfile"),
+                model_name=self._config.get("llm", {}).get("ollama_model", "daemon-local"),
+                ollama_url=self._config.get("llm", {}).get("ollama_url", "http://127.0.0.1:11434"),
+                parent=self,
+            )
+            self._ollama_manager.ready.connect(self._on_ollama_ready)
+            self._ollama_manager.error_occurred.connect(self._on_ollama_error)
+            self._ollama_manager.start()
+
         self._pet_scale = self._config.get("pet", {}).get("scale", 1.0)
         self._pet_opacity = self._config.get("pet", {}).get("opacity", 0.85)
         self._pet_speed_multiplier = self._config.get("pet", {}).get("speed_multiplier", 1.0)
@@ -709,6 +725,41 @@ class PetWindow(QWidget):
         from src.pet_fsm import PetState
         self._fsm.transition_to(PetState.BOUNCING)
 
+    def _on_ollama_ready(self) -> None:
+        logger.info("Ollama provider ready")
+
+    def _on_ollama_error(self, msg: str) -> None:
+        logger.warning("Ollama provider error: %s", msg)
+        self._show_bubble(f"Kenny's brain is offline: {msg}")
+
+    def _make_llm_worker(self, **kw: Any) -> Any:
+        if self._llm_provider == "ollama":
+            from src.llm.ollama_worker import OllamaWorker
+            kw.pop("session_id", None)
+            kw.pop("schema", None)
+            kw.pop("user_input", None)
+            worker = OllamaWorker(
+                prompt=kw.pop("prompt", ""),
+                is_autonomous=kw.pop("is_autonomous", False),
+                pet_id=self._pet_id,
+                parent=self,
+            )
+            worker.tool_call_requested.connect(self._on_ollama_tool_call)
+            return worker
+        from src.llm.opencode_worker import OpencodeWorker
+        return OpencodeWorker(parent=self, **kw)
+
+    def _on_ollama_tool_call(self, name: str, args: dict) -> None:
+        if name == "change_visual_state":
+            action = args.get("action", "idle")
+            target_x = args.get("target_x")
+            target_y = args.get("target_y")
+            self._fsm_bridge.emit_request("triggered_action", action, target_x, target_y)
+        elif name == "send_system_toast":
+            title = args.get("title", "Daemon")
+            message = args.get("message", "")
+            self._fsm_bridge.emit_toast(title, message)
+
     def _force_quit_app(self) -> None:
         if self._force_quit:
             return
@@ -766,11 +817,10 @@ class PetWindow(QWidget):
         history_text = "\n".join(lines)
         prompt = f"Summarize this session strictly into a single observation about the user's habits:\n{history_text}"
         
-        from src.llm import OpencodeWorker
-        self._summary_worker = OpencodeWorker(
+        self._summary_worker = self._make_llm_worker(
             user_input="",
             prompt=prompt,
-            is_autonomous=True
+            is_autonomous=True,
         )
         self._summary_worker.response_ready.connect(self._on_summary_ready)
         self._summary_worker.start()
@@ -888,8 +938,7 @@ class PetWindow(QWidget):
             screen_text=screen_text, ide_slug=ide_slug,
             apm=apm, chattiness=self._chattiness,
         )
-        from src.llm.opencode_worker import OpencodeWorker
-        worker = OpencodeWorker(
+        worker = self._make_llm_worker(
             prompt=prompt, session_id=None,
             schema=CODE_ANALYSIS_SCHEMA, is_autonomous=True,
         )
@@ -1058,6 +1107,10 @@ class PetWindow(QWidget):
             tts_volume=self._saved_tts_volume,
             tts_voice_id=self._saved_tts_voice_id,
             chattiness=self._chattiness,
+            llm_provider=self._llm_provider,
+            ollama_url=self._config.get("llm", {}).get("ollama_url", "http://127.0.0.1:11434"),
+            ollama_model=self._config.get("llm", {}).get("ollama_model", "daemon-local"),
+            ollama_status="ready" if (self._ollama_manager and self._ollama_manager._process is not None) else "",
             llm_model_id=self._config.get("llm", {}).get("model_id") or "gemini-2.5-flash",
             llm_api_key=self._config.get("llm", {}).get("api_key", ""),
             llm_server_url=self._config.get("llm", {}).get("server_url") or "http://127.0.0.1:4096",
@@ -2089,7 +2142,7 @@ class PetWindow(QWidget):
             logger.info("Worker busy; dropping multiplexed trigger")
             return
             
-        worker = OpencodeWorker(
+        worker = self._make_llm_worker(
             user_input="", prompt=prompt, is_autonomous=True,
             session_id=self._opencode_session_id,
         )
@@ -2421,7 +2474,7 @@ class PetWindow(QWidget):
                     is_autonomous=is_autonomous,
                 )
                 return
-        worker = OpencodeWorker(
+        worker = self._make_llm_worker(
             prompt=prompt,
             is_autonomous=is_autonomous,
         )
@@ -2745,10 +2798,8 @@ class PetWindow(QWidget):
             )
             logger.debug("[VERIFY] single-stage refill: window=%s, APM=%d",
                          window, self._current_apm)
-            worker = OpencodeWorker(
-                "",
-                is_autonomous=True,
-                session_id=None,
+            worker = self._make_llm_worker(
+                "", is_autonomous=True, session_id=None,
                 prompt=single_prompt,
             )
             worker.response_ready.connect(lambda items: self._on_refill_result(items))

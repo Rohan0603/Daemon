@@ -4,7 +4,9 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
     QCheckBox, QComboBox, QDialogButtonBox,
     QGroupBox, QTabWidget, QWidget, QLineEdit,
+    QPushButton,
 )
+from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal
 from src.constants import (
     SETTINGS_SCALE_MIN, SETTINGS_SCALE_MAX,
@@ -28,6 +30,10 @@ class SettingsDialog(QDialog):
                  allow_mouse_interference: bool = False,
                  allow_keyboard_injection: bool = False,
                  allow_window_management: bool = False,
+                 llm_provider: str = "opencode",
+                 ollama_url: str = "http://127.0.0.1:11434",
+                 ollama_model: str = "daemon-local",
+                 ollama_status: str = "",
                  llm_model_id: str = "",
                  llm_api_key: str = "",
                  llm_server_url: str = "http://127.0.0.1:4096",
@@ -36,7 +42,7 @@ class SettingsDialog(QDialog):
                  parent=None):
         super().__init__(parent)
         self.setWindowTitle("Daemon Settings")
-        self.setFixedSize(450, 480)
+        self.setFixedSize(450, 520)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
@@ -177,17 +183,52 @@ class SettingsDialog(QDialog):
         
         llm_group = QGroupBox("LLM Configuration")
         llm_layout = QVBoxLayout(llm_group)
+
+        provider_row = QHBoxLayout()
+        provider_row.addWidget(QLabel("Provider:"))
+        self._provider_combo = QComboBox()
+        self._provider_combo.addItem("opencode serve", "opencode")
+        self._provider_combo.addItem("Ollama (Local)", "ollama")
+        provider_idx = 0 if llm_provider == "opencode" else 1
+        self._provider_combo.setCurrentIndex(provider_idx)
+        self._provider_combo.currentIndexChanged.connect(self._on_provider_changed)
+        provider_row.addWidget(self._provider_combo)
+        llm_layout.addLayout(provider_row)
+
+        # Opencode fields
+        self._opencode_widget = QWidget()
+        oc_layout = QVBoxLayout(self._opencode_widget)
+        oc_layout.setContentsMargins(0, 0, 0, 0)
         self._llm_model_id = QLineEdit(llm_model_id)
         self._llm_api_key = QLineEdit(llm_api_key)
         self._llm_api_key.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
         self._llm_server_url = QLineEdit(llm_server_url)
-        
-        llm_layout.addWidget(QLabel("Model ID:"))
-        llm_layout.addWidget(self._llm_model_id)
-        llm_layout.addWidget(QLabel("API Key:"))
-        llm_layout.addWidget(self._llm_api_key)
-        llm_layout.addWidget(QLabel("Server URL:"))
-        llm_layout.addWidget(self._llm_server_url)
+        oc_layout.addWidget(QLabel("Model ID:"))
+        oc_layout.addWidget(self._llm_model_id)
+        oc_layout.addWidget(QLabel("API Key:"))
+        oc_layout.addWidget(self._llm_api_key)
+        oc_layout.addWidget(QLabel("Server URL:"))
+        oc_layout.addWidget(self._llm_server_url)
+        llm_layout.addWidget(self._opencode_widget)
+
+        # Ollama fields
+        self._ollama_widget = QWidget()
+        ol_layout = QVBoxLayout(self._ollama_widget)
+        ol_layout.setContentsMargins(0, 0, 0, 0)
+        self._ollama_url_edit = QLineEdit(ollama_url)
+        self._ollama_model_edit = QLineEdit(ollama_model)
+        self._ollama_status_label = QLabel(f"Status: {ollama_status}" if ollama_status else "Status: unknown")
+        self._ollama_restart_btn = QPushButton("Restart Ollama")
+        ol_layout.addWidget(QLabel("Ollama URL:"))
+        ol_layout.addWidget(self._ollama_url_edit)
+        ol_layout.addWidget(QLabel("Model:"))
+        ol_layout.addWidget(self._ollama_model_edit)
+        ol_layout.addWidget(self._ollama_status_label)
+        ol_layout.addWidget(self._ollama_restart_btn)
+        llm_layout.addWidget(self._ollama_widget)
+
+        self._on_provider_changed(provider_idx)
+
         tab4_layout.addWidget(llm_group)
 
         fb_group = QGroupBox("Firebase Configuration")
@@ -212,6 +253,12 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _on_provider_changed(self, index: int) -> None:
+        is_ollama = self._provider_combo.currentData() == "ollama"
+        self._opencode_widget.setVisible(not is_ollama)
+        self._ollama_widget.setVisible(is_ollama)
+        self.value_changed.emit()
 
     def _get_voices(self) -> list[tuple[str, str]]:
         voices = [("en-US-GuyNeural", "Guy (Edge Neural)")]
@@ -314,6 +361,9 @@ class SettingsDialog(QDialog):
             "allow_mouse_interference": self._cb_mouse_interference.isChecked(),
             "allow_keyboard_injection": self._cb_keyboard_injection.isChecked(),
             "allow_window_management": self._cb_window_management.isChecked(),
+            "LLM_PROVIDER": self._provider_combo.currentData(),
+            "OLLAMA_URL": self._ollama_url_edit.text(),
+            "OLLAMA_MODEL": self._ollama_model_edit.text(),
             "OPENCODE_API_MODEL_ID": self._llm_model_id.text(),
             "OPENCODE_API_KEY": self._llm_api_key.text(),
             "OPENCODE_SERVER_URL": self._llm_server_url.text(),

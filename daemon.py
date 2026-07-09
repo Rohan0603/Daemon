@@ -308,7 +308,8 @@ def main() -> None:
         return
 
     from src.opencode_serve_manager import ensure_opencode_serve_running, stop_opencode_serve
-    if not args.no_opencode:
+    provider = cfg.get("llm", {}).get("provider", "opencode")
+    if not args.no_opencode and provider != "ollama":
         opencode_server_url = DEFAULT_SERVER_URL
         opencode_api_key = cfg.get("llm", {}).get("api_key", "")
         if ensure_opencode_serve_running(url=opencode_server_url, api_key=opencode_api_key):
