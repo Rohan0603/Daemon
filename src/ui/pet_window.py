@@ -281,9 +281,9 @@ class PetWindow(QWidget):
 
         from src.ui.mode_manager import ModeManager
         from pathlib import Path
-        from src.constants import DATA_DIR
+        from src.constants import STORAGE_DIR
         self._mode_manager = ModeManager(
-            persist_path=str(Path(DATA_DIR) / "pet_mode.json")
+            persist_path=str(Path(STORAGE_DIR) / "pet_mode.json")
         )
         self._mode_manager.load()
         self._mode_manager.on_mode_changed(self._on_mode_changed)
