@@ -41,3 +41,10 @@ this_file_surely_does_not_exist_98765.json
 .worktrees/
 # Backup files
 *.bak
+
+# Runtime generated files
+coverage.txt
+temp_*.json
+scratch_*.py
+fix_*.py
+graphify-out/
