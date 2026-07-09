@@ -74,9 +74,10 @@ class OllamaWorker(QThread):
         self._timed_out = False
         self._server_url = config_get("llm.ollama_url") or "http://127.0.0.1:11434"
         self._ollama_model = config_get("llm.ollama_model") or "daemon-local"
-        self._post_timeout = min(int(config_get("llm.timeout_sec") or 30), 60)
+        timeout = int(config_get("llm.timeout_sec") or 180)
+        self._post_timeout = max(timeout, 60)
         if is_autonomous:
-            self._post_timeout = max(self._post_timeout, 120)
+            self._post_timeout = max(self._post_timeout, 180)
         self._skill_md = self._load_skill_md()
         self._tools_disabled = False
 
