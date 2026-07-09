@@ -279,6 +279,19 @@ class PetWindow(QWidget):
         # Event bus for decoupled communication
         self._events = get_event_bus()
 
+        from src.ui.mode_manager import ModeManager
+        from pathlib import Path
+        from src.constants import DATA_DIR
+        self._mode_manager = ModeManager(
+            persist_path=str(Path(DATA_DIR) / "pet_mode.json")
+        )
+        self._mode_manager.load()
+        self._mode_manager.on_mode_changed(self._on_mode_changed)
+        self._code_issues_buffer: list[dict] = []
+        self._code_analysis_worker = None
+        self._render_coding_mode: bool = self._mode_manager.is_coding_mode()
+        self._last_focus_out_time: float = 0.0
+
         # BehaviorController — autonomous behavior engine
         self._behavior = BehaviorController(
             event_bus=self._events,
@@ -408,6 +421,7 @@ class PetWindow(QWidget):
             EventType.AUTONOMOUS_TRIGGER_FIRED,
             self._on_autonomous_trigger_fired,
         )
+        self._events.subscribe(EventType.CODING_SCAN_TRIGGERED, self._on_coding_scan)
 
         # Wire IDE mode transition handlers
         self._events.subscribe(
@@ -796,8 +810,66 @@ class PetWindow(QWidget):
         self._behavior_timer.stop()
         self._hyper_flash_timer.stop()
         self._typing_debounce_timer.stop()
-        self._health_timer.stop()
         self._event_worker.stop()
+
+    def _on_focus_out(self) -> None:
+        import time
+        now = time.monotonic()
+        if now - getattr(self, '_last_focus_out_time', 0.0) < 0.05:
+            return
+        self._last_focus_out_time = now
+        self._input_field.hide()
+
+    def _compute_input_field_x(self) -> int:
+        from src.constants import PET_WIDTH, INPUT_WIDTH
+        screen_w = self.screen().availableGeometry().width()
+        raw_x = int(self._pet_x) + PET_WIDTH // 2 - INPUT_WIDTH // 2
+        return max(0, min(raw_x, screen_w - INPUT_WIDTH))
+
+    def _on_coding_scan(self, event) -> None:
+        if not self._mode_manager.is_coding_mode():
+            return
+        if getattr(self, "_autonomous_query_pending", False):
+            return
+        screen_text = event.data.get("screen_text", "")
+        if not screen_text or len(screen_text.strip()) < 20:
+            return
+        apm = event.data.get("apm", 0)
+        ide_slug = getattr(self, "_current_ide_slug", "")
+        from src.constants import CODE_ANALYSIS_SCHEMA
+        prompt = self._context_manager.build_code_analysis_prompt(
+            screen_text=screen_text, ide_slug=ide_slug,
+            apm=apm, chattiness=self._chattiness,
+        )
+        from src.llm.opencode_worker import OpencodeWorker
+        worker = OpencodeWorker(
+            prompt=prompt, session_id=None,
+            schema=CODE_ANALYSIS_SCHEMA, is_autonomous=True,
+        )
+        worker.response_ready.connect(self._on_code_analysis_result)
+        worker.error.connect(lambda e: logger.warning("Code analysis failed: %s", e))
+        self._code_analysis_worker = worker
+        self._autonomous_query_pending = True
+        worker.start()
+
+    def _on_code_analysis_result(self, items: list) -> None:
+        self._autonomous_query_pending = False
+        self._code_analysis_worker = None
+        for item in items:
+            issues = item.get("code_issues", [])
+            if issues:
+                self._code_issues_buffer.extend(issues)
+                if len(self._code_issues_buffer) > 50:
+                    self._code_issues_buffer = self._code_issues_buffer[-50:]
+            if item.get("dialogue"):
+                self._dispatch_structured(item)
+
+    def _on_mode_changed(self, old_mode, new_mode) -> None:
+        from src.ui.mode_manager import PetMode
+        if hasattr(self, "_behavior"):
+            self._behavior.set_coding_mode(new_mode == PetMode.CODING_ASSISTANT)
+        self._render_coding_mode = (new_mode == PetMode.CODING_ASSISTANT)
+        self._mode_manager.save()
         if hasattr(self, "_greeting_timer"):
             self._greeting_timer.stop()
         if hasattr(self, "_boot_timer"):
@@ -1415,6 +1487,7 @@ class PetWindow(QWidget):
                 prepare_jump_elapsed_ms=prepare_jump_elapsed_ms,
                 action_stack=self._action_layer.get_active(),
                 ide_mode=self._ide_mode,
+                render_coding_mode=getattr(self, "_render_coding_mode", False),
             )
             self._renderer.render(painter, ctx)
             self._bubble_rect = ctx.bubble_rect
@@ -1435,10 +1508,9 @@ class PetWindow(QWidget):
             self._show_input_field()
 
     def _show_input_field(self) -> None:
-        field_x = self._pet_x + PET_WIDTH // 2 - INPUT_WIDTH // 2
+        field_x = self._compute_input_field_x()
         field_y = self._pet_y - INPUT_HEIGHT - INPUT_Y_OFFSET
         screen_geom = self.screen().availableGeometry()
-        field_x = max(0, min(field_x, screen_geom.width() - INPUT_WIDTH))
         field_y = max(0, field_y)
         logger.info("Displaying input field at coordinates (%d, %d)", field_x, field_y)
         self._input_field.move(int(field_x), int(field_y))
@@ -1734,7 +1806,7 @@ class PetWindow(QWidget):
                     return True
             elif event.type() == QEvent.Type.FocusOut:
                 logger.info("FocusOut event on input field: hiding input field")
-                self._input_field.hide()
+                self._on_focus_out()
                 return False
         return super().eventFilter(obj, event)
 

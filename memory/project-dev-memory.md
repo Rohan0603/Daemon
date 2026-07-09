@@ -3123,3 +3123,10 @@ Removed remaining Strands references, corrected the `opencode serve` message pay
 - Created `safe_pet_window` fixture in `conftest.py` to correctly mock and teardown background workers and QTimers, preventing event loop pollution.
 - Replaced manual `PetWindow` instantiation in FSM and screen time tests with the `safe_pet_window` fixture.
 - Cleaned up broken tests like `test_coding_scan.py` and legacy tests like `test_error_emitted_on_parse_failure`.
+## Active Coding Assistant Mode & Screen Reader Fixes (2026-07-09)
+**Branch:** master
+**Tests:** Skipped (per request to save tokens).
+
+### What Was Built
+- **Track A (Foundation Fixes):** Fixed re-entrant EventBus warnings via a queue-based depth guard. Deep UIA tree walk (_walk_for_text) implemented for screen_reader to capture code from child controls. get_foreground_text_full() added for absolute full capture without deltas. Fixed input field X coordinate centering and deduplicated FocusOut events (50ms guard).
+- **Track B (Active Coding Assistant Mode):** ModeManager implemented for toggleable desktop_pet vs coding_assistant modes. Added a Settings UI tab for Mode selection. Added CODING_SCAN_INTERVAL_SEC and CODE_ANALYSIS_SCHEMA. BehaviorController triggers CODING_SCAN_TRIGGERED based on chattiness intervals when in coding mode. PetWindow hooks this event, triggers OpencodeWorker, and maintains a rolling 50-issue code_issues buffer. A subtle <>/💻 badge rendered when active. SKILL.md updated with strict coding mode schema rules.

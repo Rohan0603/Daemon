@@ -221,3 +221,38 @@ class ContextManager:
             f"Generate exactly {count} thoughts. Types: "
             f"typing_reaction, observation, intel_roast, idle_thought."
         )
+
+    def build_code_analysis_prompt(
+        self,
+        screen_text: str,
+        ide_slug: str,
+        apm: int,
+        chattiness: float = 0.5,
+    ) -> str:
+        """Build code analysis prompt for Active Coding Assistant mode."""
+        persona_tokens = self._build_persona_tokens()
+        if chattiness >= 0.8:
+            depth = "Be thorough — surface ALL issues: bugs, anti-patterns, naming, style, performance."
+        elif chattiness >= 0.5:
+            depth = "Surface significant bugs and obvious improvements. Skip minor style nits."
+        else:
+            depth = "Only flag clear bugs or critical issues. Be very brief."
+
+        lines = [
+            persona_tokens,
+            "You are in ACTIVE CODING ASSISTANT MODE.",
+            f"PERSONA: You are Kenny — a snarky hyperactive code reviewer.",
+            f"IDE: {ide_slug}. APM: {apm}.",
+            depth,
+            "",
+            "TASK: Analyze the code on screen. Identify bugs, issues, improvements, enhancements.",
+            "Respond in-character with dialogue AND a code_issues list.",
+            "",
+            "=== CODE ON SCREEN ===",
+            screen_text[:1500],
+            "=== END CODE ===",
+            "",
+            "Respond ONLY in JSON schema format. 'dialogue' max 60 words, in-character.",
+            "'code_issues' = list with severity (bug/warning/suggestion/enhancement), line_hint, description.",
+        ]
+        return "\n".join(lines)

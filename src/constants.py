@@ -6,6 +6,31 @@ STORAGE_DIR.mkdir(exist_ok=True)
 
 CONFIG_PATH = STORAGE_DIR / 'daemon_config.json'
 MAX_RESPONSE_CHARS = 4000
+CODING_SCAN_INTERVAL_SEC: int = 30
+
+CODE_ANALYSIS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "dialogue": {"type": "string"},
+        "action": {"type": "string"},
+        "type": {"type": "string", "enum": ["code_assist"]},
+        "thought": {"type": "string"},
+        "code_issues": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "severity": {"type": "string",
+                                 "enum": ["bug", "warning", "suggestion", "enhancement"]},
+                    "line_hint": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+                "required": ["severity", "line_hint", "description"],
+            },
+        },
+    },
+    "required": ["dialogue", "action", "type", "thought", "code_issues"],
+}
 BUBBLE_QUEUE_TTL_SECS = 25
 HISTORY_MAX_ENTRIES = 2000
 DEBUG: bool = False

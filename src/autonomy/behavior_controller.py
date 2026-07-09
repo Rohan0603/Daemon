@@ -80,6 +80,8 @@ class BehaviorController:
         self._brain_disconnected = False
         self._last_risky_match: str | None = None
         self._in_ide_mode: bool = False
+        self._in_coding_mode: bool = False
+        self._coding_scan_timer_sec = 0.0
 
         # Timer accumulators (accumulated via tick())
         self._chat_timer_sec = 0.0
@@ -144,6 +146,12 @@ class BehaviorController:
     def set_opencode_enabled(self, enabled: bool) -> None:
         """Update opencode availability."""
         self._opencode_enabled = enabled
+
+    def set_coding_mode(self, enabled: bool) -> None:
+        """Enable or disable Active Coding Assistant Mode."""
+        self._in_coding_mode = enabled
+        if enabled:
+            self._coding_scan_timer_sec = 0.0
 
     def set_autonomous_pending(self, pending: bool) -> None:
         """Set whether an autonomous query is in flight."""
@@ -350,6 +358,28 @@ class BehaviorController:
             joke_threshold = (JOKE_INTERVAL_SEC * joke_mod) / max(self._chattiness, 0.1)
 
             # BEHAVIORAL PRIORITY TREE
+            if getattr(self, "_in_coding_mode", False):
+                self._coding_scan_timer_sec += master_dt
+                from src.constants import CODING_SCAN_INTERVAL_SEC
+                if self._coding_scan_timer_sec >= CODING_SCAN_INTERVAL_SEC:
+                    self._coding_scan_timer_sec = 0.0
+                    if not self._should_fire_autonomous("coding_scan"):
+                        return
+                    from src.system.screen_reader import get_foreground_text_full
+                    screen_text = get_foreground_text_full()
+                    self._last_autonomous_fire_time = time.time()
+                    self._event_bus.publish(
+                        Event(
+                            type=EventType.CODING_SCAN_TRIGGERED,
+                            source="behavior_controller",
+                            data={
+                                "screen_text": screen_text,
+                                "apm": self._current_apm,
+                            }
+                        )
+                    )
+                return  # Skip default chat/joke/boredom tree while in coding mode
+
             # P1: Flow State (APM > 80) — TOTAL SILENCE
             if self._current_apm > 80:
                 return

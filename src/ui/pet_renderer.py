@@ -48,6 +48,7 @@ class RenderContext:
     prepare_jump_elapsed_ms: float = 0.0
     action_stack: list = field(default_factory=list)
     ide_mode: bool = False          # True when a coding IDE is the foreground window
+    render_coding_mode: bool = False
 
 
 class PetRenderer:
@@ -488,7 +489,26 @@ class PetRenderer:
         if ctx.ide_mode:
             self._draw_ide_cursor(painter, ctx)
 
+        if ctx.render_coding_mode:
+            self._draw_coding_badge(painter, ctx)
 
+        painter.restore()
+
+    def _draw_coding_badge(self, painter: QPainter, ctx: RenderContext) -> None:
+        """Draw a subtle '<>' badge to indicate Active Coding Assistant mode."""
+        painter.save()
+        badge_rect = QRectF(ctx.pet_x + PET_WIDTH - 18, ctx.pet_y - 2, 16, 10)
+        painter.setBrush(QBrush(QColor("#00CED1")))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(badge_rect, 2, 2)
+        
+        painter.setPen(QPen(QColor(BODY_DARK), 1))
+        font = painter.font()
+        font.setFamily("Consolas")
+        font.setPointSize(6)
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, "<>")
         painter.restore()
 
     def _draw_ide_cursor(self, painter: QPainter, ctx: RenderContext) -> None:

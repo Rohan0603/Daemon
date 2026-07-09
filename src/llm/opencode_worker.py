@@ -272,16 +272,13 @@ class OpencodeWorker(QThread):
         if items:
             return items
 
-        # Strategy 5: Free-form text fallback to prevent showing generic error bubbles
-        logger.info("All JSON parse strategies failed; using free-form text fallback")
-        from src.constants import BUBBLE_MAX_CHARS
-        truncated = text if len(text) <= BUBBLE_MAX_CHARS else text[:BUBBLE_MAX_CHARS - 3] + "..."
-        return [{
-            "thought": "Free-form text fallback",
-            "dialogue": truncated,
-            "type": "observation",
-            "priority": 1
-        }]
+        # Strategy N — free-form text: wrap as valid dialogue item
+        logger.info("All JSON parse strategies failed; wrapping as free-form dialogue")
+        truncated = raw[:400].strip()
+        if truncated:
+            return [{"dialogue": truncated, "action": "idle", "type": "observation",
+                     "priority": 3, "thought": ""}]
+        return []
 
     def _extract_brain_update(self, items: list[dict]) -> None:
         """Emit brain_update_ready if any item contains a brain_update field."""

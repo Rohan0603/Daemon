@@ -17,7 +17,7 @@ from src.constants import (
 class SettingsDialog(QDialog):
     value_changed = pyqtSignal()
 
-    def __init__(self, pet_scale: float = 1.0, pet_opacity: float = 0.85,
+    def __init__(self, current_mode: str = "desktop_pet", pet_scale: float = 1.0, pet_opacity: float = 0.85,
                  pet_speed: float = 1.0, tts_enabled: bool = True,
                  tts_rate: int = 220, tts_volume: float = 1.0,
                  tts_voice_id: str | None = None, chattiness: float = 1.0,
@@ -43,6 +43,25 @@ class SettingsDialog(QDialog):
 
         self._tabs = QTabWidget()
         layout.addWidget(self._tabs)
+
+        # --- Tab 0: Mode ---
+        tab_mode = QWidget()
+        tab_mode_layout = QVBoxLayout(tab_mode)
+        
+        mode_label = QLabel("Operating Mode")
+        mode_label.setStyleSheet("font-weight: bold; color: #5B8DEF;")
+        tab_mode_layout.addWidget(mode_label)
+        
+        self._mode_combo = QComboBox()
+        self._mode_combo.addItem("Desktop Pet (Default)", "desktop_pet")
+        self._mode_combo.addItem("Active Coding Assistant", "coding_assistant")
+        if current_mode == "coding_assistant":
+            self._mode_combo.setCurrentIndex(1)
+        self._mode_combo.currentIndexChanged.connect(self.value_changed.emit)
+        tab_mode_layout.addWidget(self._mode_combo)
+        
+        tab_mode_layout.addStretch()
+        self._tabs.addTab(tab_mode, "Mode")
 
         # --- Tab 1: Appearance ---
         tab1 = QWidget()
@@ -279,6 +298,7 @@ class SettingsDialog(QDialog):
     def get_values(self) -> dict:
         voice_data = self._voice_combo.currentData()
         return {
+            "pet_mode": self._mode_combo.currentData(),
             "pet_scale": self._size_slider.value() / 100.0,
             "pet_opacity": self._opacity_slider.value() / 100.0,
             "pet_speed_multiplier": self._speed_slider.value() / 100.0,

@@ -7,6 +7,7 @@ Thread-safety: Events from worker threads should use Qt signals to reach main th
 from __future__ import annotations
 import logging
 from collections import defaultdict
+import collections
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -84,6 +85,7 @@ class EventType(Enum):
     # IDE / Coding Mode Events
     IDE_MODE_ENTERED = "ide_mode_entered"
     IDE_MODE_EXITED = "ide_mode_exited"
+    CODING_SCAN_TRIGGERED = "coding_scan_triggered"
 
 
 @dataclass(frozen=True)
@@ -116,6 +118,8 @@ class EventBus:
         self._history: List[Event] = []
         self._history_size = history_size
         self._publish_count = 0
+        self._publish_depth: int = 0
+        self._publish_queue: collections.deque = collections.deque()
 
     def subscribe(self, event_type: EventType, callback: Callable[[Event], None]) -> None:
         """Subscribe to a specific event type."""
@@ -144,39 +148,42 @@ class EventBus:
 
     def publish(self, event: Event) -> int:
         """Publish event to all subscribers. Returns number of callbacks invoked."""
-        if self._publish_count > 0:
-            logger.warning("Re-entrant publish detected for %s", event.type.value)
+        self._publish_queue.append(event)
+        if self._publish_depth > 0:
+            return 0  # defer to outermost publish
 
-        self._publish_count += 1
+        self._publish_depth += 1
+        count = 0
         try:
-            # Add to history
-            self._history.append(event)
-            if len(self._history) > self._history_size:
-                self._history.pop(0)
+            while self._publish_queue:
+                ev = self._publish_queue.popleft()
+                
+                # Add to history
+                self._history.append(ev)
+                if len(self._history) > self._history_size:
+                    self._history.pop(0)
 
-            count = 0
+                # Specific subscribers
+                for callback in list(self._subscribers.get(ev.type, [])):
+                    try:
+                        callback(ev)
+                        count += 1
+                    except Exception as e:
+                        logger.exception("Event callback %s failed for %s: %s",
+                                         callback.__qualname__, ev.type.value, e)
 
-            # Specific subscribers
-            for callback in self._subscribers[event.type]:
-                try:
-                    callback(event)
-                    count += 1
-                except Exception as e:
-                    logger.exception("Event callback %s failed for %s: %s",
-                                     callback.__qualname__, event.type.value, e)
-
-            # Wildcard subscribers
-            for callback in list(self._wildcard_subscribers):
-                try:
-                    callback(event)
-                    count += 1
-                except Exception as e:
-                    logger.exception("Wildcard callback %s failed for %s: %s",
-                                     callback.__qualname__, event.type.value, e)
+                # Wildcard subscribers
+                for callback in list(self._wildcard_subscribers):
+                    try:
+                        callback(ev)
+                        count += 1
+                    except Exception as e:
+                        logger.exception("Wildcard callback %s failed for %s: %s",
+                                         callback.__qualname__, ev.type.value, e)
 
             return count
         finally:
-            self._publish_count -= 1
+            self._publish_depth -= 1
 
     def publish_async(self, event: Event) -> None:
         """Publish event from non-main thread via Qt signal (placeholder).

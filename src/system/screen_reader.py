@@ -52,31 +52,52 @@ def _get_uia_automation():
         return None
 
 
+_MAX_WALK_DEPTH = 4
+
+def _walk_for_text(automation, element, depth: int = 0) -> str:
+    """DFS walk — returns first non-empty text found via TextPattern or ValuePattern."""
+    if depth > _MAX_WALK_DEPTH or element is None:
+        return ""
+    try:
+        pattern = element.GetCurrentPattern(10014)
+        if pattern:
+            text_range = pattern.DocumentRange
+            if text_range:
+                text = text_range.GetText(-1) or ""
+                if text.strip():
+                    return text.strip()[:2000]
+        val_pattern = element.GetCurrentPattern(10018)
+        if val_pattern:
+            val = val_pattern.CurrentValue or ""
+            if val.strip() and len(val) > 10:
+                return val.strip()[:2000]
+    except Exception:
+        pass
+    try:
+        walker = automation.CreateTreeWalker(automation.CreateTrueCondition())
+        child = walker.GetFirstChildElement(element)
+        while child:
+            result = _walk_for_text(automation, child, depth + 1)
+            if result:
+                return result
+            child = walker.GetNextSiblingElement(child)
+    except Exception:
+        pass
+    return ""
+
 def get_text_via_uia() -> str:
     automation = _get_uia_automation()
     if not automation:
         return ""
     try:
         import ctypes
-
         hwnd = ctypes.windll.user32.GetForegroundWindow()
         if not hwnd:
             return ""
-
         element = automation.ElementFromHandle(hwnd)
         if not element:
             return ""
-
-        pattern = element.GetCurrentPattern(10014)
-        if not pattern:
-            return ""
-
-        text_range = pattern.DocumentRange
-        if not text_range:
-            return ""
-
-        text = text_range.GetText(-1) or ""
-        return text.strip()[:2000]
+        return _walk_for_text(automation, element)
     except Exception as e:
         logger.debug("get_text_via_uia failed: %s", e)
         return ""
@@ -160,6 +181,25 @@ def _cleanup_uia():
         comtypes.CoUninitialize()
     except Exception:
         pass
+
+
+def get_foreground_text_full() -> str:
+    """Return foreground text unconditionally — never '[Screen unchanged]'.
+
+    Used when the full code content is needed (e.g., coding analysis prompts).
+    Uses cached UIA text if fresh, otherwise performs a live extraction.
+    """
+    cached = get_cached_uia()
+    if cached is not None:
+        text = cached
+    else:
+        text = get_text_via_uia()
+        if not text:
+            text = get_text_via_wm_gettext()
+    url = get_browser_url_via_uia()
+    if url:
+        text = f"[URL: {url}] {text}" if text else f"[URL: {url}]"
+    return text[:2000]
 
 
 def get_foreground_text_delta() -> str:
