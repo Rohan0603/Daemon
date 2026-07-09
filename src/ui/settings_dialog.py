@@ -7,7 +7,8 @@ from PyQt6.QtWidgets import (
     QPushButton,
 )
 from pathlib import Path
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+import requests
 from src.constants import (
     SETTINGS_SCALE_MIN, SETTINGS_SCALE_MAX,
     SETTINGS_OPACITY_MIN, SETTINGS_OPACITY_MAX,
@@ -216,16 +217,28 @@ class SettingsDialog(QDialog):
         ol_layout = QVBoxLayout(self._ollama_widget)
         ol_layout.setContentsMargins(0, 0, 0, 0)
         self._ollama_url_edit = QLineEdit(ollama_url)
-        self._ollama_model_edit = QLineEdit(ollama_model)
-        self._ollama_status_label = QLabel(f"Status: {ollama_status}" if ollama_status else "Status: unknown")
-        self._ollama_restart_btn = QPushButton("Restart Ollama")
+
+        model_row = QHBoxLayout()
+        model_row.addWidget(QLabel("Model:"))
+        self._ollama_model_combo = QComboBox()
+        self._ollama_model_combo.setEditable(True)
+        self._ollama_model_combo.currentTextChanged.connect(self.value_changed.emit)
+        model_row.addWidget(self._ollama_model_combo)
+        self._ollama_refresh_btn = QPushButton("Refresh")
+        self._ollama_refresh_btn.clicked.connect(self._refresh_ollama_models)
+        model_row.addWidget(self._ollama_refresh_btn)
         ol_layout.addWidget(QLabel("Ollama URL:"))
         ol_layout.addWidget(self._ollama_url_edit)
-        ol_layout.addWidget(QLabel("Model:"))
-        ol_layout.addWidget(self._ollama_model_edit)
+        ol_layout.addLayout(model_row)
+
+        self._ollama_status_label = QLabel(f"Status: {ollama_status}" if ollama_status else "Status: unknown")
+        self._ollama_restart_btn = QPushButton("Restart Ollama")
         ol_layout.addWidget(self._ollama_status_label)
         ol_layout.addWidget(self._ollama_restart_btn)
         llm_layout.addWidget(self._ollama_widget)
+
+        self._ollama_model_combo.setCurrentText(ollama_model)
+        QTimer.singleShot(500, self._refresh_ollama_models)
 
         self._on_provider_changed(provider_idx)
 
@@ -258,7 +271,31 @@ class SettingsDialog(QDialog):
         is_ollama = self._provider_combo.currentData() == "ollama"
         self._opencode_widget.setVisible(not is_ollama)
         self._ollama_widget.setVisible(is_ollama)
+        if is_ollama:
+            self._refresh_ollama_models()
         self.value_changed.emit()
+
+    def _refresh_ollama_models(self) -> None:
+        url = self._ollama_url_edit.text().strip().rstrip("/")
+        try:
+            resp = requests.get(f"{url}/api/tags", timeout=3)
+            if resp.status_code == 200:
+                models = resp.json().get("models", [])
+                current = self._ollama_model_combo.currentText()
+                self._ollama_model_combo.blockSignals(True)
+                self._ollama_model_combo.clear()
+                for m in models:
+                    name = m.get("name", "")
+                    self._ollama_model_combo.addItem(name)
+                if current:
+                    idx = self._ollama_model_combo.findText(current)
+                    if idx >= 0:
+                        self._ollama_model_combo.setCurrentIndex(idx)
+                    else:
+                        self._ollama_model_combo.setCurrentText(current)
+                self._ollama_model_combo.blockSignals(False)
+        except requests.RequestException:
+            pass
 
     def _get_voices(self) -> list[tuple[str, str]]:
         voices = [("en-US-GuyNeural", "Guy (Edge Neural)")]
@@ -363,7 +400,7 @@ class SettingsDialog(QDialog):
             "allow_window_management": self._cb_window_management.isChecked(),
             "LLM_PROVIDER": self._provider_combo.currentData(),
             "OLLAMA_URL": self._ollama_url_edit.text(),
-            "OLLAMA_MODEL": self._ollama_model_edit.text(),
+            "OLLAMA_MODEL": self._ollama_model_combo.currentText(),
             "OPENCODE_API_MODEL_ID": self._llm_model_id.text(),
             "OPENCODE_API_KEY": self._llm_api_key.text(),
             "OPENCODE_SERVER_URL": self._llm_server_url.text(),
