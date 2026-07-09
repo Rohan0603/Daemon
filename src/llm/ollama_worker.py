@@ -103,6 +103,9 @@ class OllamaWorker(QThread):
     def run(self) -> None:
         if self._abort:
             return
+        prompt_preview = self._prompt[:200].replace("\n", "\\n")
+        logger.debug("run: model=%s autonomous=%s prompt_preview='%s'",
+                      self._ollama_model, self._is_autonomous, prompt_preview)
         messages = [
             {"role": "system", "content": self._skill_md},
             {"role": "user", "content": self._prompt},
@@ -111,25 +114,37 @@ class OllamaWorker(QThread):
             result = self._chat_completion(messages)
             if result:
                 self._last_raw_response = result
+                logger.debug("run: raw_response length=%d preview='%s'",
+                              len(result), result[:300].replace("\n", "\\n"))
                 items = self._parse_response(result)
                 if items:
+                    logger.debug("run: parsed %d items, first dialogue='%s'",
+                                  len(items), items[0].get("dialogue", "")[:100])
                     self._extract_brain_update(items)
                     self.response_ready.emit(items)
                     return
+                logger.warning("run: parse returned None for response of len=%d", len(result))
             self._emit_error("parse_failed" if not self._timed_out else "timeout")
         except Exception as exc:
             logger.warning("OllamaWorker.run exception: %s", exc)
             self._emit_error(str(exc))
 
     def _chat_completion(self, messages: list) -> str | None:
+        tools_enabled = not self._tools_disabled
         payload = {
             "model": self._ollama_model,
             "messages": messages,
             "stream": False,
             "options": {"num_predict": 1024},
         }
-        if not self._tools_disabled:
+        if tools_enabled:
             payload["tools"] = OLLAMA_TOOLS
+
+        system_size = len(messages[0]["content"]) if messages else 0
+        user_size = len(messages[-1]["content"]) if messages else 0
+        logger.debug("_chat_completion: model=%s tools=%s timeout=%s msg_count=%d system=%d user=%d",
+                      self._ollama_model, tools_enabled, self._post_timeout,
+                      len(messages), system_size, user_size)
 
         try:
             resp = requests.post(
@@ -144,6 +159,7 @@ class OllamaWorker(QThread):
 
         if resp.status_code >= 400:
             error_text = resp.text[:200].lower()
+            logger.debug("_chat_completion: HTTP %d response='%s'", resp.status_code, resp.text[:200])
             if "does not support tools" in error_text and not self._tools_disabled:
                 logger.warning("Model does not support tools; retrying without tools")
                 self._tools_disabled = True
@@ -154,6 +170,9 @@ class OllamaWorker(QThread):
         msg = data.get("message", {})
         tool_calls = msg.get("tool_calls", [])
         content = msg.get("content", "")
+
+        logger.debug("_chat_completion: response received tool_calls=%d content_len=%d content_preview='%s'",
+                      len(tool_calls), len(content), content[:200].replace("\n", "\\n") if content else "")
 
         if tool_calls:
             messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
@@ -169,6 +188,7 @@ class OllamaWorker(QThread):
                 if tc_id:
                     tool_msg["tool_call_id"] = tc_id
                 messages.append(tool_msg)
+            logger.debug("_chat_completion: recursing after %d tool calls", len(tool_calls))
             return self._chat_completion(messages)
 
         return content
@@ -192,9 +212,11 @@ class OllamaWorker(QThread):
 
     def _parse_response(self, raw: str) -> list[dict] | None:
         if not raw or not raw.strip():
+            logger.debug("_parse_response: empty input")
             return None
         from src.constants import MAX_RESPONSE_CHARS
         if len(raw) > MAX_RESPONSE_CHARS:
+            logger.debug("_parse_response: truncated from %d to %d", len(raw), MAX_RESPONSE_CHARS)
             raw = raw[:MAX_RESPONSE_CHARS]
         text = raw.strip()
         if text.startswith("```"):
@@ -209,40 +231,59 @@ class OllamaWorker(QThread):
                 if in_fence:
                     inner.append(line)
             if inner:
+                logger.debug("_parse_response: stripped code fence, %d chars -> %d chars", len(text), len(inner))
                 text = "\n".join(inner).strip()
+
+        # Strategy 1: direct JSON parse
         try:
             items = json.loads(text)
             if isinstance(items, list):
                 validated = [i for i in items if isinstance(i, dict)]
                 if validated:
+                    logger.debug("_parse_response: strategy 1 (direct) OK, %d items", len(validated))
                     return validated
             if isinstance(items, dict):
+                logger.debug("_parse_response: strategy 1 (single object) OK")
                 return [items]
-        except json.JSONDecodeError:
-            pass
+        except json.JSONDecodeError as e:
+            logger.debug("_parse_response: strategy 1 failed: %s", e)
+
+        # Strategy 2: find JSON array via bracket matching
         start = text.find("[")
         if start != -1:
             end = text.rfind("]")
             if end != -1 and end > start:
+                candidate = text[start:end + 1]
+                logger.debug("_parse_response: strategy 2 bracket start=%d end=%d candidate_len=%d candidate_preview='%s'",
+                              start, end, len(candidate), candidate[:100].replace("\n", "\\n"))
                 try:
-                    items = json.loads(text[start:end + 1])
+                    items = json.loads(candidate)
                     if isinstance(items, list):
                         validated = [i for i in items if isinstance(i, dict)]
                         if validated:
+                            logger.debug("_parse_response: strategy 2 (bracket) OK, %d items", len(validated))
                             return validated
-                except json.JSONDecodeError:
-                    pass
+                except json.JSONDecodeError as e:
+                    logger.debug("_parse_response: strategy 2 bracket JSON parse failed: %s", e)
+            else:
+                logger.debug("_parse_response: strategy 2 found '[' at %d but no matching ']'", start)
+
+        # Strategy 3: single object
         start = text.find("{")
         if start != -1:
             end = text.rfind("}")
             if end != -1 and end > start:
+                candidate = text[start:end + 1]
+                logger.debug("_parse_response: strategy 3 object start=%d end=%d", start, end)
                 try:
-                    obj = json.loads(text[start:end + 1])
+                    obj = json.loads(candidate)
                     if isinstance(obj, dict):
+                        logger.debug("_parse_response: strategy 3 (single object) OK")
                         return [obj]
-                except json.JSONDecodeError:
-                    pass
-        # Strategy 4: JSONL — objects on separate lines
+                except json.JSONDecodeError as e:
+                    logger.debug("_parse_response: strategy 3 failed: %s", e)
+
+        # Strategy 4: JSONL
         items = []
         for line in text.splitlines():
             line = line.strip()
@@ -254,11 +295,16 @@ class OllamaWorker(QThread):
                 except json.JSONDecodeError:
                     pass
         if items:
+            logger.debug("_parse_response: strategy 4 (JSONL) OK, %d items", len(items))
             return items
+
+        # Strategy 5: free-form fallback
         truncated = raw[:400].strip()
         if truncated:
+            logger.debug("_parse_response: strategy 5 (free-form fallback) dialogue='%s'", truncated[:100])
             return [{"dialogue": truncated, "action": "idle", "type": "observation",
                      "priority": 3, "thought": ""}]
+        logger.debug("_parse_response: all strategies failed")
         return []
 
     def _extract_brain_update(self, items: list[dict]) -> None:
