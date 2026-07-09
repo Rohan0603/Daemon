@@ -96,6 +96,7 @@ class MCPServerThread(QThread):
 
         app = _create_fastmcp_app(self)
 
+        self._server = app
         try:
             logger.info("Starting FastMCP SSE server on port 4097")
             app.run(transport='sse')

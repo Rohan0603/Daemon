@@ -147,4 +147,4 @@ def test_parse_returns_fallback_for_garbage():
     from src.llm.opencode_worker import OpencodeWorker
     worker = OpencodeWorker(prompt="test")
     result = worker._parse_response("This is not JSON at all. And definitely not a list.")
-    assert result == [{"thought": "Free-form text fallback", "dialogue": "This is not JSON at all. And definitely not a list.", "type": "observation", "priority": 1}]
+    assert result == [{"dialogue": "This is not JSON at all. And definitely not a list.", "action": "idle", "type": "observation", "priority": 3, "thought": ""}]

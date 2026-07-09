@@ -14,5 +14,8 @@
     "title": {
       "model": "opencode/deepseek-v4-flash-free"
     }
-  }
+  },
+  "plugin": [
+    ".opencode/plugins/graphify.js"
+  ]
 }

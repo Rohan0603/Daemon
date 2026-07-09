@@ -102,8 +102,7 @@
     "bounce_duration_ms": 3000,
     "spin_duration_ms": 1500,
     "look_away_duration_ms": 4000,
-    "dialogue_max_length": 150,
-    "dnd_enabled": true
+    "dialogue_max_length": 150
   },
   "logging": {
     "level": "INFO",

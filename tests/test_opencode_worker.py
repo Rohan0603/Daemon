@@ -313,7 +313,7 @@ def test_parse_returns_fallback_for_garbage(qapp):
     from src.llm.opencode_worker import OpencodeWorker
     worker = OpencodeWorker(prompt="test")
     result = worker._parse_response("This is not JSON at all.")
-    assert result == [{"thought": "Free-form text fallback", "dialogue": "This is not JSON at all.", "type": "observation", "priority": 1}]
+    assert result == [{"dialogue": "This is not JSON at all.", "action": "idle", "type": "observation", "priority": 3, "thought": ""}]
 
 
 

@@ -54,6 +54,7 @@ class OpencodeWorker(QThread):
         self._screen_context = screen_context
         self._abort = False
         self._last_raw_response = ""
+        self._timed_out = False
 
         # Config — local opencode serve URL for session management
         self._server_url = DEFAULT_SERVER_URL
@@ -97,11 +98,16 @@ class OpencodeWorker(QThread):
                     self.trigger_ready.emit(items)
                     return
 
-            # All parse strategies failed
-            logger.warning("run: all parse strategies failed for %s (first 200): %s",
-                           session_id[:8] if session_id else "?", (raw or "")[:200])
-            self.error.emit("parse_failed")
-            self.error_occurred.emit("parse_failed")
+            if self._timed_out:
+                logger.warning("run: post_message timed out for %s",
+                               session_id[:8] if session_id else "?")
+                self.error.emit("timeout")
+                self.error_occurred.emit("timeout")
+            else:
+                logger.warning("run: all parse strategies failed for %s (first 200): %s",
+                               session_id[:8] if session_id else "?", (raw or "")[:200])
+                self.error.emit("parse_failed")
+                self.error_occurred.emit("parse_failed")
 
         finally:
             self._delete_session(session_id)
@@ -164,6 +170,7 @@ class OpencodeWorker(QThread):
             return ""
         except requests.exceptions.Timeout:
             logger.warning("post_message timed out after %ss", self._post_timeout)
+            self._timed_out = True
             return ""
         except Exception as exc:
             logger.warning("post_message exception: %s", exc)
