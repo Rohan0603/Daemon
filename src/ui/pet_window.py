@@ -127,7 +127,7 @@ class PetWindow(QWidget):
 
         from src.config import load_config
         self._config = load_config()
-        self._llm_provider = self._config.get("llm", {}).get("provider", "opencode")
+        self._llm_provider = self._config.get("llm", {}).get("engine", "opencode")
         self._ollama_manager = None
 
         if self._llm_provider == "ollama":

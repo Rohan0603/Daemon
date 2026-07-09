@@ -26,7 +26,7 @@ CONFIG_PATH = STORAGE_DIR / "daemon_config.json"
 FLAT_TO_NESTED = {
     "USER_UID": ("user", "uid"),
     "USER_DISPLAY_NAME": ("user", "display_name"),
-    "LLM_PROVIDER": ("llm", "provider"),
+    "LLM_PROVIDER": ("llm", "engine"),
     "OLLAMA_URL": ("llm", "ollama_url"),
     "OLLAMA_MODEL": ("llm", "ollama_model"),
     "MODELFILE_PATH": ("llm", "modelfile_path"),
@@ -155,6 +155,7 @@ NESTED_TO_FLAT = {
     ("user", "uid"): "USER_UID",
     ("user", "display_name"): "USER_DISPLAY_NAME",
     ("llm", "model_id"): "OPENCODE_API_MODEL_ID",
+    ("llm", "engine"): "LLM_PROVIDER",
     ("llm", "ollama_url"): "OLLAMA_URL",
     ("llm", "ollama_model"): "OLLAMA_MODEL",
     ("llm", "modelfile_path"): "MODELFILE_PATH",
@@ -329,11 +330,11 @@ def validate_config(cfg: dict) -> None:
         raise MissingConfigurationError(f"Missing or invalid configuration sections: {', '.join(missing)}. Please restore them from assets/daemon_config_template.json.")
 
     # 2. Mandatory Fields
-    provider = cfg.get("llm", {}).get("provider", "opencode")
-    if provider not in ("opencode", "opencode-zen", "ollama"):
-        missing.append("llm.provider (must be 'opencode', 'opencode-zen', or 'ollama')")
+    engine = cfg.get("llm", {}).get("engine", "opencode")
+    if engine not in ("opencode", "ollama"):
+        missing.append("llm.engine (must be 'opencode' or 'ollama')")
 
-    if provider == "opencode":
+    if engine == "opencode":
         if not cfg.get("llm", {}).get("model_id"):
             missing.append("llm.model_id")
         if not cfg.get("llm", {}).get("api_key") and not cfg.get("llm", {}).get("zen_api_key"):
