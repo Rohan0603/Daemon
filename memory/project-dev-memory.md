@@ -7,9 +7,9 @@
 ## Project Snapshot
 
 **Last updated:** 2026-07-09
-**Branch:** `master` | **Latest commit:** `645b3ff` (agent guidelines design spec)
+**Branch:** `master` | **Latest commit:** `4441bb1` (TTS optimization)
 **Stack:** Python 3.14, PyQt6, pynput, ctypes, requests, comtypes, Pillow, structlog, prometheus-client
-**Test count:** 792 passed, 1 skipped (36.24s)
+**Test count:** 800 passed, 1 skipped (35.25s)
 
 ---
 
@@ -115,6 +115,25 @@
 - `tests/test_behavior_controller_ide.py` — Set `_last_autonomous_fire_time = 0.0` for guard tests
 - `tests/test_memory_manager.py` — Added cache fields to `__new__`-based test
 - `tests/test_trigger_boredom_fsm.py` — Mocked `_schedule_boredom_retry` for `__new__`-based test
+
+---
+
+---
+
+## TTS Optimization — 2026-07-09 (`4441bb1`)
+
+**6 improvements to `src/system/tts_worker.py` (+ `tests/test_tts_worker.py`):**
+
+| # | Improvement | Impact |
+|---|-------------|--------|
+| 1 | **Reuse asyncio loop** — `self._loop` created once in `__init__`, reused across all edge-tts calls | ~50ms saved per utterance |
+| 2 | **Fix edge-tts pitch** — Now computes Hz from `self._pitch` via `12 * log2(pitch) * 8.33` instead of hardcoded `+15Hz` | Configurable pitch actually works |
+| 3 | **Cache pyttsx3 engine** — Lazy `pyttsx3.init()` once, reused across fallbacks; invalidated on error | ~200ms saved on fallback path |
+| 4 | **BytesIO pipeline** — `_generate_voice` streams edge-tts MP3 to `BytesIO` instead of temp file; `_apply_pitch_filter` accepts `str \| BytesIO` | 0 temp files on primary path |
+| 5 | **Cancellation flag** — `clear()` sets `_cancel`; `enqueue()` clears it; `_process_utterance` checks between stages | Immediate abort on `clear()` |
+| 6 | **LRU phrase cache** — 20-entry cache keyed by `(text, voice, pitch, rate)`; skips gen + pitch filter on hit | No network round-trip for repeats |
+
+**Files changed:** `src/system/tts_worker.py` (+121/-46), `tests/test_tts_worker.py` (+118)
 
 ---
 
