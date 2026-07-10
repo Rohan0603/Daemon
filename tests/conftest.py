@@ -68,6 +68,8 @@ def safe_pet_window(app):
          patch("src.ui.pet_window.APMWorker"), \
          patch("src.ui.pet_window.MCPServer"), \
          patch("src.ui.pet_window.BehaviorController"), \
+         patch("src.llm.ollama_manager.OllamaManager"), \
+         patch("src.ui.pet_window.EventStreamWorker"), \
          patch("src.ui.pet_window.TTSWorker"):
         
         from src.ui.pet_window import PetWindow

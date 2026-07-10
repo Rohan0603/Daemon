@@ -142,8 +142,12 @@
 - Verified that `llama3.2-1b-q8:latest` is a completion-only model in Ollama, which does not support tools (HTTP 400) or system prompt routing, resulting in it echoing the prompt text back.
 - Changed `"ollama_model"` to `"daemon-local"` in `data/daemon_config.json`.
 - Verified that `daemon-local` (built from `data/Modelfile` using `DeepSeek-R1-Distill-Llama-3B-tools`) correctly parses instructions and generates structured JSON responses in-character.
+- Added model capability validation to `SettingsDialog` in `src/ui/settings_dialog.py`:
+  - When the user selects a model, it queries `/api/show` to check capabilities.
+  - Warns the user in red if the selected model is completion-only (lacks `"tools"` capability).
+  - Highlights compatibility in green when the model supports tool-calling.
 
-**Files changed:** `data/daemon_config.json`
+**Files changed:** `data/daemon_config.json`, `src/ui/settings_dialog.py`
 
 ---
 

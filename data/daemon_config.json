@@ -12,8 +12,7 @@
     "api_key": "",
     "ollama_url": "http://127.0.0.1:11434",
     "ollama_model": "daemon-local",
-    "modelfile_path": "data/Modelfile",
-    "engine": "opencode"
+    "modelfile_path": "data/Modelfile"
   },
   "pet": {
     "id": "kenny",
@@ -106,7 +105,8 @@
     "bounce_duration_ms": 3000,
     "spin_duration_ms": 1500,
     "look_away_duration_ms": 4000,
-    "dialogue_max_length": 150
+    "dialogue_max_length": 150,
+    "dnd_enabled": true
   },
   "logging": {
     "level": "INFO",

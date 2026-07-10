@@ -223,6 +223,7 @@ class SettingsDialog(QDialog):
         self._ollama_model_combo = QComboBox()
         self._ollama_model_combo.setEditable(True)
         self._ollama_model_combo.currentTextChanged.connect(self.value_changed.emit)
+        self._ollama_model_combo.currentTextChanged.connect(self._validate_selected_model)
         model_row.addWidget(self._ollama_model_combo)
         self._ollama_refresh_btn = QPushButton("Refresh")
         self._ollama_refresh_btn.clicked.connect(self._refresh_ollama_models)
@@ -296,6 +297,32 @@ class SettingsDialog(QDialog):
                 self._ollama_model_combo.blockSignals(False)
         except requests.RequestException:
             pass
+        self._validate_selected_model()
+
+    def _validate_selected_model(self) -> None:
+        model = self._ollama_model_combo.currentText().strip()
+        if not model:
+            self._ollama_status_label.setText("Status: no model selected")
+            return
+        url = self._ollama_url_edit.text().strip().rstrip("/")
+        try:
+            resp = requests.post(f"{url}/api/show", json={"name": model}, timeout=3)
+            if resp.status_code == 200:
+                caps = resp.json().get("capabilities", [])
+                if "tools" not in caps:
+                    self._ollama_status_label.setText(
+                        "Status: warning (completion-only model, tool-calling disabled)"
+                    )
+                    self._ollama_status_label.setStyleSheet("color: #ff4444; font-weight: bold;")
+                else:
+                    self._ollama_status_label.setText("Status: ready (supports tool-calling)")
+                    self._ollama_status_label.setStyleSheet("color: #6BCB77; font-weight: bold;")
+            else:
+                self._ollama_status_label.setText("Status: unknown model details")
+                self._ollama_status_label.setStyleSheet("")
+        except requests.RequestException:
+            self._ollama_status_label.setText("Status: Ollama offline")
+            self._ollama_status_label.setStyleSheet("color: #ff4444;")
 
     def _get_voices(self) -> list[tuple[str, str]]:
         voices = [("en-US-GuyNeural", "Guy (Edge Neural)")]
