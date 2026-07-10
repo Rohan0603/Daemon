@@ -1,6 +1,6 @@
 {
   "user": {
-    "uid": "03I23yUn4Wd7McOgNkjls4LUg2p2",
+    "uid": "uid1",
     "display_name": ""
   },
   "llm": {
@@ -11,7 +11,7 @@
     "timeout_sec": 180,
     "api_key": "",
     "ollama_url": "http://127.0.0.1:11434",
-    "ollama_model": "hf.co/mradermacher/DeepSeek-R1-Distill-Llama-3B-tools-SFT-GGUF:Q8_0",
+    "ollama_model": "daemon-local",
     "modelfile_path": "data/Modelfile",
     "engine": "opencode"
   },

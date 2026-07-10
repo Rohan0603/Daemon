@@ -135,6 +135,16 @@
 
 **Files changed:** `src/system/tts_worker.py` (+121/-46), `tests/test_tts_worker.py` (+118)
 
+## Local LLM Response Fix — 2026-07-10
+
+**Fixed local LLM repeating prompt instead of replying:**
+- Found that `data/daemon_config.json` was configured to use `"llama3.2-1b-q8:latest"`.
+- Verified that `llama3.2-1b-q8:latest` is a completion-only model in Ollama, which does not support tools (HTTP 400) or system prompt routing, resulting in it echoing the prompt text back.
+- Changed `"ollama_model"` to `"daemon-local"` in `data/daemon_config.json`.
+- Verified that `daemon-local` (built from `data/Modelfile` using `DeepSeek-R1-Distill-Llama-3B-tools`) correctly parses instructions and generates structured JSON responses in-character.
+
+**Files changed:** `data/daemon_config.json`
+
 ---
 
 ## What To Do Next
