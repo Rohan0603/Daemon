@@ -6,6 +6,7 @@ import faulthandler
 import argparse
 import logging
 import traceback
+import socket
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 from src.constants import STORAGE_DIR, DEBUG, MAX_RESPONSE_CHARS
@@ -309,9 +310,9 @@ def main() -> None:
 
     from src.opencode_serve_manager import ensure_opencode_serve_running, stop_opencode_serve
     engine = cfg.get("llm", {}).get("engine", "opencode")
+    opencode_server_url = DEFAULT_SERVER_URL
+    opencode_api_key = cfg.get("llm", {}).get("api_key", "")
     if not args.no_opencode and engine != "ollama":
-        opencode_server_url = DEFAULT_SERVER_URL
-        opencode_api_key = cfg.get("llm", {}).get("api_key", "")
         if ensure_opencode_serve_running(url=opencode_server_url, api_key=opencode_api_key):
             logger.debug("opencode serve ready at %s", opencode_server_url)
         else:
@@ -353,6 +354,25 @@ def main() -> None:
         plugin_registry=plugin_registry,
     )
     _boot_marks["petwindow"] = time.monotonic()
+
+    # ── MCP readiness gate ────────────────────────────────────────────────
+    # Wait for the in-process MCP server (port 4097) to start listening, then
+    # respawn opencode serve so it discovers the daemon_fsm MCP server.
+    if not args.no_opencode and engine != "ollama":
+        _mcp_ready = False
+        _mcp_deadline = time.monotonic() + 10.0
+        while time.monotonic() < _mcp_deadline:
+            try:
+                with socket.create_connection(("127.0.0.1", 4097), timeout=0.5):
+                    _mcp_ready = True
+                    break
+            except OSError:
+                pass
+        if _mcp_ready:
+            logger.debug("MCP server ready on port 4097; respawning opencode serve to pick up daemon_fsm")
+            ensure_opencode_serve_running(url=opencode_server_url, api_key=opencode_api_key)
+        else:
+            logger.warning("MCP server (port 4097) not ready within 10s; daemon_fsm tools may be unavailable")
 
     # Log boot timing summary
     boot_start = _boot_marks["config"]

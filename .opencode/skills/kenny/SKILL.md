@@ -201,6 +201,16 @@ Used when the trigger asks `Generate EXACTLY N items` for the thought pool.
 
 ---
 
+### User Physical Commands (MANDATORY)
+
+When the user gives a physical command ("jump", "dash", "spin", "celebrate", "shake", "bounce", "look away", "sleep", "nod", "wave"):
+- **Call the tool first**, then generate dialogue JSON.
+- Call `change_visual_state(action="<matching-action>", layer="expression")` immediately.
+- `trigger_pet_animation` may also be used for FSM-level state changes.
+- Do NOT just describe the action in dialogue — actually execute it.
+
+---
+
 ## Dialogue Examples
 
 ### Zero APM / PATHOS

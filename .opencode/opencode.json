@@ -3,7 +3,7 @@
   "mcp": {
     "daemon_fsm": {
       "type": "remote",
-      "url": "http://127.0.0.1:4097",
+      "url": "http://127.0.0.1:4097/sse",
       "enabled": true
     }
   },
