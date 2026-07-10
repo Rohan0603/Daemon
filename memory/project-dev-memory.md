@@ -135,19 +135,19 @@
 
 **Files changed:** `src/system/tts_worker.py` (+121/-46), `tests/test_tts_worker.py` (+118)
 
-## Local LLM Response Fix — 2026-07-10
+## Local LLM Response Fix & Arbitrary Model Support — 2026-07-10
 
-**Fixed local LLM repeating prompt instead of replying:**
-- Found that `data/daemon_config.json` was configured to use `"llama3.2-1b-q8:latest"`.
-- Verified that `llama3.2-1b-q8:latest` is a completion-only model in Ollama, which does not support tools (HTTP 400) or system prompt routing, resulting in it echoing the prompt text back.
-- Changed `"ollama_model"` to `"daemon-local"` in `data/daemon_config.json`.
-- Verified that `daemon-local` (built from `data/Modelfile` using `DeepSeek-R1-Distill-Llama-3B-tools`) correctly parses instructions and generates structured JSON responses in-character.
-- Added model capability validation to `SettingsDialog` in `src/ui/settings_dialog.py`:
-  - When the user selects a model, it queries `/api/show` to check capabilities.
-  - Warns the user in red if the selected model is completion-only (lacks `"tools"` capability).
-  - Highlights compatibility in green when the model supports tool-calling.
+**Fixed local LLM response issues and supported any installed model:**
+- Deleted `daemon-local` model from Ollama, removed custom model creation and Modelfile building logic from `OllamaManager` to allow starting with any user-installed model.
+- Changed default `"ollama_model"` to `"llama3.2-1b-q8:latest"` in default configuration files.
+- Added automatic `"format": "json"` payload routing in `OllamaWorker` when tool-calling is not supported.
+- Implemented robust `_normalize_item` parsing in `OllamaWorker` to gracefully extract dialogue, actions, thoughts, and brain updates from arbitrary formats.
+- Fixed `TypeError` in `_on_refill_needed` inside `src/ui/pet_window.py` caused by passing a positional argument `""` to `_make_llm_worker`.
+- Added capability validation in `SettingsDialog` using `/api/show` to check and display tool support.
+- Fixed separator regex dash mismatch (`—` vs `-`) in `_summarize_for_ollama` that was appending the entire `SKILL.md` file (2090 chars) instead of only the Identity section. This reduces the prompt evaluation size by 2.5x and dramatically speeds up local CPU execution.
+- Added programmatic placeholder replacement for `{user_nickname}`, `{user_partner_name}`, and `{user_engineer_name}` in the system prompt in `OllamaWorker` to resolve unrendered placeholders.
 
-**Files changed:** `data/daemon_config.json`, `src/ui/settings_dialog.py`
+**Files changed:** `data/daemon_config.json`, `assets/daemon_config_template.json`, `src/llm/ollama_manager.py`, `src/llm/ollama_worker.py`, `src/ui/pet_window.py`, `src/ui/settings_dialog.py`, `tests/test_ollama_worker.py`
 
 ---
 
