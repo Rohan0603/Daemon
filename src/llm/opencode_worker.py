@@ -64,6 +64,16 @@ class OpencodeWorker(QThread):
         if is_autonomous:
             self._post_timeout = max(timeout, 120)
 
+        # MCP tool forwarding: let opencode emit tool calls that we execute
+        # against the Daemon MCP server so the pet can actually perform actions
+        # (e.g. "jump"). Automatically disabled if the MCP server is
+        # unreachable. Set llm.opencode_forward_tools=false to disable it
+        # (e.g. when opencode serve is itself configured with the Daemon MCP
+        # server) so each tool is not executed twice.
+        self._forward_tools = str(config_get("llm.opencode_forward_tools") or "true").lower() != "false"
+        self._mcp = None
+        self._tools = None
+
     # ── Public API ──────────────────────────────────────────────────────────
 
     def abort(self) -> None:
@@ -141,13 +151,24 @@ class OpencodeWorker(QThread):
             return None
 
     def _post_message(self, session_id: str, payload_text: str) -> str:
-        """POST /session/{id}/message → extract text from parts array."""
+        """POST /session/{id}/message → extract text; forward any tool calls.
+
+        Best-effort: if the Daemon MCP server is reachable we advertise its
+        tool catalog in the payload so opencode can emit tool calls, then
+        execute those calls against the MCP server (the pet performs the
+        action). If opencode returns no tool calls, behaviour is unchanged
+        (plain dialogue).
+        """
         if self._abort:
             return ""
+        self._ensure_tools()
+        payload = {"parts": [{"type": "text", "text": payload_text}]}
+        if self._tools:
+            payload["tools"] = self._tools
         try:
             resp = requests.post(
                 f"{self._server_url}/session/{session_id}/message",
-                json={"parts": [{"type": "text", "text": payload_text}]},
+                json=payload,
                 timeout=self._post_timeout,
             )
             if resp.status_code >= 400:
@@ -156,6 +177,8 @@ class OpencodeWorker(QThread):
                 return ""
 
             data = resp.json()
+            # Execute any tool calls opencode emitted (pet performs the action).
+            self._forward_tool_calls(data)
             # Extract text from parts array (standard OpenCode response shape)
             for part in data.get("parts", []):
                 if isinstance(part, dict) and part.get("type") == "text":
@@ -174,6 +197,73 @@ class OpencodeWorker(QThread):
         except Exception as exc:
             logger.warning("post_message exception: %s", exc)
             return ""
+
+    def _ensure_tools(self) -> None:
+        """Build the MCP tool catalog for opencode (no-op if disabled/unreachable)."""
+        if not self._forward_tools or self._tools is not None:
+            return
+        try:
+            from src.llm.mcp_client import build_client
+            client = build_client()
+            schema = client.get_tool_schema()
+            if schema:
+                self._mcp = client
+                self._tools = schema
+                logger.debug("OpencodeWorker advertising %d MCP tools to opencode", len(schema))
+        except Exception as exc:  # pragma: no cover - depends on runtime MCP state
+            logger.warning("OpencodeWorker: live MCP tool schema unavailable (%s); tools disabled", exc)
+            self._mcp = None
+            self._tools = None
+
+    @staticmethod
+    def _extract_tool_calls(data: dict) -> list[dict]:
+        """Defensively pull tool calls from an opencode response (any known shape)."""
+        calls: list[dict] = []
+
+        def _normalize(block):
+            fn = block.get("function") or {}
+            name = fn.get("name")
+            args = fn.get("arguments") or {}
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except Exception:
+                    args = {}
+            if name:
+                calls.append({"name": name, "arguments": args})
+
+        for tc in (data.get("tool_calls") or []):
+            if isinstance(tc, dict):
+                _normalize(tc)
+        msg = data.get("message") or {}
+        for tc in (msg.get("tool_calls") or []):
+            if isinstance(tc, dict):
+                _normalize(tc)
+        for part in (data.get("parts") or []):
+            if isinstance(part, dict) and part.get("type") == "tool_call":
+                name = part.get("name") or (part.get("function") or {}).get("name")
+                args = part.get("arguments") or part.get("args") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except Exception:
+                        args = {}
+                if name:
+                    calls.append({"name": name, "arguments": args})
+        return calls
+
+    def _forward_tool_calls(self, data: dict) -> None:
+        """Execute any tool calls opencode emitted, via the Daemon MCP server."""
+        if self._mcp is None:
+            return
+        for call in self._extract_tool_calls(data):
+            name = call["name"]
+            args = call.get("arguments") or {}
+            try:
+                logger.info("OpencodeWorker forwarding tool call '%s' to MCP server", name)
+                self._mcp.call_tool(name, args)
+            except Exception as exc:  # pragma: no cover - depends on runtime MCP state
+                logger.warning("OpencodeWorker MCP call_tool failed for '%s': %s", name, exc)
 
     def _delete_session(self, session_id: str) -> None:
         """DELETE /session/{id}. Non-critical — failures logged at debug level."""

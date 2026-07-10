@@ -183,3 +183,22 @@ All planned development phases through Phase 75+ are complete. Potential future 
 
 **CLAUDE.md and GEMINI.md replaced by `AGENTS.md`** — all agent instructions in that single file.
 Update `AGENTS.md` and this file (or an archive entry) after each task.
+
+---
+
+## 2026-07-11 — Log-analysis bug fixes (Phases: log triage)
+
+**Trigger:** Analyzed logs/daemon_2026-07-10_23-16-42.log; found issues, then implemented fixes via subagent-driven-development from docs/superpowers/plans/2026-07-11-log-issue-fixes.md.
+
+**Branch:** 	ask-log-issue-fixes (4 commits: b0a4d07, 7f165be, e1b3a22, 964ec57). NOT yet merged to master.
+
+**Fixes:**
+1. **Debounce permanent-block** — _should_fire_autonomous used if elapsed < 15.0: where elapsed = time.monotonic() - _last_autonomous_fire_time. A mismatched epoch seed (stale .pyc / time.time) made elapsed hugely negative -> elapsed < 15 always true -> 102 [active_chat] Skipping: debounce (-1.78e9s < 15s) events, disabling autonomous chatter all session. Fixed to if 0 <= elapsed < 15.0:. | src/autonomy/behavior_controller.py:651 | TestDebounceClockSafety
+2. **OllamaWorker garbage-filter over-rejection** — _filter_garbage_items dropped any dialogue equal to the user nickname or literal "garbage meat"/"...". Weak local model returns these, so refills were discarded -> ThoughtPool refill failed, pool has 0 items. Now only punctuation-only strings are dropped. (_get_user_nickname is now unused — follow-up cleanup candidate.) | src/llm/ollama_worker.py:451 | TestGarbageFilterNickname
+3. **FastMCP shutdown AttributeError** — MCPServerThread.stop() called self._server.shutdown() on a FastMCP (no such method) -> 'FastMCP' object has no attribute 'shutdown' at Ghost-Mode exit. Now runs SSE via uvicorn.Server(app.sse_app()) and stops via should_exit = True. | src/mcp_server.py:140 | TestMCPServerThreadStop
+
+**Verification:** 	est_behavior_controller.py (46), 	est_ollama_worker.py (11), 	est_mcp_server.py + 	est_mcp_server_fastmcp.py (19) all pass; 76 combined in ~1.9s. No cross-module interaction risk.
+
+**Known follow-ups (non-blocking):** remove now-dead _get_user_nickname in ollama_worker.py; ThoughtPool starvation / 180s Ollama timeout / two-stage-vs-single-stage docs drift were scoped out (downstream of fix #2).
+
+**Files changed:** src/autonomy/behavior_controller.py, src/llm/ollama_worker.py, src/mcp_server.py + 3 test files.

@@ -777,7 +777,17 @@ class PetWindow(QWidget):
             action = args.get("action", "idle")
             target_x = args.get("target_x")
             target_y = args.get("target_y")
-            self._fsm_bridge.emit_request("triggered_action", action, target_x, target_y)
+            # Mirror the MCP server's FSM/EXPRESSION split so physical
+            # animations like "jump" (expression actions) actually reach the
+            # ActionLayer instead of being dropped by the FSM-only handler.
+            from src.mcp_server import EXPRESSION_ACTIONS
+            if action in EXPRESSION_ACTIONS:
+                duration_ms = args.get("duration_ms") or 2000
+                self._fsm_bridge.emit_action_triggered(action, duration_ms, {})
+            else:
+                # FSM/behaviour actions: pass the action itself (not the literal
+                # "triggered_action" tag) so _on_mcp_fsm_action can map it.
+                self._fsm_bridge.emit_request(action, target_x, target_y)
         elif name == "send_system_toast":
             title = args.get("title", "Daemon")
             message = args.get("message", "")

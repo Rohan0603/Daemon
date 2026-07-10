@@ -841,3 +841,18 @@ Rules:
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+---
+
+## Reusable Agent Skills
+
+Procedural knowledge shared across all AI agents (Hermes, OpenCode, Claude Code, Aider) lives in `agent-skills/<name>/SKILL.md`. This is the single source of truth. After editing any skill, run `bash scripts/sync-agent-skills.sh` to fan it out to `.claude/skills/`, `.opencode/skills/`, the Hermes profile skill dirs, and regenerate `CONVENTIONS.md` (Aider).
+
+| Skill | Purpose |
+|-------|--------|
+| `run-tests` | Strict pre-commit test gate (green + <50s) and the `safe_pet_window` / `mock_background_workers` fixtures |
+| `git-workflow` | Squash-merge feature-branch flow; never commit to master; no AI assistant names in commits |
+| `add-mcp-tool` | Add an MCP tool: FastMCP `@app.tool()` + `CONSENT_TOOL_MAP` gating + `config.py` key |
+| `add-emotion` | Add an emotion: `Emotion` enum + `EMOTION_PROFILES` registry + system-driven trigger boundary |
+
+Load the relevant skill before performing the corresponding task.

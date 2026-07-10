@@ -83,6 +83,8 @@ class OllamaWorker(QThread):
             self._post_timeout = max(self._post_timeout, 180)
         self._skill_md = self._load_skill_md()
         self._tools_disabled = False
+        self._mcp = None  # DaemonMCPClient, set lazily in _ensure_tools()
+        self._tools = None  # LLM tool schema, built lazily
 
     def _load_skill_md(self) -> str:
         skill_path = Path(__file__).parent.parent.parent / ".opencode" / "skills" / self._pet_id / "SKILL.md"
@@ -198,6 +200,8 @@ class OllamaWorker(QThread):
 
         while True:
             tools_enabled = not self._tools_disabled
+            if tools_enabled:
+                self._ensure_tools()
             payload = {
                 "model": self._ollama_model,
                 "messages": messages,
@@ -206,7 +210,7 @@ class OllamaWorker(QThread):
                 "options": {"num_predict": 1024},
             }
             if tools_enabled:
-                payload["tools"] = OLLAMA_TOOLS
+                payload["tools"] = self._tools
             else:
                 payload["format"] = "json"
 
@@ -263,11 +267,75 @@ class OllamaWorker(QThread):
                 messages.append(tool_msg)
             logger.debug("_chat_completion: looping after %d tool calls", len(tool_calls))
 
+    def _ensure_tools(self) -> None:
+        """Build the LLM tool schema, preferring the live MCP server catalog.
+
+        Falls back to a generated schema (derived from the MCP server's own
+        VALID_ACTIONS) if the MCP server is unreachable, so tool calling keeps
+        working offline and can never drift from mcp_server.py.
+        """
+        if self._tools is not None:
+            return
+        try:
+            from src.llm.mcp_client import build_client
+            client = build_client()
+            schema = client.get_tool_schema()
+            if schema:
+                self._mcp = client
+                self._tools = schema
+                logger.debug("OllamaWorker using %d live MCP tools", len(schema))
+                return
+        except Exception as exc:  # pragma: no cover - depends on runtime MCP state
+            logger.warning("OllamaWorker: live MCP tool schema unavailable (%s); using fallback", exc)
+        self._mcp = None
+        self._tools = self._fallback_tools()
+
+    def _fallback_tools(self) -> list[dict]:
+        """Generated tool schema when the MCP server is unreachable.
+
+        The change_visual_state enum is built from the MCP server's own
+        VALID_ACTIONS so 'jump' and every other real action are present and
+        no invalid actions leak in.
+        """
+        from src.mcp_server import VALID_ACTIONS
+        change_state = {
+            "type": "function",
+            "function": {
+                "name": "change_visual_state",
+                "description": (
+                    "Change the pet's visual state/animation. Use layer 'expression' "
+                    "for physical animations (jump, float, spin, ...) or 'fsm' for "
+                    "behaviour states (idle, hyper, celebrate, ...)."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {"type": "string", "enum": sorted(VALID_ACTIONS)},
+                        "layer": {"type": "string", "enum": ["fsm", "expression"]},
+                        "duration_ms": {"type": "integer"},
+                        "target_x": {"type": "integer"},
+                        "target_y": {"type": "integer"},
+                    },
+                    "required": ["action"],
+                },
+            },
+        }
+        others = [t for t in OLLAMA_TOOLS if t["function"]["name"] != "change_visual_state"]
+        return [change_state, *others]
+
     def _execute_tool(self, name: str, args: dict) -> str:
+        # Primary path: call the real MCP server so consent gating, validation
+        # and FSM/expression routing all happen server-side (single source of
+        # truth). The server performs the animation directly.
+        if self._mcp is not None:
+            try:
+                return self._mcp.call_tool(name, args)
+            except Exception as exc:  # pragma: no cover - depends on runtime MCP state
+                logger.warning("OllamaWorker MCP call_tool failed for '%s': %s", name, exc)
+        # Legacy fallback: emit signals; pet_window performs the action.
         if name == "change_visual_state":
-            action = args.get("action", "idle")
             self.tool_call_requested.emit(name, args)
-            return json.dumps({"status": "ok", "action": action})
+            return json.dumps({"status": "ok", "action": args.get("action", "idle")})
         elif name == "send_system_toast":
             self.tool_call_requested.emit(name, args)
             return json.dumps({"status": "ok"})
