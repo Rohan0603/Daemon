@@ -138,3 +138,30 @@ class TestOllamaWorker:
         assert res2["action"] == "celebrate"
         assert res2["brain_update"] == {"user_nickname": "new name"}
 
+    def test_variable_substitutions(self):
+        from pathlib import Path
+        # Mock parent and memory
+        mock_parent = MagicMock()
+        mock_memory = MagicMock()
+        mock_memory.get_all.return_value = {
+            "user_nickname": "test_nick",
+            "user_partner_name": "test_partner",
+            "user_engineer_name": "test_engineer"
+        }
+        mock_parent._memory = mock_memory
+        
+        worker = OllamaWorker(prompt="test", pet_id="kenny")
+        worker.parent = MagicMock(return_value=mock_parent)
+        
+        # Verify custom system prompt loader substitutes variables correctly
+        with patch.object(Path, "exists", return_value=True), \
+             patch.object(Path, "read_text", return_value="## Identity & Obsession\nIdentity: {user_nickname} deployed by {user_partner_name} for {user_engineer_name}\n## Phonetics & Delivery (CRITICAL - TTS reads verbatim)"):
+            skill_md = worker._load_skill_md()
+            assert "test_nick" in skill_md
+            assert "test_partner" in skill_md
+            assert "test_engineer" in skill_md
+            assert "{user_nickname}" not in skill_md
+            assert "Phonetics & Delivery" not in skill_md
+
+
+

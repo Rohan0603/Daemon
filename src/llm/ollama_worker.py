@@ -84,13 +84,29 @@ class OllamaWorker(QThread):
 
     def _load_skill_md(self) -> str:
         skill_path = Path(__file__).parent.parent.parent / ".opencode" / "skills" / self._pet_id / "SKILL.md"
+        text = ""
         try:
             if skill_path.exists():
-                text = skill_path.read_text(encoding="utf-8")
-                return self._summarize_for_ollama(text)
+                raw_text = skill_path.read_text(encoding="utf-8")
+                text = self._summarize_for_ollama(raw_text)
+            else:
+                text = self._default_skill_fallback()
         except Exception as exc:
             logger.warning("Failed to load SKILL.md from %s: %s", skill_path, exc)
-        return self._default_skill_fallback()
+            text = self._default_skill_fallback()
+
+        # Substitute variable placeholders using Memory facts
+        facts = {}
+        if self.parent() and hasattr(self.parent(), "_memory"):
+            facts = self.parent()._memory.get_all()
+        user_nickname = facts.get("user_nickname", "garbage meat")
+        user_partner_name = facts.get("user_partner_name", "The Overseer")
+        user_engineer_name = facts.get("user_engineer_name", "Locksmith")
+
+        text = text.replace("{user_nickname}", user_nickname)
+        text = text.replace("{user_partner_name}", user_partner_name)
+        text = text.replace("{user_engineer_name}", user_engineer_name)
+        return text
 
     def _summarize_for_ollama(self, text: str) -> str:
         lines = text.splitlines()
@@ -100,7 +116,7 @@ class OllamaWorker(QThread):
             stripped = line.strip()
             if stripped == "## Identity & Obsession":
                 keep = True
-            if stripped == "## Phonetics & Delivery (CRITICAL - TTS reads verbatim)":
+            if stripped.startswith("## Phonetics & Delivery"):
                 keep = False
             if keep:
                 persona_lines.append(line)
@@ -108,7 +124,7 @@ class OllamaWorker(QThread):
         result = (
             "You are Kenny, a hyperactive desktop pet. "
             "Keep responses brief and in-character.\n"
-            f"Persona:\n{raw[:2000]}"
+            f"Persona:\n{raw[:1000]}"
         )
         logger.debug("_summarize_for_ollama: %d chars -> %d chars", len(text), len(result))
         return result
