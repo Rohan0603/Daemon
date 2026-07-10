@@ -33,7 +33,7 @@ class SettingsDialog(QDialog):
                  allow_window_management: bool = False,
                  llm_provider: str = "opencode",
                  ollama_url: str = "http://127.0.0.1:11434",
-                 ollama_model: str = "daemon-local",
+                 ollama_model: str = "llama3.2-1b-q8:latest",
                  ollama_status: str = "",
                  llm_model_id: str = "",
                  llm_api_key: str = "",

@@ -134,7 +134,7 @@ class PetWindow(QWidget):
             from src.llm.ollama_manager import OllamaManager
             self._ollama_manager = OllamaManager(
                 modelfile_path=self._config.get("llm", {}).get("modelfile_path", "data/Modelfile"),
-                model_name=self._config.get("llm", {}).get("ollama_model", "daemon-local"),
+                model_name=self._config.get("llm", {}).get("ollama_model", "llama3.2-1b-q8:latest"),
                 ollama_url=self._config.get("llm", {}).get("ollama_url", "http://127.0.0.1:11434"),
                 parent=self,
             )
@@ -1109,7 +1109,7 @@ class PetWindow(QWidget):
             chattiness=self._chattiness,
             llm_provider=self._llm_provider,
             ollama_url=self._config.get("llm", {}).get("ollama_url", "http://127.0.0.1:11434"),
-            ollama_model=self._config.get("llm", {}).get("ollama_model", "daemon-local"),
+            ollama_model=self._config.get("llm", {}).get("ollama_model", "llama3.2-1b-q8:latest"),
             ollama_status="ready" if (self._ollama_manager and self._ollama_manager._process is not None) else "",
             llm_model_id=self._config.get("llm", {}).get("model_id") or "gemini-2.5-flash",
             llm_api_key=self._config.get("llm", {}).get("api_key", ""),
@@ -1160,7 +1160,7 @@ class PetWindow(QWidget):
         # Push runtime config changes for Ollama so workers pick them up instantly
         config_set("llm.engine", values.get("LLM_PROVIDER", "opencode"))
         config_set("llm.ollama_url", values.get("OLLAMA_URL", "http://127.0.0.1:11434"))
-        config_set("llm.ollama_model", values.get("OLLAMA_MODEL", "daemon-local"))
+        config_set("llm.ollama_model", values.get("OLLAMA_MODEL", "llama3.2-1b-q8:latest"))
         self._llm_provider = values.get("LLM_PROVIDER", "opencode")
 
     def _restore_settings(self) -> None:
@@ -2809,7 +2809,7 @@ class PetWindow(QWidget):
             logger.debug("[VERIFY] single-stage refill: window=%s, APM=%d",
                          window, self._current_apm)
             worker = self._make_llm_worker(
-                "", is_autonomous=True, session_id=None,
+                is_autonomous=True, session_id=None,
                 prompt=single_prompt,
             )
             worker.response_ready.connect(lambda items: self._on_refill_result(items))

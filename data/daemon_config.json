@@ -11,7 +11,7 @@
     "timeout_sec": 180,
     "api_key": "",
     "ollama_url": "http://127.0.0.1:11434",
-    "ollama_model": "daemon-local",
+    "ollama_model": "llama3.2-1b-q8:latest",
     "modelfile_path": "data/Modelfile"
   },
   "pet": {

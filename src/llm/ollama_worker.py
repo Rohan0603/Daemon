@@ -74,7 +74,7 @@ class OllamaWorker(QThread):
         self._last_raw_response = ""
         self._timed_out = False
         self._server_url = config_get("llm.ollama_url") or "http://127.0.0.1:11434"
-        self._ollama_model = config_get("llm.ollama_model") or "daemon-local"
+        self._ollama_model = config_get("llm.ollama_model") or "llama3.2-1b-q8:latest"
         timeout = int(config_get("llm.timeout_sec") or 180)
         self._post_timeout = max(timeout, 60)
         if is_autonomous:
@@ -162,6 +162,8 @@ class OllamaWorker(QThread):
         }
         if tools_enabled:
             payload["tools"] = OLLAMA_TOOLS
+        else:
+            payload["format"] = "json"
 
         system_size = len(messages[0]["content"]) if messages else 0
         user_size = len(messages[-1]["content"]) if messages else 0
@@ -261,13 +263,13 @@ class OllamaWorker(QThread):
         try:
             items = json.loads(text)
             if isinstance(items, list):
-                validated = [i for i in items if isinstance(i, dict)]
+                validated = [self._normalize_item(i) for i in items if isinstance(i, dict)]
                 if validated:
                     logger.debug("_parse_response: strategy 1 (direct) OK, %d items", len(validated))
                     return validated
             if isinstance(items, dict):
                 logger.debug("_parse_response: strategy 1 (single object) OK")
-                return [items]
+                return [self._normalize_item(items)]
         except json.JSONDecodeError as e:
             logger.debug("_parse_response: strategy 1 failed: %s", e)
 
@@ -282,7 +284,7 @@ class OllamaWorker(QThread):
                 try:
                     items = json.loads(candidate)
                     if isinstance(items, list):
-                        validated = [i for i in items if isinstance(i, dict)]
+                        validated = [self._normalize_item(i) for i in items if isinstance(i, dict)]
                         if validated:
                             logger.debug("_parse_response: strategy 2 (bracket) OK, %d items", len(validated))
                             return validated
@@ -302,7 +304,7 @@ class OllamaWorker(QThread):
                     obj = json.loads(candidate)
                     if isinstance(obj, dict):
                         logger.debug("_parse_response: strategy 3 (single object) OK")
-                        return [obj]
+                        return [self._normalize_item(obj)]
                 except json.JSONDecodeError as e:
                     logger.debug("_parse_response: strategy 3 failed: %s", e)
 
@@ -314,7 +316,7 @@ class OllamaWorker(QThread):
                 try:
                     obj = json.loads(line)
                     if isinstance(obj, dict):
-                        items.append(obj)
+                        items.append(self._normalize_item(obj))
                 except json.JSONDecodeError:
                     pass
         if items:
@@ -325,10 +327,67 @@ class OllamaWorker(QThread):
         truncated = raw[:400].strip()
         if truncated:
             logger.debug("_parse_response: strategy 5 (free-form fallback) dialogue='%s'", truncated[:100])
-            return [{"dialogue": truncated, "action": "idle", "type": "observation",
-                     "priority": 3, "thought": ""}]
+            return [self._normalize_item({"dialogue": truncated, "action": "idle", "type": "observation",
+                     "priority": 3, "thought": ""})]
         logger.debug("_parse_response: all strategies failed")
         return []
+
+    def _normalize_item(self, item: dict) -> dict:
+        normalized = {
+            "dialogue": "",
+            "action": "idle",
+            "type": "observation",
+            "priority": 3,
+            "thought": ""
+        }
+        if "thought" in item:
+            normalized["thought"] = str(item["thought"])
+        elif "reasoning" in item:
+            normalized["thought"] = str(item["reasoning"])
+            
+        raw_dialogue = item.get("dialogue") or item.get("content") or item.get("response") or item.get("message") or ""
+        if isinstance(raw_dialogue, list):
+            msg_texts = []
+            for d in raw_dialogue:
+                if isinstance(d, dict):
+                    role = str(d.get("role") or d.get("speaker") or "").lower()
+                    content = d.get("content") or d.get("text") or ""
+                    if role in ("assistant", "me", "kenny", "pet", "response"):
+                        msg_texts.append(str(content))
+                    elif not role:
+                        msg_texts.append(str(content))
+                elif isinstance(d, str):
+                    msg_texts.append(d)
+            if msg_texts:
+                normalized["dialogue"] = " ".join(msg_texts)
+            else:
+                normalized["dialogue"] = str(raw_dialogue)
+        elif isinstance(raw_dialogue, dict):
+            normalized["dialogue"] = str(raw_dialogue.get("content") or raw_dialogue.get("text") or raw_dialogue)
+        else:
+            normalized["dialogue"] = str(raw_dialogue)
+            
+        normalized["dialogue"] = normalized["dialogue"].strip()
+        
+        raw_action = item.get("action")
+        if isinstance(raw_action, str):
+            normalized["action"] = raw_action
+        elif isinstance(raw_action, list) and raw_action:
+            normalized["action"] = str(raw_action[0])
+        
+        raw_type = item.get("type")
+        if isinstance(raw_type, str):
+            normalized["type"] = raw_type
+            
+        try:
+            normalized["priority"] = int(item.get("priority", 3))
+        except (ValueError, TypeError):
+            pass
+            
+        if "brain_update" in item:
+            normalized["brain_update"] = item["brain_update"]
+            
+        return normalized
 
     def _extract_brain_update(self, items: list[dict]) -> None:
         emitted = False

@@ -20,7 +20,7 @@ class OllamaManager(QObject):
     ready = pyqtSignal()
 
     def __init__(self, modelfile_path: str | Path = "data/Modelfile",
-                 model_name: str = "daemon-local",
+                 model_name: str = "llama3.2-1b-q8:latest",
                  ollama_url: str = "http://127.0.0.1:11434",
                  parent: Any = None):
         super().__init__(parent)
@@ -77,22 +77,8 @@ class OllamaManager(QObject):
             return False
 
     def _ensure_model(self) -> None:
-        try:
-            resp = requests.get(OLLAMA_HEALTH_URL, timeout=5)
-            if resp.status_code != 200:
-                return
-            models = resp.json().get("models", [])
-            if any(m.get("name") == self._model_name for m in models):
-                logger.info("Model %s already exists", self._model_name)
-                return
-        except requests.RequestException:
-            pass
-        if not self._modelfile_path.exists():
-            logger.warning("Modelfile not found at %s", self._modelfile_path)
-            return
-        logger.info("Creating model %s from %s", self._model_name, self._modelfile_path)
-        self._run_ollama_command(["create", self._model_name,
-                                  "-f", str(self._modelfile_path)])
+        # We no longer automatically create daemon-local or run custom modelfiles
+        pass
 
     def _warm_model(self) -> None:
         try:

@@ -109,3 +109,32 @@ class TestOllamaWorker:
         worker.read_clipboard_requested.connect(lambda: signals.append("read"))
         worker.run()
         assert "read" in signals
+
+    def test_normalize_item_variants(self):
+        worker = OllamaWorker(prompt="test", pet_id="kenny")
+        
+        # Test 1: Chat message format (list of dicts)
+        item1 = {
+            "dialogue": [
+                {"speaker": "You", "content": "hello"},
+                {"speaker": "Me", "content": "how can I help?"}
+            ],
+            "action": ["spin"],
+            "type": "observation"
+        }
+        res1 = worker._normalize_item(item1)
+        assert res1["dialogue"] == "how can I help?"
+        assert res1["action"] == "spin"
+        assert res1["type"] == "observation"
+
+        # Test 2: Standard dictionary format
+        item2 = {
+            "dialogue": "simple response",
+            "action": "celebrate",
+            "brain_update": {"user_nickname": "new name"}
+        }
+        res2 = worker._normalize_item(item2)
+        assert res2["dialogue"] == "simple response"
+        assert res2["action"] == "celebrate"
+        assert res2["brain_update"] == {"user_nickname": "new name"}
+
