@@ -183,13 +183,15 @@ class TestEventBus:
         assert received[0].data["idle_seconds"] == 120.5
 
     def test_reentrant_publish_warning(self, caplog):
+        import logging
+        caplog.set_level(logging.DEBUG)
         bus = EventBus()
         def reentrant_callback(e):
             if e.type == EventType.FSM_STATE_CHANGED:
                 bus.publish(Event(type=EventType.EMOTION_SHIFTED))
         bus.subscribe(EventType.FSM_STATE_CHANGED, reentrant_callback)
         bus.publish(Event(type=EventType.FSM_STATE_CHANGED))
-        assert "Re-entrant publish detected" in caplog.text
+        assert "Re-entrant publish deferred" in caplog.text
 
 
 class TestGlobalEventBus:

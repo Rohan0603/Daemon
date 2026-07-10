@@ -1,6 +1,6 @@
 # src/llm/ollama_manager.py
 from __future__ import annotations
-import logging, shutil
+import logging, shutil, threading
 from typing import Any
 from PyQt6.QtCore import QObject, QProcess, QTimer, pyqtSignal
 import requests
@@ -30,15 +30,16 @@ class OllamaManager(QObject):
         self._process: QProcess | None = None
         self._health_timer: QTimer | None = None
         self._retries = 0
+        self._warming = False
 
     def start(self) -> None:
         self.status_changed.emit("starting")
         if self._is_ollama_running():
             logger.info("Ollama already running on %s", self._ollama_url)
             self._ensure_model()
-            self._warm_model()
             self.status_changed.emit("ready")
             self.ready.emit()
+            self._warm_model_async()
             return
         ollama_path = self._find_ollama()
         if not ollama_path:
@@ -99,6 +100,18 @@ class OllamaManager(QObject):
         except requests.RequestException as exc:
             logger.debug("Model warm-up skipped (non-critical): %s", exc)
 
+    def _warm_model_async(self) -> None:
+        """Warm the model off the caller's thread so the UI never blocks."""
+        if self._warming:
+            return
+        self._warming = True
+        def _run() -> None:
+            try:
+                self._warm_model()
+            finally:
+                self._warming = False
+        threading.Thread(target=_run, daemon=True).start()
+
     def _spawn_serve(self, ollama_path: str) -> None:
         self._process = QProcess(self)
         self._process.setProgram(ollama_path)
@@ -123,9 +136,9 @@ class OllamaManager(QObject):
     def _check_health(self) -> None:
         if self._is_ollama_running():
             self._stop_health_timer()
-            self._warm_model()
             self.status_changed.emit("ready")
             self.ready.emit()
+            self._warm_model_async()
             return
         self._retries += 1
         if self._retries >= OLLAMA_MAX_RETRIES:

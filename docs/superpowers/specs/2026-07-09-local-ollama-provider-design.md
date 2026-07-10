@@ -132,9 +132,13 @@ When Ollama is not on PATH: settings shows "(not installed)" warning.
 ### PetWindow Changes
 
 - `_llm_provider` attribute, checked before instantiating workers
-- `_on_provider_switch()` handler — stops current manager, starts new one
+- `_ensure_ollama_manager()` / `_teardown_ollama_manager()` — start/stop the
+  `OllamaManager` (and its `ollama serve` subprocess) on boot and on runtime
+  provider switch; `_teardown_ollama_manager()` also called at shutdown
 - `ensure_opencode_serve_running()` skipped when `provider == "ollama"`
 - Existing worker dispatch logic unchanged — just picks `OllamaWorker` vs `OpencodeWorker`
+- `OllamaManager` warm-up runs off the Qt thread (`_warm_model_async()`) so the
+  pet UI never freezes while the local model loads
 
 ### daemon.py Changes
 

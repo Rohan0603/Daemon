@@ -131,16 +131,7 @@ class PetWindow(QWidget):
         self._ollama_manager = None
 
         if self._llm_provider == "ollama":
-            from src.llm.ollama_manager import OllamaManager
-            self._ollama_manager = OllamaManager(
-                modelfile_path=self._config.get("llm", {}).get("modelfile_path", "data/Modelfile"),
-                model_name=self._config.get("llm", {}).get("ollama_model", "llama3.2-1b-q8:latest"),
-                ollama_url=self._config.get("llm", {}).get("ollama_url", "http://127.0.0.1:11434"),
-                parent=self,
-            )
-            self._ollama_manager.ready.connect(self._on_ollama_ready)
-            self._ollama_manager.error_occurred.connect(self._on_ollama_error)
-            self._ollama_manager.start()
+            self._ensure_ollama_manager()
 
         self._pet_scale = self._config.get("pet", {}).get("scale", 1.0)
         self._pet_opacity = self._config.get("pet", {}).get("opacity", 0.85)
@@ -524,7 +515,7 @@ class PetWindow(QWidget):
 
         if self._pet_y > base_ground:
             self._pet_y = base_ground
-        elif self._pet_y < self._ground_y and self._fsm.current_state not in (PetState.FALLING, PetState.DRAGGED):
+        elif self._pet_y < self._ground_y and self._fsm.current_state not in (PetState.FALLING, PetState.DRAGGED) and time.time() - getattr(self, '_last_land_time', 0) >= 0.5:
             self._fsm.transition_to(PetState.FALLING)
 
     def _cycle_hyper_color(self) -> None:
@@ -732,6 +723,38 @@ class PetWindow(QWidget):
         logger.warning("Ollama provider error: %s", msg)
         self._show_bubble(f"Kenny's brain is offline: {msg}")
 
+    def _ensure_ollama_manager(self) -> None:
+        """Create + start the local Ollama manager if not already running.
+
+        Warm-up happens on a background thread inside the manager, so the
+        pet UI never stalls while the model loads into memory.
+        """
+        if self._ollama_manager is not None:
+            return
+        from src.llm.ollama_manager import OllamaManager
+        cfg = self._config.get("llm", {})
+        self._ollama_manager = OllamaManager(
+            modelfile_path=cfg.get("modelfile_path", "data/Modelfile"),
+            model_name=cfg.get("ollama_model", "llama3.2-1b-q8:latest"),
+            ollama_url=cfg.get("ollama_url", "http://127.0.0.1:11434"),
+            parent=self,
+        )
+        self._ollama_manager.ready.connect(self._on_ollama_ready)
+        self._ollama_manager.error_occurred.connect(self._on_ollama_error)
+        self._ollama_manager.start()
+
+    def _teardown_ollama_manager(self) -> None:
+        """Stop and release the local Ollama manager (frees the serve process)."""
+        if self._ollama_manager is None:
+            return
+        try:
+            self._ollama_manager.ready.disconnect(self._on_ollama_ready)
+            self._ollama_manager.error_occurred.disconnect(self._on_ollama_error)
+        except Exception:
+            pass
+        self._ollama_manager.stop()
+        self._ollama_manager = None
+
     def _make_llm_worker(self, **kw: Any) -> Any:
         if self._llm_provider == "ollama":
             from src.llm.ollama_worker import OllamaWorker
@@ -765,6 +788,7 @@ class PetWindow(QWidget):
             return
         self._force_quit = True
         logger.info("Initiating Ghost Mode shutdown sequence...")
+        self._teardown_ollama_manager()
         self._action_layer.clear()
         self._events.publish(Event(
             type=EventType.PET_SHUTDOWN_STARTED,
@@ -1173,7 +1197,15 @@ class PetWindow(QWidget):
         config_set("llm.engine", values.get("LLM_PROVIDER", "opencode"))
         config_set("llm.ollama_url", values.get("OLLAMA_URL", "http://127.0.0.1:11434"))
         config_set("llm.ollama_model", values.get("OLLAMA_MODEL", "llama3.2-1b-q8:latest"))
-        self._llm_provider = values.get("LLM_PROVIDER", "opencode")
+
+        # Orchestrate the local Ollama lifecycle when the active brain changes.
+        new_provider = values.get("LLM_PROVIDER", "opencode")
+        if new_provider != self._llm_provider:
+            if new_provider == "ollama":
+                self._ensure_ollama_manager()
+            else:
+                self._teardown_ollama_manager()
+        self._llm_provider = new_provider
 
     def _restore_settings(self) -> None:
         self._apply_settings({
@@ -1443,6 +1475,7 @@ class PetWindow(QWidget):
                 
             if landed:
                 self._fsm.current_state = PetState.IDLE
+                self._last_land_time = time.time()
 
         elif state == PetState.PERIMETER:
             self._tick_perimeter()
@@ -1742,6 +1775,25 @@ class PetWindow(QWidget):
         if error == "timeout" and self._llm_provider == "ollama":
             self._show_bubble("Kenny's brain is still loading... give it a moment")
             return
+
+        # Ollama parse_failed → fallback to opencode serve
+        if error == "parse_failed" and self._llm_provider == "ollama":
+            fallback_input = getattr(self, "_current_user_input", "")
+            fallback_mode = getattr(self, "_last_mode", "general")
+            logger.info("Ollama parse_failed — falling back to opencode serve (input='%s')", fallback_input)
+            self._llm_provider = "opencode"
+            self._opencode_session_id = None
+            if fallback_input:
+                self._dispatch_trigger(
+                    mode=fallback_mode, user_input=fallback_input,
+                    context_hint="python", apm=self._current_apm,
+                    idle_seconds=self._idle_seconds,
+                    typing_content=self._typing_buffer.get_context() if hasattr(self, '_typing_buffer') else "",
+                    is_autonomous=False,
+                )
+            self._llm_provider = "ollama"
+            return
+
         self._autonomous_query_pending = False
         self._deferred_trigger_params = None
         self._current_user_input = ""
@@ -2875,6 +2927,17 @@ class PetWindow(QWidget):
         """Called when ThoughtPool refill fails."""
         if getattr(self, "_refill_in_progress", False):
             self._refill_in_progress = False
+        current_time = time.time()
+        if hasattr(self, "_last_refill_attempt"):
+            time_since_last_refill = current_time - self._last_refill_attempt
+            if time_since_last_refill < 300:
+                self._refill_failed_count = getattr(self, "_refill_failed_count", 0) + 1
+                if self._refill_failed_count >= 3:
+                    logger.info("Multiple consecutive refill failures — raising threshold")
+                    self._response_manager.thought_pool.refill_threshold = min(
+                        self._response_manager.thought_pool.refill_threshold + 5, 20
+                    )
+                    self._refill_failed_count = 0
         logger.warning("ThoughtPool refill failed, pool has %d items", self._response_manager.remaining())
 
     def _on_refill_error(self) -> None:

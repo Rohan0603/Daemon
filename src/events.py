@@ -153,7 +153,7 @@ class EventBus:
         """Publish event to all subscribers. Returns number of callbacks invoked."""
         self._publish_queue.append(event)
         if self._publish_depth > 0:
-            logger.warning("Re-entrant publish detected for event: %s", event.type.name)
+            logger.debug("Re-entrant publish deferred for event: %s", event.type.name)
             return 0  # defer to outermost publish
 
         self._publish_depth += 1

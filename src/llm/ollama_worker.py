@@ -1,12 +1,14 @@
 # src/llm/ollama_worker.py
 from __future__ import annotations
-import json, logging, requests
+import json, logging, re, requests
 from typing import Any
 from PyQt6.QtCore import QThread, pyqtSignal
 from src.config import config_get
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+_NO_TOOLS_MODELS: set[str] = set()
  
 OLLAMA_TOOLS = [
     {
@@ -144,6 +146,7 @@ class OllamaWorker(QThread):
         prompt_preview = self._prompt[:200].replace("\n", "\\n")
         logger.debug("run: model=%s autonomous=%s prompt_preview='%s'",
                       self._ollama_model, self._is_autonomous, prompt_preview)
+        self._retried = False
         messages = [
             {"role": "system", "content": self._skill_md},
             {"role": "user", "content": self._prompt},
@@ -155,67 +158,96 @@ class OllamaWorker(QThread):
                 logger.debug("run: raw_response length=%d preview='%s'",
                               len(result), result[:300].replace("\n", "\\n"))
                 items = self._parse_response(result)
-                if items:
+                if items and self._filter_garbage_items(items):
                     logger.debug("run: parsed %d items, first dialogue='%s'",
                                   len(items), items[0].get("dialogue", "")[:100])
                     self._extract_brain_update(items)
                     self.response_ready.emit(items)
                     return
-                logger.warning("run: parse returned None for response of len=%d", len(result))
+                logger.warning("run: parse returned %d items after garbage filter (len=%d)",
+                               len(items) if items else 0, len(result))
+                if not self._retried:
+                    logger.info("run: retrying with simplified prompt")
+                    self._retried = True
+                    messages[1] = {
+                        "role": "user",
+                        "content": self._prompt + (
+                            "\n\nIMPORTANT: You MUST output a real in-character response. "
+                            "DO NOT just repeat the user's name or say '...'. "
+                            "Write a proper short dialogue as Kenny the pet."
+                        )
+                    }
+                    result = self._chat_completion(messages)
+                    if result:
+                        items = self._parse_response(result)
+                        if items and self._filter_garbage_items(items):
+                            logger.debug("run: retry parsed %d items, first dialogue='%s'",
+                                          len(items), items[0].get("dialogue", "")[:100])
+                            self._extract_brain_update(items)
+                            self.response_ready.emit(items)
+                            return
+                    logger.warning("run: retry also produced garbage")
             self._emit_error("parse_failed" if not self._timed_out else "timeout")
         except Exception as exc:
             logger.warning("OllamaWorker.run exception: %s", exc)
             self._emit_error(str(exc))
 
     def _chat_completion(self, messages: list) -> str | None:
-        tools_enabled = not self._tools_disabled
-        payload = {
-            "model": self._ollama_model,
-            "messages": messages,
-            "stream": False,
-            "keep_alive": "10m",
-            "options": {"num_predict": 1024},
-        }
-        if tools_enabled:
-            payload["tools"] = OLLAMA_TOOLS
-        else:
-            payload["format"] = "json"
+        if self._ollama_model in _NO_TOOLS_MODELS:
+            self._tools_disabled = True
 
-        system_size = len(messages[0]["content"]) if messages else 0
-        user_size = len(messages[-1]["content"]) if messages else 0
-        logger.debug("_chat_completion: model=%s tools=%s timeout=%s msg_count=%d system=%d user=%d",
-                      self._ollama_model, tools_enabled, self._post_timeout,
-                      len(messages), system_size, user_size)
+        while True:
+            tools_enabled = not self._tools_disabled
+            payload = {
+                "model": self._ollama_model,
+                "messages": messages,
+                "stream": False,
+                "keep_alive": "10m",
+                "options": {"num_predict": 1024},
+            }
+            if tools_enabled:
+                payload["tools"] = OLLAMA_TOOLS
+            else:
+                payload["format"] = "json"
 
-        try:
-            resp = requests.post(
-                f"{self._server_url}/api/chat",
-                json=payload,
-                timeout=self._post_timeout,
-            )
-        except requests.exceptions.Timeout:
-            logger.warning("Ollama request timed out after %ss", self._post_timeout)
-            self._timed_out = True
-            return None
+            system_size = len(messages[0]["content"]) if messages else 0
+            user_size = len(messages[-1]["content"]) if messages else 0
+            logger.debug("_chat_completion: model=%s tools=%s timeout=%s msg_count=%d system=%d user=%d",
+                          self._ollama_model, tools_enabled, self._post_timeout,
+                          len(messages), system_size, user_size)
 
-        if resp.status_code >= 400:
-            error_text = resp.text[:200].lower()
-            logger.debug("_chat_completion: HTTP %d response='%s'", resp.status_code, resp.text[:200])
-            if "does not support tools" in error_text and not self._tools_disabled:
-                logger.warning("Model does not support tools; retrying without tools")
-                self._tools_disabled = True
-                return self._chat_completion(messages)
-            logger.warning("Ollama API error: HTTP %s %s", resp.status_code, resp.text[:200])
-            return None
-        data = resp.json()
-        msg = data.get("message", {})
-        tool_calls = msg.get("tool_calls", [])
-        content = msg.get("content", "")
+            try:
+                resp = requests.post(
+                    f"{self._server_url}/api/chat",
+                    json=payload,
+                    timeout=self._post_timeout,
+                )
+            except requests.exceptions.Timeout:
+                logger.warning("Ollama request timed out after %ss", self._post_timeout)
+                self._timed_out = True
+                return None
 
-        logger.debug("_chat_completion: response received tool_calls=%d content_len=%d content_preview='%s'",
-                      len(tool_calls), len(content), content[:200].replace("\n", "\\n") if content else "")
+            if resp.status_code >= 400:
+                error_text = resp.text[:200].lower()
+                logger.debug("_chat_completion: HTTP %d response='%s'", resp.status_code, resp.text[:200])
+                if "does not support tools" in error_text and not self._tools_disabled:
+                    logger.warning("Model does not support tools; retrying without tools")
+                    _NO_TOOLS_MODELS.add(self._ollama_model)
+                    self._tools_disabled = True
+                    continue
+                logger.warning("Ollama API error: HTTP %s %s", resp.status_code, resp.text[:200])
+                return None
+            data = resp.json()
+            msg = data.get("message", {})
+            tool_calls = msg.get("tool_calls", [])
+            content = msg.get("content", "")
 
-        if tool_calls:
+            logger.debug("_chat_completion: response received tool_calls=%d content_len=%d content_preview='%s'",
+                          len(tool_calls), len(content), content[:200].replace("\n", "\\n") if content else "")
+
+            if not tool_calls:
+                return content
+
             messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
             for tc in tool_calls:
                 func = tc.get("function", {})
@@ -229,10 +261,7 @@ class OllamaWorker(QThread):
                 if tc_id:
                     tool_msg["tool_call_id"] = tc_id
                 messages.append(tool_msg)
-            logger.debug("_chat_completion: recursing after %d tool calls", len(tool_calls))
-            return self._chat_completion(messages)
-
-        return content
+            logger.debug("_chat_completion: looping after %d tool calls", len(tool_calls))
 
     def _execute_tool(self, name: str, args: dict) -> str:
         if name == "change_visual_state":
@@ -404,6 +433,30 @@ class OllamaWorker(QThread):
             normalized["brain_update"] = item["brain_update"]
             
         return normalized
+
+    def _get_user_nickname(self) -> str:
+        if self.parent() and hasattr(self.parent(), "_memory"):
+            facts = self.parent()._memory.get_all()
+            return facts.get("user_nickname", "garbage meat")
+        return "garbage meat"
+
+    def _filter_garbage_items(self, items: list[dict]) -> bool:
+        nickname = self._get_user_nickname().lower().strip()
+        valid = []
+        for item in items:
+            d = item.get("dialogue", "").strip()
+            if not d or len(d) < 2:
+                continue
+            d_lower = d.lower()
+            if d_lower in (".", "..", "...", "…", "?", "??", "!!!", "garbage meat"):
+                continue
+            if d_lower == nickname:
+                continue
+            if re.fullmatch(r'[\s.,!?…\-_]+', d):
+                continue
+            valid.append(item)
+        items[:] = valid
+        return len(valid) > 0
 
     def _extract_brain_update(self, items: list[dict]) -> None:
         emitted = False

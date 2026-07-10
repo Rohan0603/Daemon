@@ -249,6 +249,45 @@ Two-Stage agentic refill (OpencodeWorker._send_two_stage):
   Stage 2: Mixed-bag prompt + Stage 1 results (with schema) → JSON array
 ```
 
+### 3.3 Dual LLM "Brains" — Provider Switching
+
+Daemon supports **two interchangeable LLM backends** ("brains"), selectable at
+runtime in **Settings → Connections → Provider**. `config.llm.engine`
+(`"opencode"` | `"ollama"`) is the source of truth; `PetWindow._llm_provider`
+mirrors it and `PetWindow._make_llm_worker()` picks the worker per query.
+
+| | **opencode** (default) | **ollama** (local) |
+|---|---|---|
+| Worker | `OpencodeWorker(QThread)` | `OllamaWorker(QThread)` |
+| Backend | `opencode serve` @ :4096 (remote/managed) | `ollama serve` @ :11434 (local) |
+| Sessions | Stateful (session_id, schema) | Stateless (prompt in / text out) |
+| Persona | SKILL.md loaded natively by opencode | SKILL.md Identity section injected as system msg |
+| Tools | Full MCP tool surface | MCP tools mapped to Ollama native `tools`; parse-fail → falls back to opencode |
+| Lifecycle mgr | `opencode_serve_manager.py` | `llm/ollama_manager.py` (`OllamaManager`) |
+
+**Dispatch:** `_make_llm_worker(**kw)` — if provider is `ollama`, strips
+session/schema kwargs and builds an `OllamaWorker`, wiring
+`tool_call_requested` → `_on_ollama_tool_call` (change_visual_state, toast).
+Otherwise returns an `OpencodeWorker`.
+
+**Lifecycle orchestration (smoothness-critical):**
+- **Boot:** if engine is `ollama`, `PetWindow._ensure_ollama_manager()` starts
+  `OllamaManager` (find binary → reuse running instance or spawn `ollama serve`
+  → health-poll → warm model).
+- **Runtime switch** (`_save_settings`): when the provider actually changes,
+  Daemon calls `_ensure_ollama_manager()` (→ ollama) or
+  `_teardown_ollama_manager()` (→ opencode, stops the serve process + timers).
+- **Shutdown:** `_teardown_ollama_manager()` releases the subprocess.
+- **Non-blocking warm-up:** `OllamaManager._warm_model_async()` runs the
+  (up to 120s) model load on a daemon thread, so the pet UI never freezes while
+  the local model loads into memory.
+- **Non-blocking settings probes:** the Connections tab runs `/api/tags`
+  (model list) and `/api/show` (capability check) on background threads and
+  marshals results back via `_models_fetched` / `_model_validated` signals;
+  per-keystroke model validation is debounced (400 ms). "Restart Ollama"
+  re-probes the server.
+```
+
 ---
 
 ## 4. Autonomous Behavior System
@@ -449,6 +488,9 @@ AUTONOMOUS TICK (master_tick)
 - **Trigger coalescing**: Multiple autonomous triggers → single API call
 - **Write coalescing**: All local storage writes batched to 8s intervals
 - **Adaptive backoff**: Exponential silence detection prevents spamming
+- **Non-blocking local model warm-up**: `OllamaManager._warm_model_async()` loads the Ollama model on a daemon thread (no pet-UI freeze)
+- **Runtime brain switching**: `_ensure_ollama_manager()` / `_teardown_ollama_manager()` start/stop the local serve exactly when the provider flips, so cold starts and orphaned subprocesses are avoided
+- **Off-thread settings probes**: Connections tab model list/capability checks run on background threads; per-keystroke validation is 400 ms debounced
 
 ### Areas to Monitor
 
@@ -504,7 +546,10 @@ src/
   response_pool.py                     # ThoughtPool(QObject) — priority-weighted draw, spatial TTL, decay, type filtering
   thought_log_dialog.py                # ThoughtLogDialog(QDialog) — Matrix-style monologue viewer, 1s auto-refresh
   system_dialogs.json                  # 21 pre-baked Kenny system event responses
-  settings_dialog.py                   # Settings sliders (scale/opacity/speed/voice)
+  settings_dialog.py                   # 5 tabs (Mode/Appearance/Voice/Boundaries/Connections); provider switch + async Ollama probes
+  mode_manager.py                      # ModeManager/PetMode — desktop_pet vs coding_assistant, persisted
+  llm/ollama_manager.py                # OllamaManager(QObject) — ollama serve lifecycle, non-blocking model warm-up
+  llm/ollama_worker.py                 # OllamaWorker(QThread) — stateless local LLM bridge + tool mapping
   login_dialog.py                      # Persona-infused auth modal
   context_menu.py                      # Right-click menu (6 actions)
   active_window.py                     # Win32 foreground window title

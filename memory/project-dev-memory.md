@@ -151,6 +151,24 @@
 
 ---
 
+## Two-Brain Switching Smoothness Pass — 2026-07-11
+
+**Audited the opencode↔ollama provider switch in Settings → Connections and removed the main-thread jank:**
+
+| # | Fix | Location | Impact |
+|---|-----|----------|--------|
+| 1 | **Non-blocking model warm-up** — `_warm_model_async()` loads the Ollama model on a daemon thread (was a blocking `requests.post(timeout=120)` on the Qt main thread, freezing the pet up to 2 min) | `src/llm/ollama_manager.py` | Pet UI never stalls while a local model loads |
+| 2 | **Runtime brain lifecycle** — `_ensure_ollama_manager()` / `_teardown_ollama_manager()` start/stop the `ollama serve` subprocess exactly when the provider flips (in `_save_settings`) and on shutdown. Previously switching to ollama at runtime never warmed the model (cold first query) and switching away left an orphaned serve process running | `src/ui/pet_window.py` | No cold starts, no leaked subprocess |
+| 3 | **Off-thread settings probes** — `/api/tags` and `/api/show` probes moved to background threads, marshalled back via `_models_fetched` / `_model_validated` signals; per-keystroke model validation debounced 400 ms (was a 3s network call per keystroke) | `src/ui/settings_dialog.py` | Settings dialog stays responsive |
+| 4 | **Wired "Restart Ollama" button** — was a dead control; now re-probes the server | `src/ui/settings_dialog.py` | Functional reconnection |
+
+**Verification:** `test_ollama_manager.py` (4) + `test_settings_dialog.py` (7) pass; pre-existing unrelated failures (`test_diary_store_compaction.py`, one `test_mcp_server_fastmcp` case) confirmed present on clean `git stash`.
+
+**Files changed:** `src/llm/ollama_manager.py`, `src/ui/pet_window.py`, `src/ui/settings_dialog.py`
+**Docs updated:** `AGENTS.md` (File Map + mode_manager/ollama rows), `docs/architecture.md` (§3.3 dual brains, optimization notes), `docs/superpowers/specs/2026-07-09-local-ollama-provider-design.md` (lifecycle names)
+
+---
+
 ## What To Do Next
 
 All planned development phases through Phase 75+ are complete. Potential future work:

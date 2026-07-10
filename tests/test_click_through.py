@@ -30,6 +30,8 @@ def test_poll_exits_immediately_after_stop():
     mgr._prev_cursor_over = None
     mgr._stopped = False
     mgr._timer = MagicMock()
+    mgr._debounce_timer = MagicMock()
+    mgr._pending_transparent = None
 
     mgr.stop()
     assert mgr._stopped is True

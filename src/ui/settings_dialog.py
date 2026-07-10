@@ -1,5 +1,6 @@
 # src/settings_dialog.py
 from __future__ import annotations
+import threading
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
     QCheckBox, QComboBox, QDialogButtonBox,
@@ -7,7 +8,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
 )
 from pathlib import Path
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer
 import requests
 from src.constants import (
     SETTINGS_SCALE_MIN, SETTINGS_SCALE_MAX,
@@ -19,6 +20,10 @@ from src.constants import (
 
 class SettingsDialog(QDialog):
     value_changed = pyqtSignal()
+    # Internal signals used to marshal background-thread network results back
+    # onto the Qt UI thread (never touch widgets from a worker thread).
+    _models_fetched = pyqtSignal(list)
+    _model_validated = pyqtSignal(str, str)  # status_text, style_sheet
 
     def __init__(self, current_mode: str = "desktop_pet", pet_scale: float = 1.0, pet_opacity: float = 0.85,
                  pet_speed: float = 1.0, tts_enabled: bool = True,
@@ -223,7 +228,15 @@ class SettingsDialog(QDialog):
         self._ollama_model_combo = QComboBox()
         self._ollama_model_combo.setEditable(True)
         self._ollama_model_combo.currentTextChanged.connect(self.value_changed.emit)
-        self._ollama_model_combo.currentTextChanged.connect(self._validate_selected_model)
+        # Debounce per-keystroke validation so we don't fire a network probe on
+        # every character typed into the editable model box.
+        self._validate_debounce = QTimer(self)
+        self._validate_debounce.setSingleShot(True)
+        self._validate_debounce.setInterval(400)
+        self._validate_debounce.timeout.connect(self._validate_selected_model)
+        self._ollama_model_combo.currentTextChanged.connect(
+            lambda _=None: self._validate_debounce.start()
+        )
         model_row.addWidget(self._ollama_model_combo)
         self._ollama_refresh_btn = QPushButton("Refresh")
         self._ollama_refresh_btn.clicked.connect(self._refresh_ollama_models)
@@ -234,9 +247,14 @@ class SettingsDialog(QDialog):
 
         self._ollama_status_label = QLabel(f"Status: {ollama_status}" if ollama_status else "Status: unknown")
         self._ollama_restart_btn = QPushButton("Restart Ollama")
+        self._ollama_restart_btn.clicked.connect(self._refresh_ollama_models)
         ol_layout.addWidget(self._ollama_status_label)
         ol_layout.addWidget(self._ollama_restart_btn)
         llm_layout.addWidget(self._ollama_widget)
+
+        # Marshal background-thread results back onto the UI thread.
+        self._models_fetched.connect(self._apply_fetched_models)
+        self._model_validated.connect(self._apply_validation_result)
 
         self._ollama_model_combo.setCurrentText(ollama_model)
         QTimer.singleShot(500, self._refresh_ollama_models)
@@ -277,52 +295,74 @@ class SettingsDialog(QDialog):
         self.value_changed.emit()
 
     def _refresh_ollama_models(self) -> None:
+        """Probe Ollama for available models on a background thread."""
         url = self._ollama_url_edit.text().strip().rstrip("/")
-        try:
-            resp = requests.get(f"{url}/api/tags", timeout=3)
-            if resp.status_code == 200:
-                models = resp.json().get("models", [])
-                current = self._ollama_model_combo.currentText()
-                self._ollama_model_combo.blockSignals(True)
-                self._ollama_model_combo.clear()
-                for m in models:
-                    name = m.get("name", "")
-                    self._ollama_model_combo.addItem(name)
-                if current:
-                    idx = self._ollama_model_combo.findText(current)
-                    if idx >= 0:
-                        self._ollama_model_combo.setCurrentIndex(idx)
-                    else:
-                        self._ollama_model_combo.setCurrentText(current)
-                self._ollama_model_combo.blockSignals(False)
-        except requests.RequestException:
-            pass
+
+        def _work() -> None:
+            models: list[str] = []
+            try:
+                resp = requests.get(f"{url}/api/tags", timeout=3)
+                if resp.status_code == 200:
+                    models = [m.get("name", "") for m in resp.json().get("models", [])]
+            except requests.RequestException:
+                pass
+            self._models_fetched.emit(models)
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    @pyqtSlot(list)
+    def _apply_fetched_models(self, models: list) -> None:
+        """UI-thread: repopulate the model combo, preserving the current text."""
+        current = self._ollama_model_combo.currentText()
+        self._ollama_model_combo.blockSignals(True)
+        self._ollama_model_combo.clear()
+        for name in models:
+            if name:
+                self._ollama_model_combo.addItem(name)
+        if current:
+            idx = self._ollama_model_combo.findText(current)
+            if idx >= 0:
+                self._ollama_model_combo.setCurrentIndex(idx)
+            else:
+                self._ollama_model_combo.setCurrentText(current)
+        self._ollama_model_combo.blockSignals(False)
         self._validate_selected_model()
 
     def _validate_selected_model(self) -> None:
+        """Probe the selected model's capabilities on a background thread."""
         model = self._ollama_model_combo.currentText().strip()
         if not model:
-            self._ollama_status_label.setText("Status: no model selected")
+            self._model_validated.emit("Status: no model selected", "")
             return
         url = self._ollama_url_edit.text().strip().rstrip("/")
-        try:
-            resp = requests.post(f"{url}/api/show", json={"name": model}, timeout=3)
-            if resp.status_code == 200:
-                caps = resp.json().get("capabilities", [])
-                if "tools" not in caps:
-                    self._ollama_status_label.setText(
-                        "Status: warning (completion-only model, tool-calling disabled)"
-                    )
-                    self._ollama_status_label.setStyleSheet("color: #ff4444; font-weight: bold;")
+
+        def _work() -> None:
+            try:
+                resp = requests.post(f"{url}/api/show", json={"name": model}, timeout=3)
+                if resp.status_code == 200:
+                    caps = resp.json().get("capabilities", [])
+                    if "tools" not in caps:
+                        self._model_validated.emit(
+                            "Status: warning (completion-only model, tool-calling disabled)",
+                            "color: #ff4444; font-weight: bold;",
+                        )
+                    else:
+                        self._model_validated.emit(
+                            "Status: ready (supports tool-calling)",
+                            "color: #6BCB77; font-weight: bold;",
+                        )
                 else:
-                    self._ollama_status_label.setText("Status: ready (supports tool-calling)")
-                    self._ollama_status_label.setStyleSheet("color: #6BCB77; font-weight: bold;")
-            else:
-                self._ollama_status_label.setText("Status: unknown model details")
-                self._ollama_status_label.setStyleSheet("")
-        except requests.RequestException:
-            self._ollama_status_label.setText("Status: Ollama offline")
-            self._ollama_status_label.setStyleSheet("color: #ff4444;")
+                    self._model_validated.emit("Status: unknown model details", "")
+            except requests.RequestException:
+                self._model_validated.emit("Status: Ollama offline", "color: #ff4444;")
+
+        threading.Thread(target=_work, daemon=True).start()
+
+    @pyqtSlot(str, str)
+    def _apply_validation_result(self, status_text: str, style_sheet: str) -> None:
+        """UI-thread: apply the validation status label + style."""
+        self._ollama_status_label.setText(status_text)
+        self._ollama_status_label.setStyleSheet(style_sheet)
 
     def _get_voices(self) -> list[tuple[str, str]]:
         voices = [("en-US-GuyNeural", "Guy (Edge Neural)")]
