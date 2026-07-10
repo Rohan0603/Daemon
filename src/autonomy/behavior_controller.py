@@ -431,7 +431,7 @@ class BehaviorController:
 
         except Exception as e:
             logger.critical("CRASH in BehaviorController.tick: %s", e, exc_info=True)
-            raise
+            return
 
     # ── Trigger Dispatch (via EventBus) ──────────────────────────────
 
@@ -447,7 +447,10 @@ class BehaviorController:
         if self._fsm.current_state != PetState.IDLE:
             self._fsm.transition_to(PetState.IDLE)
         self._fsm.transition_to(PetState.AUTONOMOUS_THINKING)
-        self._set_gcd(8.0)
+        # Set short GCD so the bubble shows (replaces non-existent self._set_gcd)
+        self._gcd_expiry_timestamp = time.time() + 8.0
+        # Update debounce timestamp (monotonic clock)
+        self._last_autonomous_fire_time = time.monotonic()
         
         self._event_bus.emit_autonomous_trigger(
             mode=f"code_review:{file_path}",
@@ -493,6 +496,8 @@ class BehaviorController:
         
         # Set short GCD so the bubble shows
         self._gcd_expiry_timestamp = time.time() + 8.0
+        # Update debounce timestamp (monotonic clock)
+        self._last_autonomous_fire_time = time.monotonic()
         
         self._event_bus.emit_autonomous_trigger(
             mode=f"screen_time_roast:{app_name}",
@@ -509,7 +514,7 @@ class BehaviorController:
         if not self._should_fire_autonomous("active_chat"):
             return
 
-        self._last_autonomous_fire_time = time.time()
+        self._last_autonomous_fire_time = time.monotonic()
         draw_type = "code_assist" if self._in_ide_mode else "typing_reaction"
         from src.active_window import normalize_window_title
         ide_name = normalize_window_title(get_active_window_title()) if self._in_ide_mode else ""
@@ -532,7 +537,7 @@ class BehaviorController:
         if not self._should_fire_autonomous("joke"):
             return
 
-        self._last_autonomous_fire_time = time.time()
+        self._last_autonomous_fire_time = time.monotonic()
         self._event_bus.emit_autonomous_trigger(
             "joke", self._current_apm, self._idle_seconds
         )
@@ -549,7 +554,7 @@ class BehaviorController:
         if not self._should_fire_autonomous("boredom"):
             return
 
-        self._last_autonomous_fire_time = time.time()
+        self._last_autonomous_fire_time = time.monotonic()
         draw_type = "code_assist" if self._in_ide_mode else "idle_thought"
         from src.active_window import normalize_window_title
         ide_name = normalize_window_title(get_active_window_title()) if self._in_ide_mode else ""
@@ -727,19 +732,6 @@ def clear_screen_cache() -> None:
     _clear()
 
 
-def compute_dynamic_idle_threshold() -> float:
-    """Return an adaptive boredom threshold based on chattiness.
-
-    High-chattiness pets get bored faster (lower threshold).
-    Clamped to [30, BOREDOM_TIMEOUT_SEC * 5].
-    """
-    from src.config import config_get
-    chattiness = config_get("pet.chattiness", 5)
-    # base + scaling: low chattiness → much longer threshold
-    dynamic = float(BOREDOM_TIMEOUT_SEC) + (10 - chattiness) * 10
-    return max(30.0, min(float(BOREDOM_TIMEOUT_SEC * 5), dynamic))
-
-
-# ── Export public class ───────────────────────────────────────────
+# ── Export public class ──
 
 __all__ = ["BehaviorController"]

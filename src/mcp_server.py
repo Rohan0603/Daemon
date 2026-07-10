@@ -74,6 +74,10 @@ CONSENT_TOOL_MAP = {
     "simulate_keystroke": "allow_keyboard_injection",
     "move_mouse": "allow_mouse_interference",
     "browser_navigation": "allow_browser_redirection",
+    "get_screen_context": "allow_window_management",
+    "get_browser_context": "allow_browser_redirection",
+    "execute_os_action": "allow_window_management",
+    "trigger_pet_animation": "allow_intrusive_animations",
 }
 # Submit function for Pyodide compatibility
 def mcp_submit(event: str, data: dict = None) -> None:
@@ -258,7 +262,9 @@ def _create_fastmcp_app(server_thread):
     return app
 def _is_tool_allowed(server_thread, tool_name: str) -> tuple[bool, str]:
     """Check consent for *tool_name*. Returns (allowed, error_message)."""
-    config = server_thread._config
+    if server_thread is None:
+        return True, ""
+    config = getattr(server_thread, "_config", None)
     if config is None:
         return True, ""
 
@@ -272,6 +278,13 @@ def _is_tool_allowed(server_thread, tool_name: str) -> tuple[bool, str]:
         logger.warning("MCP Blocked: LLM attempted '%s' but '%s' is False", tool_name, consent_key)
         return False, msg
     return True, ""
+
+def extract_consent_config(nested_config: dict | None) -> dict:
+    """Return the 'consent' sub-dict from a nested daemon config (never None)."""
+    if not nested_config:
+        return {}
+    return nested_config.get("consent", {}) or {}
+
 def _handle_change_visual_state(server_thread, action: str, layer: str, duration_ms: int, target_x: int, target_y: int) -> dict:
     """Handle change_visual_state tool call."""
     allowed, err = _is_tool_allowed(server_thread, "change_visual_state")
@@ -398,8 +411,8 @@ def _handle_set_log_level(server_thread, level: str) -> dict:
     if level_val is None:
         return {"content": [{"type": "text", "text": f"Invalid level: {level_str}"}]}
 
-    _logging.getLogger().setLevel(level_val)
-    logger.info("Root logger level set to %s by MCP tool", level_str)
+    _logging.getLogger("src").setLevel(level_val)
+    logger.info("Daemon 'src' namespace logger level set to %s by MCP tool", level_str)
     return {"content": [{"type": "text", "text": f"Log level set to {level_str}"}]}
 def _handle_get_screen_time(server_thread) -> dict:
     """Handle get_screen_time tool call."""
@@ -500,7 +513,7 @@ def _handle_query_memory(server_thread, type: str, keyword: str, limit: int) -> 
     return {"content": [{"type": "text", "text": json.dumps(entries, indent=2)}]}
 def _handle_get_screen_context(server_thread) -> dict:
     """Handle get_screen_context tool call."""
-    allowed, err = _is_tool_allowed(server_thread, "allow_window_management")
+    allowed, err = _is_tool_allowed(server_thread, "get_screen_context")
     if not allowed:
         return {"content": [{"type": "text", "text": err}]}
 
@@ -514,7 +527,7 @@ def _handle_get_screen_context(server_thread) -> dict:
     return {"content": [{"type": "text", "text": result}]}
 def _handle_get_browser_context(server_thread) -> dict:
     """Handle get_browser_context tool call."""
-    allowed, err = _is_tool_allowed(server_thread, "allow_browser_redirection")
+    allowed, err = _is_tool_allowed(server_thread, "get_browser_context")
     if not allowed:
         return {"content": [{"type": "text", "text": err}]}
 
@@ -529,7 +542,7 @@ def _handle_get_browser_context(server_thread) -> dict:
 def _handle_execute_os_action(server_thread, action: str, x: int, y: int, text: str, use_clipboard: bool) -> dict:
     """Handle execute_os_action tool call."""
     # Check consent for window management if action requires it
-    allowed, err = _is_tool_allowed(server_thread, "allow_window_management")
+    allowed, err = _is_tool_allowed(server_thread, "execute_os_action")
     if not allowed:
         return {"content": [{"type": "text", "text": err}]}
 
@@ -562,6 +575,10 @@ def _handle_execute_os_action(server_thread, action: str, x: int, y: int, text: 
         return {"content": [{"type": "text", "text": f"Error executing action '{action}': {str(e)}"}]}
 def _handle_trigger_pet_animation(server_thread, state: str) -> dict:
     """Handle trigger_pet_animation tool call."""
+    allowed, err = _is_tool_allowed(server_thread, "trigger_pet_animation")
+    if not allowed:
+        return {"content": [{"type": "text", "text": err}]}
+
     # Map UI states to FSM actions
     FSM_TO_ACTION = {
         "IDLE": "idle",

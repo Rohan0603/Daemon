@@ -37,7 +37,7 @@ Transparent always-on-top Windows desktop companion built with PyQt6. Named **Da
 **Python:** use `py` (not `python` or `python3`) — Windows py launcher
 **Tests:** `py -m pytest tests/ -v`
 **Stack:** Python 3.14, PyQt6, pynput, ctypes (Win32), requests, comtypes, Pillow, pyttsx3
-**Test count:** 760 passed, 1 skipped across 57 test files
+**Test count:** 823 passed, 3 failed (pre-existing diary compaction, out of scope), 1 skipped across 57 test files
 
 ## Package Architecture (Phase 1 — completed 2026-06-23)
 
@@ -46,7 +46,7 @@ Canonical package layout with strict boundary guards (enforced by `tests/test_pa
 ```
 src/
 ├── system/       # OS-level: active_window, apm, click_through, screen_reader, tts, typing
-├── llm/          # LLM integration: context_manager, opencode_worker, strands_worker, sessions
+├── llm/          # LLM integration: context_manager, opencode_worker, sessions
 ├── autonomy/     # Autonomous behavior: behavior_controller, response_manager, response_pool, reactions
 ├── ui/           # Visual layer: pet_window, pet_renderer, context_menu, dialogs
 ├── (root)        # Remaining modules (memory, history, fsm, events, etc.)
@@ -406,7 +406,7 @@ All 9 emotions are now declared as `EmotionProfile` dataclasses in `EMOTION_PROF
 
 ---
 
-## MCP Server (13 Tools on port 4097)
+## MCP Server (23 Tools on port 4097)
 
 In-process JSON-RPC 2.0 HTTP server. SSE init at GET /sse, messages at POST /message.
 Also serves HTTP endpoints: `/health`, `/metrics`, `/log`.
@@ -426,6 +426,16 @@ Also serves HTTP endpoints: `/health`, `/metrics`, `/log`.
 | 11 | `move_mouse` | allow_mouse_interference | x, y, click |
 | 12 | `browser_navigation` | allow_browser_redirection | url (http/https only) |
 | 13 | `set_log_level` | — (always allowed) | level (DEBUG/INFO/WARNING/ERROR/CRITICAL) |
+| 14 | `get_screen_time` | — (always allowed) | — |
+| 15 | `get_recent_git_diff` | — (always allowed) | — |
+| 16 | `set_reminder` | — (always allowed) | message, time_minutes |
+| 17 | `get_reminders` | — (always allowed) | — |
+| 18 | `dismiss_reminder` | — (always allowed) | id |
+| 19 | `query_memory` | — (always allowed) | type, keyword, limit |
+| 20 | `get_screen_context` | allow_window_management | — |
+| 21 | `get_browser_context` | allow_browser_redirection | — |
+| 22 | `execute_os_action` | allow_window_management | action, x, y, text, use_clipboard |
+| 23 | `trigger_pet_animation` | allow_intrusive_animations | state |
 
 **HTTP Endpoints:**
 | Endpoint | Method | Description |
@@ -531,7 +541,10 @@ Single unified `ThoughtPool` with 4 item types:
 | `write_coalescer.py` | `WriteCoalescer(QObject)` | 8s QTimer batched flush for 5 dirty flags |
 | `persistence.py` | `save_state`, `load_state` | Atomic JSON state to data/.daemon_state.json |
 | `tts_worker.py` | `TTSWorker(QThread)` | edge_tts/pyttsx3 → pydub pitch shift → winsound playback |
-| `settings_dialog.py` | `SettingsDialog(QDialog)` | 4 tabs: Appearance, Voice, Boundaries (consent), Connections |
+| `settings_dialog.py` | `SettingsDialog(QDialog)` | 5 tabs: Mode, Appearance, Voice, Boundaries (consent), Connections. Provider switch (opencode↔Ollama) offloads all Ollama HTTP probes to a background thread; model validation is debounced; "Restart Ollama" re-probes |
+| `mode_manager.py` | `ModeManager`, `PetMode` | Single source of truth for DESKTOP_PET vs CODING_ASSISTANT mode; persisted to data/.daemon_mode.json |
+| `llm/ollama_manager.py` | `OllamaManager(QObject)` | Manages `ollama serve` lifecycle via QProcess + health timer; warms the model on a daemon thread (non-blocking) |
+| `llm/ollama_worker.py` | `OllamaWorker(QThread)` | Stateless Ollama HTTP bridge; maps MCP tools to Ollama native `tools`; falls back to opencode on parse failure |
 | `thought_log_dialog.py` | `ThoughtLogDialog(QDialog)` | Matrix-style green-on-black log viewer, 1s refresh |
 | `login_dialog.py` | `LoginDialog(QDialog)` | Kenny-persona email/password auth modal |
 | `fsm_bridge.py` | `FSMActionBridge(QObject)` | pyqtSignal relay: MCP thread → Qt main thread |

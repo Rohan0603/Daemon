@@ -411,5 +411,55 @@ class TestBehaviorControllerPriorityTree(unittest.TestCase):
             self.assertEqual(received[0].data["mode"], "active_chat")
 
 
+class TestCodeReviewRoast(unittest.TestCase):
+    def test_handle_file_edited_sets_gcd_without_error(self):
+        bc = _make_controller()
+        bc._fsm.current_state = PetState.IDLE
+        # handle_file_edited does `import random` locally, so patch the real
+        # random module (sys.modules["random"]), not the behavior_controller attribute.
+        with patch("random.random", return_value=0.0):
+            try:
+                bc.handle_file_edited("/tmp/foo.py")
+            except AttributeError as e:
+                self.fail(f"handle_file_edited raised AttributeError: {e}")
+        # GCD must be set ~8s in the future so the bubble can display
+        self.assertGreater(bc._gcd_expiry_timestamp, time.time())
+        # FSM must have been told to enter AUTONOMOUS_THINKING
+        bc._fsm.transition_to.assert_any_call(PetState.AUTONOMOUS_THINKING)
+
+
+class TestTickErrorHandling(unittest.TestCase):
+    def test_tick_swallows_exception(self):
+        bc = _make_controller()
+        bc._fsm.current_state = PetState.IDLE
+        with patch("src.autonomy.behavior_controller.get_active_window_title",
+                   side_effect=RuntimeError("boom")):
+            try:
+                bc.tick(1.0)
+            except Exception as e:
+                self.fail(f"tick() should not raise, but raised {e}")
+
+
+class TestRoastDebounce(unittest.TestCase):
+    def test_screen_time_roast_updates_fire_timestamp(self):
+        bc = _make_controller()
+        bc._fsm.current_state = PetState.IDLE
+        before = bc._last_autonomous_fire_time
+        bc._trigger_screen_time_roast("YouTube", 120)
+        self.assertGreater(bc._last_autonomous_fire_time, before)
+
+    def test_existing_fire_timestamps_use_monotonic(self):
+        bc = _make_controller()
+        bc._fsm.current_state = PetState.IDLE
+        # Bypass the debounce gate so the setter is reached
+        bc._should_fire_autonomous = lambda *a, **k: True
+        # Make time.time() (epoch ~1.7e9) and time.monotonic() (small) distinguishable
+        with patch("time.time", return_value=1_700_000_000.0), \
+             patch("time.monotonic", return_value=123.0):
+            bc._trigger_chat()
+        # Fixed code sets monotonic (123.0); buggy code would set time.time() (1.7e9)
+        self.assertEqual(bc._last_autonomous_fire_time, 123.0)
+
+
 if __name__ == "__main__":
     unittest.main()

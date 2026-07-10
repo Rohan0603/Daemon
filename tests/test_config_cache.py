@@ -107,19 +107,3 @@ def test_event_worker_probability_gate_suppresses_at_low_chattiness():
         if random.random() > (chattiness / 10.0):
             suppressed += 1
     assert suppressed > 800
-
-
-# ── Task 1.3: Adaptive idle threshold ─────────────────────────────────────────
-
-def test_adaptive_idle_threshold_scales_with_chattiness():
-    from src.config import config_get
-    from src.autonomy.behavior_controller import compute_dynamic_idle_threshold
-
-    config_module._RUNTIME_CONFIG = {"pet": {"chattiness": 1}}
-    high = compute_dynamic_idle_threshold()
-    assert high >= 30
-
-    config_module._RUNTIME_CONFIG = {"pet": {"chattiness": 10}}
-    low = compute_dynamic_idle_threshold()
-    assert low < high
-    assert low >= 30

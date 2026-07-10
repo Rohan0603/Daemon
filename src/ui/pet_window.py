@@ -277,7 +277,7 @@ class PetWindow(QWidget):
         self._action_layer = ActionLayer()
         self._fsm_bridge.action_triggered.connect(self._on_mcp_expression_action)
         self._fsm_bridge.action_requested.connect(self.trigger_state_override)
-        self._mcp_server = MCPServer(fsm_bridge=self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, history=self._history, config=self._config, action_layer=self._action_layer)
+        self._mcp_server = MCPServer(fsm_bridge=self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, history=self._history, config=self._config.get("consent", {}), action_layer=self._action_layer)
         self._write_coalescer = WriteCoalescer(
             memory=self._memory, history=self._history,
             memory_manager=self._firebase_mem,
@@ -866,6 +866,18 @@ class PetWindow(QWidget):
             self._summary_on_complete()
 
     def _finalize_quit(self) -> None:
+        if getattr(self, "_quit_finalized", False):
+            return
+        self._quit_finalized = True
+        # Stop any in-flight summary worker so it can't save after quit
+        summary_worker = getattr(self, "_summary_worker", None)
+        if summary_worker is not None and summary_worker.isRunning():
+            summary_worker.abort()
+            summary_worker.wait(2000)
+        # Clear the ghost-summary failsafe timer if still active
+        timer = getattr(self, "_shutdown_timer", None)
+        if timer is not None and timer.isActive():
+            timer.stop()
         if getattr(self, '_click_through', None) is not None:
             self._click_through.stop()
         self._mcp_server.stop()

@@ -4,11 +4,12 @@ import pytest
 import tempfile
 import os
 from pathlib import Path
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
 
 # Import the module we're testing
 from src.mcp_server import (
     MCPServerThread,
+    extract_consent_config,
     _validate_mcp_path,
     _validate_read_extension,
     _is_tool_allowed,
@@ -176,4 +177,71 @@ class TestMCPToolRegistration:
         result = _handle_get_screen_context(mock_thread)
         assert "content" in result
         # The result should be a string, not JSON (contrary to current implementation)
+
+
+class TestMCPConsentDangerousTools:
+    def _thread(self, consent):
+        t = Mock(spec=MCPServerThread)
+        t._config = consent
+        t._fsm_bridge = Mock()
+        t._action_layer = Mock()
+        return t
+
+    def test_execute_os_action_blocked_without_consent(self):
+        t = self._thread({"allow_window_management": False})
+        allowed, _ = _is_tool_allowed(t, "execute_os_action")
+        assert allowed is False
+        with patch("src.mcp_server.Application", create=True):
+            result = _handle_execute_os_action(t, "click", 1, 1, "", False)
+        assert any("blocked" in c["text"] for c in result["content"])
+
+    def test_get_screen_context_blocked_without_consent(self):
+        t = self._thread({"allow_window_management": False})
+        assert _is_tool_allowed(t, "get_screen_context")[0] is False
+
+    def test_get_browser_context_blocked_without_consent(self):
+        t = self._thread({"allow_browser_redirection": False})
+        assert _is_tool_allowed(t, "get_browser_context")[0] is False
+
+    def test_dangerous_tools_allowed_with_consent(self):
+        t = self._thread({"allow_window_management": True, "allow_browser_redirection": True})
+        assert _is_tool_allowed(t, "execute_os_action")[0] is True
+        assert _is_tool_allowed(t, "get_screen_context")[0] is True
+        assert _is_tool_allowed(t, "get_browser_context")[0] is True
+
+
+class TestExtractConsentConfig:
+    def test_pulls_subdict(self):
+        nested = {"consent": {"allow_window_management": True}, "llm": {}}
+        assert extract_consent_config(nested) == {"allow_window_management": True}
+
+    def test_missing_returns_empty(self):
+        assert extract_consent_config({"llm": {}}) == {}
+        assert extract_consent_config(None) == {}
+
+
+class TestSetLogLevel:
+    def test_scopes_to_app_namespace_not_root(self):
+        import logging
+        root_before = logging.getLogger().level
+        src_before = logging.getLogger("src").level
+        _handle_set_log_level(Mock(spec=MCPServerThread), "DEBUG")
+        try:
+            assert logging.getLogger().level == root_before
+            assert logging.getLogger("src").level == logging.DEBUG
+        finally:
+            # Restore original 'src' level to avoid leaking state into other tests
+            logging.getLogger("src").setLevel(src_before)
+
+
+class TestTriggerPetAnimationConsent:
+    def test_blocked_without_consent(self):
+        t = Mock(spec=MCPServerThread)
+        t._config = {"allow_intrusive_animations": False}
+        t._fsm_bridge = Mock()
+        t._action_layer = Mock()
+        # "fall" is an invalid state, but the consent check returns "blocked"
+        # before the invalid-state check, so gating is verified.
+        result = _handle_trigger_pet_animation(t, "fall")
+        assert any("blocked" in c["text"] for c in result["content"])
         # We'll accept whatever format is returned
