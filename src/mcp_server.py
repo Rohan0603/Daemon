@@ -100,6 +100,7 @@ class MCPServerThread(QThread):
         self._fsm_bridge = fsm_bridge
         self._action_layer = action_layer
         self._server = None
+        self._uvicorn_server = None
         self._stop_event = False
         logger.info("MCPServerThread initialized")
 
@@ -113,11 +114,15 @@ class MCPServerThread(QThread):
             logger.debug("pythoncom not available, continuing without CoInitialize")
 
         app = _create_fastmcp_app(self)
-
         self._server = app
+        import uvicorn
+        config = uvicorn.Config(
+            app.sse_app(), host="127.0.0.1", port=4097, log_level="error"
+        )
+        self._uvicorn_server = uvicorn.Server(config)
         try:
             logger.info("Starting FastMCP SSE server on port 4097")
-            app.run(transport='sse')
+            self._uvicorn_server.run()
         except Exception as e:
             logger.error("FastMCP SSE server error: %s", e)
             raise
@@ -131,12 +136,10 @@ class MCPServerThread(QThread):
     def stop(self):
         """Stop the FastMCP SSE server."""
         logger.info("Stopping FastMCP SSE server")
-        if self._server:
-            try:
-                self._server.shutdown()
-            except Exception as e:
-                logger.debug("Error during server shutdown: %s", e)
-            self._server = None
+        server = getattr(self, "_uvicorn_server", None)
+        if server is not None:
+            server.should_exit = True
+        self._server = None
         self._stop_event = True
 
 

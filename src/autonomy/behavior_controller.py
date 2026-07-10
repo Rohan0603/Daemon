@@ -648,7 +648,11 @@ class BehaviorController:
         """Return True if autonomous tick is allowed to fire right now."""
         # Global debounce: never fire more than once per 15s regardless of mode
         elapsed = time.monotonic() - self._last_autonomous_fire_time
-        if elapsed < 15.0:
+        # Guard against a mismatched seed clock (e.g. an epoch value from
+        # time.time() left by a stale .pyc). A hugely negative `elapsed` would
+        # otherwise make `elapsed < 15.0` always true and permanently block all
+        # autonomous triggers. Only block inside the genuine positive 0-15s window.
+        if 0 <= elapsed < 15.0:
             logger.debug("[%s] Skipping: debounce (%.1fs < 15s)", mode, elapsed)
             return False
         if mode == "boredom":

@@ -1,4 +1,6 @@
 # tests/test_ollama_worker.py
+import unittest
+
 import pytest
 from unittest.mock import patch, MagicMock
 from src.llm.ollama_worker import OllamaWorker
@@ -163,5 +165,17 @@ class TestOllamaWorker:
             assert "{user_nickname}" not in skill_md
             assert "Phonetics & Delivery" not in skill_md
 
+
+class TestGarbageFilterNickname(unittest.TestCase):
+    def test_blacklisted_literal_now_kept(self):
+        worker = OllamaWorker(prompt="hi", pet_id="kenny")
+        items = [{"dialogue": "garbage meat", "thought": "finally talked to me"}]
+        self.assertTrue(worker._filter_garbage_items(items))
+        self.assertEqual(len(items), 1)
+
+    def test_pure_punctuation_still_dropped(self):
+        worker = OllamaWorker(prompt="hi", pet_id="kenny")
+        items = [{"dialogue": "...", "thought": "x"}]
+        self.assertFalse(worker._filter_garbage_items(items))
 
 

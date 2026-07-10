@@ -441,17 +441,15 @@ class OllamaWorker(QThread):
         return "garbage meat"
 
     def _filter_garbage_items(self, items: list[dict]) -> bool:
-        nickname = self._get_user_nickname().lower().strip()
         valid = []
         for item in items:
             d = item.get("dialogue", "").strip()
             if not d or len(d) < 2:
                 continue
-            d_lower = d.lower()
-            if d_lower in (".", "..", "...", "…", "?", "??", "!!!", "garbage meat"):
-                continue
-            if d_lower == nickname:
-                continue
+            # Do NOT drop a reply merely because it equals the user's nickname.
+            # The persona legitimately addresses the user by name, and weak
+            # local models emit terse replies. Only drop contentless
+            # punctuation-only strings (e.g. "...").
             if re.fullmatch(r'[\s.,!?…\-_]+', d):
                 continue
             valid.append(item)

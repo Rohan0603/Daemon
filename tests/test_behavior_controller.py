@@ -461,5 +461,28 @@ class TestRoastDebounce(unittest.TestCase):
         self.assertEqual(bc._last_autonomous_fire_time, 123.0)
 
 
+class TestDebounceClockSafety(unittest.TestCase):
+    """Regression: a mismatched/epoch seed must NOT permanently block firing."""
+
+    def test_epoch_seed_does_not_permanently_block(self):
+        controller = _make_controller(opencode_enabled=True)
+        # Simulate the stale-.pyc bug: seed with an epoch (time.time()) value.
+        controller._last_autonomous_fire_time = time.time()
+        controller._autonomous_query_pending = False
+        self.assertTrue(
+            controller._should_fire_autonomous("active_chat"),
+            "epoch seed must not permanently block firing",
+        )
+
+    def test_recent_monotonic_seed_blocks_within_window(self):
+        controller = _make_controller(opencode_enabled=True)
+        controller._last_autonomous_fire_time = time.monotonic()
+        controller._autonomous_query_pending = False
+        self.assertFalse(
+            controller._should_fire_autonomous("active_chat"),
+            "recent fire must still be debounced within 15s",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
