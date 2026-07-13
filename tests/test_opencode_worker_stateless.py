@@ -143,8 +143,17 @@ def test_parse_strategy_jsonl():
 
 
 def test_parse_returns_fallback_for_garbage():
-    """_parse_response should return None for completely invalid input."""
+    """When all parse strategies fail, _parse_response returns None and
+    emits both error signals rather than silently wrapping as dialogue."""
     from src.llm.opencode_worker import OpencodeWorker
     worker = OpencodeWorker(prompt="test")
+
+    error_signals: list[str] = []
+    error_occurred_signals: list[str] = []
+    worker.error.connect(lambda e: error_signals.append(e))
+    worker.error_occurred.connect(lambda e: error_occurred_signals.append(e))
+
     result = worker._parse_response("This is not JSON at all. And definitely not a list.")
-    assert result == [{"dialogue": "This is not JSON at all. And definitely not a list.", "action": "idle", "type": "observation", "priority": 3, "thought": ""}]
+    assert result is None
+    assert error_signals == ["parse_failed"]
+    assert error_occurred_signals == ["parse_failed"]

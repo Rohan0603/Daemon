@@ -1,4 +1,5 @@
 import pytest
+import unittest
 from unittest.mock import MagicMock, patch
 from PyQt6.QtWidgets import QSystemTrayIcon
 from src.pet_window import PetWindow
@@ -253,3 +254,33 @@ def test_firestore_sync_timer_started_after_auth(safe_pet_window):
 
         assert safe_pet_window._firebase_available is True
         assert safe_pet_window._firestore_sync_timer.isActive()
+
+
+class TestOllamaSessionFallbackLogic(unittest.TestCase):
+    """Unit-tests for the session-flag check logic in PetWindow.__init__.
+    Tests the conditional expression in isolation (no full PetWindow construction)."""
+
+    def _effective_provider(self, config_engine: str, session_available: bool) -> str:
+        """Mirror the exact conditional in PetWindow.__init__."""
+        llm_provider = config_engine
+        if llm_provider == "ollama" and not session_available:
+            llm_provider = "opencode"
+        return llm_provider
+
+    def test_keeps_ollama_when_available_true(self):
+        assert self._effective_provider("ollama", True) == "ollama"
+
+    def test_falls_back_to_opencode_when_available_false(self):
+        assert self._effective_provider("ollama", False) == "opencode"
+
+    def test_opencode_config_unaffected_by_session_flag(self):
+        assert self._effective_provider("opencode", False) == "opencode"
+        assert self._effective_provider("opencode", True) == "opencode"
+
+    def test_default_true_means_no_override_when_probe_not_run(self):
+        """session_get('ollama_available', True) default means Ollama is assumed ok."""
+        from src.config import session_get, _SESSION
+        _SESSION.clear()  # simulate probe not running
+        result = session_get("ollama_available", True)
+        # default=True means we keep ollama when probe wasn't run
+        assert self._effective_provider("ollama", result) == "ollama"

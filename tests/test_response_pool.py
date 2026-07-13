@@ -63,3 +63,26 @@ def test_draw_by_type_returns_highest_priority_first(pool):
     ]
     result = pool.draw_by_type("idle_thought")
     assert result[0]["dialogue"] == "High"
+
+
+def test_refilling_flag_set_when_request_refill_fires():
+    """ThoughtPool._refilling must be True immediately after _request_refill."""
+    from src.autonomy.response_pool import ThoughtPool
+    pool = ThoughtPool(max_size=10, threshold=3, refill_count=5)
+    pool._refilling = False
+    # Disconnect the signal to avoid needing a Qt event loop
+    pool.refill_needed.disconnect() if pool.receivers(pool.refill_needed) > 0 else None
+    pool._request_refill()
+    assert pool._refilling is True
+
+
+def test_refilling_flag_cleared_after_on_refill_result():
+    """ThoughtPool._refilling must be False after on_refill_result completes."""
+    from src.autonomy.response_pool import ThoughtPool
+    pool = ThoughtPool(max_size=10, threshold=3, refill_count=5)
+    pool._refilling = True
+    pool.on_refill_result([
+        {"dialogue": "hello", "type": "idle_thought", "action": "idle",
+         "target_x": 0, "priority": 3, "thought": ""}
+    ])
+    assert pool._refilling is False

@@ -137,3 +137,47 @@ def test_validate_config_raises_on_missing_credentials_file():
         with patch("os.path.exists", return_value=False):
             validate_config(valid_cfg)
     assert "firebase.credentials_path file not found" in str(exc_info.value)
+
+
+# ── Session store ─────────────────────────────────────────────────────────────
+
+class TestSessionStore:
+    """session_set / session_get: non-persisted, GIL-safe, flat key-value store."""
+
+    def setup_method(self):
+        from src import config as cfg_module
+        cfg_module._SESSION.clear()
+
+    def test_get_returns_none_for_missing_key(self):
+        from src.config import session_get
+        assert session_get("nonexistent") is None
+
+    def test_get_returns_default_for_missing_key(self):
+        from src.config import session_get
+        assert session_get("nonexistent", default=False) is False
+        assert session_get("nonexistent", default=42) == 42
+
+    def test_set_then_get_roundtrip(self):
+        from src.config import session_set, session_get
+        session_set("ollama_available", True)
+        assert session_get("ollama_available") is True
+
+    def test_set_overwrites_previous_value(self):
+        from src.config import session_set, session_get
+        session_set("key", "first")
+        session_set("key", "second")
+        assert session_get("key") == "second"
+
+    def test_session_isolated_from_runtime_config(self):
+        """session_get must NOT read from _RUNTIME_CONFIG."""
+        from src.config import session_get, config_set
+        config_set("some_key", "config_value")
+        assert session_get("some_key") is None
+
+    def test_session_does_not_trigger_async_save(self, monkeypatch):
+        """session_set must not call _async_save."""
+        from src import config as cfg_module
+        save_called = []
+        monkeypatch.setattr(cfg_module, "_async_save", lambda: save_called.append(1))
+        cfg_module.session_set("x", 1)
+        assert save_called == []

@@ -40,6 +40,22 @@ sys.excepthook = _crash_hook
 _active_pet_window_ref = None
 
 
+def _probe_ollama_health() -> None:
+    """Probe the local Ollama server and record availability in the session store.
+
+    Uses a strict 200ms timeout — this is a port-reachability check only, not inference.
+    The result is written to session_get("ollama_available") and read by PetWindow.__init__.
+    This function never writes to daemon_config.json.
+    """
+    import requests as _req
+    from src.config import session_set
+    try:
+        r = _req.get("http://127.0.0.1:11434/api/tags", timeout=0.2)
+        session_set("ollama_available", r.ok)
+    except Exception:
+        session_set("ollama_available", False)
+
+
 def _emergency_flush(window: "PetWindow | None" = None) -> None:
     """Emergency data flush for atexit — last-resort save on abnormal exit.
 
@@ -214,6 +230,9 @@ def main() -> None:
             if key in storage_keys and isinstance(val, str) and not os.path.isabs(val):
                 val = os.path.normpath(os.path.join(project_root, val))
             setattr(constants, key, val)
+
+    # ── Ollama availability probe (session-only, does not write to disk) ─────
+    _probe_ollama_health()
 
     from src.observability import init_observability
     init_observability()

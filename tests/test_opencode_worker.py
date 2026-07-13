@@ -344,11 +344,46 @@ def test_parse_jsonl(qapp):
     assert len(result) == 2
 
 
-def test_parse_returns_fallback_for_garbage(qapp):
+def test_parse_emits_parse_failed_for_garbage(qapp):
+    """When all 4 parse strategies fail, _parse_response returns None and
+    emits both error signals. This prevents the FSM from getting stuck in
+    AUTONOMOUS_THINKING with no exit signal."""
     from src.llm.opencode_worker import OpencodeWorker
     worker = OpencodeWorker(prompt="test")
-    result = worker._parse_response("This is not JSON at all.")
-    assert result == [{"dialogue": "This is not JSON at all.", "action": "idle", "type": "observation", "priority": 3, "thought": ""}]
+
+    error_signals: list[str] = []
+    error_occurred_signals: list[str] = []
+    worker.error.connect(lambda e: error_signals.append(e))
+    worker.error_occurred.connect(lambda e: error_occurred_signals.append(e))
+
+    result = worker._parse_response("This is not JSON at all !!garbage!!")
+
+    assert result is None
+    assert error_signals == ["parse_failed"]
+    assert error_occurred_signals == ["parse_failed"]
+
+
+def test_parse_4_strategies_still_intact(qapp):
+    """The 4 parse strategies (direct, bracket, object, JSONL) must still work.
+    Only the final fallback sentinel is replaced — not the strategies above it."""
+    from src.llm.opencode_worker import OpencodeWorker
+    worker = OpencodeWorker(prompt="test")
+
+    # Strategy 1: direct JSON array
+    result = worker._parse_response('[{"dialogue": "hi", "type": "observation"}]')
+    assert result == [{"dialogue": "hi", "type": "observation"}]
+
+    # Strategy 2: bracket scan (array embedded in prose)
+    result = worker._parse_response('Here: [{"dialogue": "hi"}] done.')
+    assert result == [{"dialogue": "hi"}]
+
+    # Strategy 3: single object wrapped as list
+    result = worker._parse_response('{"dialogue": "hi", "type": "observation"}')
+    assert result == [{"dialogue": "hi", "type": "observation"}]
+
+    # Strategy 4: JSONL (multiple JSON objects, one per line)
+    result = worker._parse_response('{"dialogue": "a"}\n{"dialogue": "b"}')
+    assert isinstance(result, list) and len(result) == 2
 
 
 

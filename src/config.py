@@ -521,6 +521,26 @@ def _async_save() -> None:
         logger.warning("config async save failed: %s", exc)
 
 
+# ── Session store (non-persisted, GIL-safe, flat key-value) ─────────────────
+# For boot-time state shared across modules without disk I/O or circular imports.
+# RULES:
+#   - Keys must be flat strings (no dots). Values must be simple types (bool/str/int).
+#   - The CPython GIL makes single flat-key assignment atomic. Do not store nested dicts.
+#   - This dict is never written to daemon_config.json.
+
+_SESSION: dict = {}
+
+
+def session_set(key: str, value) -> None:
+    """Write *value* to the in-memory session store. Never persisted to disk."""
+    _SESSION[key] = value
+
+
+def session_get(key: str, default=None):
+    """Read from the session store. Returns *default* if *key* is absent."""
+    return _SESSION.get(key, default)
+
+
 def save_config(cfg: dict, path=None) -> None:
     """Write *cfg* to the JSON config file, creating parent dirs on demand."""
     save_path = path or CONFIG_PATH

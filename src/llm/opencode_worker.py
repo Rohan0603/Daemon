@@ -396,13 +396,13 @@ class OpencodeWorker(QThread):
         if items:
             return items
 
-        # Strategy N — free-form text: wrap as valid dialogue item
-        logger.info("All JSON parse strategies failed; wrapping as free-form dialogue")
-        truncated = raw[:400].strip()
-        if truncated:
-            return [{"dialogue": truncated, "action": "idle", "type": "observation",
-                     "priority": 3, "thought": ""}]
-        return []
+        # Strategy N — all strategies exhausted: signal failure explicitly.
+        # Do NOT silently wrap garbage as dialogue — that hides parse errors and
+        # leaves the FSM stuck in AUTONOMOUS_THINKING with no exit.
+        logger.warning("All JSON parse strategies failed; emitting parse_failed signal")
+        self.error.emit("parse_failed")
+        self.error_occurred.emit("parse_failed")
+        return None
 
     def _extract_brain_update(self, items: list[dict]) -> None:
         """Emit brain_update_ready if any item contains a brain_update field."""

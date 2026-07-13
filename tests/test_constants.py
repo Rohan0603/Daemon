@@ -22,3 +22,12 @@ def test_risky_keyword_actions_are_valid():
     for keyword, responses in RISKY_KEYWORDS.items():
         for item in responses:
             assert item["action"] in valid, f"{keyword}: {item['action']} not valid"
+
+
+def test_local_llm_url_constant():
+    from src.constants import LOCAL_LLM_URL
+    assert LOCAL_LLM_URL == "http://127.0.0.1:11434"
+
+def test_opencode_backup_url_constant():
+    from src.constants import OPENCODE_BACKUP_URL
+    assert OPENCODE_BACKUP_URL == "http://127.0.0.1:4096"

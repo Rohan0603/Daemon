@@ -125,11 +125,21 @@ class PetWindow(QWidget):
         QApplication.primaryScreen().geometryChanged.connect(self._on_screen_geometry_changed)
         QApplication.primaryScreen().availableGeometryChanged.connect(self._on_screen_geometry_changed)
 
-        from src.config import load_config
+        from src.config import load_config, session_get
         self._config = load_config()
         self._llm_provider = self._config.get("llm", {}).get("engine", "opencode")
-        self._ollama_manager = None
 
+        # Session-only fallback: if Ollama was unreachable at boot, use opencode
+        # for this session. daemon_config.json is NOT modified.
+        # default=True so modes without a health probe (--no-opencode) are unaffected.
+        if self._llm_provider == "ollama" and not session_get("ollama_available", True):
+            logger.warning(
+                "Ollama unavailable at boot — falling back to opencode for this session. "
+                "daemon_config.json is unchanged."
+            )
+            self._llm_provider = "opencode"
+
+        self._ollama_manager = None
         if self._llm_provider == "ollama":
             self._ensure_ollama_manager()
 
@@ -1160,6 +1170,8 @@ class PetWindow(QWidget):
             llm_model_id=self._config.get("llm", {}).get("model_id") or "gemini-2.5-flash",
             llm_api_key=self._config.get("llm", {}).get("api_key", ""),
             llm_server_url=self._config.get("llm", {}).get("server_url") or "http://127.0.0.1:4096",
+            local_llm_url=self._config.get("llm", {}).get("local_llm_url", "http://127.0.0.1:11434"),
+            opencode_backup_url=self._config.get("llm", {}).get("opencode_backup_url", "http://127.0.0.1:4096"),
             firebase_api_key=self._config.get("firebase", {}).get("api_key", ""),
             firebase_project_id=self._config.get("firebase", {}).get("project_id", ""),
             **self._saved_consent,
@@ -1207,6 +1219,11 @@ class PetWindow(QWidget):
         config_set("llm.engine", values.get("LLM_PROVIDER", "opencode"))
         config_set("llm.ollama_url", values.get("OLLAMA_URL", "http://127.0.0.1:11434"))
         config_set("llm.ollama_model", values.get("OLLAMA_MODEL", "llama3.2-1b-q8:latest"))
+
+        config_set("llm.local_llm_url",
+                   values.get("LOCAL_LLM_URL", "http://127.0.0.1:11434").strip() or "http://127.0.0.1:11434")
+        config_set("llm.opencode_backup_url",
+                   values.get("OPENCODE_BACKUP_URL", "http://127.0.0.1:4096").strip() or "http://127.0.0.1:4096")
 
         # Orchestrate the local Ollama lifecycle when the active brain changes.
         new_provider = values.get("LLM_PROVIDER", "opencode")

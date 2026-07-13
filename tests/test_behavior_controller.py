@@ -484,5 +484,52 @@ class TestDebounceClockSafety(unittest.TestCase):
         )
 
 
+class TestBordomGuardUsesRefillFlag(unittest.TestCase):
+    """_should_fire_autonomous('boredom') must gate on thought_pool._refilling,
+    not remaining() == 0."""
+
+    def _make_ctrl(self, refilling: bool, remaining: int) -> BehaviorController:
+        pool_mock = MagicMock()
+        pool_mock._refilling = refilling
+        pool_mock.remaining.return_value = remaining
+
+        arm_mock = MagicMock()
+        arm_mock.thought_pool = pool_mock
+        arm_mock.remaining.return_value = remaining
+
+        fsm_mock = MagicMock()
+        fsm_mock.current_state = PetState.IDLE
+
+        ctrl = _make_controller(
+            response_manager=arm_mock,
+            fsm=fsm_mock,
+            opencode_enabled=True,
+        )
+        ctrl._last_autonomous_fire_time = 0.0  # bypass debounce
+        ctrl._autonomous_query_pending = False
+        return ctrl
+
+    def test_skips_boredom_when_refill_in_flight(self):
+        """Boredom must be suppressed while a refill worker is running."""
+        ctrl = self._make_ctrl(refilling=True, remaining=0)
+        self.assertFalse(ctrl._should_fire_autonomous("boredom"))
+
+    def test_allows_boredom_when_not_refilling_even_if_empty(self):
+        """Empty pool with no refill in flight must still allow boredom to fire.
+        PetWindow falls through to _dispatch_trigger for a live LLM call."""
+        ctrl = self._make_ctrl(refilling=False, remaining=0)
+        self.assertTrue(ctrl._should_fire_autonomous("boredom"))
+
+    def test_allows_boredom_when_pool_has_items(self):
+        """Normal path: pool has items, no refill — must fire."""
+        ctrl = self._make_ctrl(refilling=False, remaining=5)
+        self.assertTrue(ctrl._should_fire_autonomous("boredom"))
+
+    def test_skips_boredom_when_refilling_even_if_pool_non_empty(self):
+        """Refill started but pool still has old items — skip to avoid double dispatch."""
+        ctrl = self._make_ctrl(refilling=True, remaining=3)
+        self.assertFalse(ctrl._should_fire_autonomous("boredom"))
+
+
 if __name__ == "__main__":
     unittest.main()

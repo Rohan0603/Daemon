@@ -109,3 +109,7 @@ ACTION_LOOK_AWAY_DURATION_MS  = 4000
 BEHAVIOR_TICK_MS = 1000
 FSM_TICK_MS = 33
 
+# ── Pipeline URLs (overridable via SettingsDialog Connections tab) ────────────
+LOCAL_LLM_URL: str = "http://127.0.0.1:11434"       # Ollama default port
+OPENCODE_BACKUP_URL: str = "http://127.0.0.1:4096"  # opencode serve default port
+

@@ -656,8 +656,8 @@ class BehaviorController:
             logger.debug("[%s] Skipping: debounce (%.1fs < 15s)", mode, elapsed)
             return False
         if mode == "boredom":
-            if self._response_manager.remaining() == 0:
-                logger.debug("[%s] Skipping: thought pool empty", mode)
+            if self._response_manager.thought_pool._refilling:
+                logger.debug("[%s] Skipping: refill in flight", mode)
                 return False
         elif not self._opencode_enabled:
             logger.debug("[%s] Skipping: opencode disabled", mode)
