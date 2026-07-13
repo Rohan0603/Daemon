@@ -4,12 +4,17 @@ import json, logging, re, requests
 from typing import Any
 from PyQt6.QtCore import QThread, pyqtSignal
 from src.config import config_get
-from pathlib import Path
+from src.llm.system_prompt import build_system_prompt, build_tool_directive
 
 logger = logging.getLogger(__name__)
 
 _NO_TOOLS_MODELS: set[str] = set()
- 
+
+# Static tool schema used ONLY when the live MCP server is unreachable (the
+# DaemonMCPClient cannot fetch a schema). It is deliberately minimal — every
+# real run uses the live schema from mcp_client so nothing drifts from
+# mcp_server.py. The system prompt itself is never hardcoded; it comes from
+# src.llm.system_prompt (the same SKILL.md opencode serve loads natively).
 OLLAMA_TOOLS = [
     {
         "type": "function",
@@ -87,57 +92,16 @@ class OllamaWorker(QThread):
         self._tools = None  # LLM tool schema, built lazily
 
     def _load_skill_md(self) -> str:
-        skill_path = Path(__file__).parent.parent.parent / ".opencode" / "skills" / self._pet_id / "SKILL.md"
-        text = ""
-        try:
-            if skill_path.exists():
-                raw_text = skill_path.read_text(encoding="utf-8")
-                text = self._summarize_for_ollama(raw_text)
-            else:
-                text = self._default_skill_fallback()
-        except Exception as exc:
-            logger.warning("Failed to load SKILL.md from %s: %s", skill_path, exc)
-            text = self._default_skill_fallback()
+        """Load the canonical Kenny system prompt (single source of truth).
 
-        # Substitute variable placeholders using Memory facts
-        facts = {}
+        Delegates to ``src.llm.system_prompt`` which reads the same SKILL.md
+        that opencode serve loads natively. Nothing here is hardcoded — the
+        persona comes from the file, placeholders are filled from Memory.
+        """
+        facts: dict = {}
         if self.parent() and hasattr(self.parent(), "_memory"):
             facts = self.parent()._memory.get_all()
-        user_nickname = facts.get("user_nickname", "garbage meat")
-        user_partner_name = facts.get("user_partner_name", "The Overseer")
-        user_engineer_name = facts.get("user_engineer_name", "Locksmith")
-
-        text = text.replace("{user_nickname}", user_nickname)
-        text = text.replace("{user_partner_name}", user_partner_name)
-        text = text.replace("{user_engineer_name}", user_engineer_name)
-        return text
-
-    def _summarize_for_ollama(self, text: str) -> str:
-        lines = text.splitlines()
-        keep = False
-        persona_lines = []
-        for line in lines:
-            stripped = line.strip()
-            if stripped == "## Identity & Obsession":
-                keep = True
-            if stripped.startswith("## Phonetics & Delivery"):
-                keep = False
-            if keep:
-                persona_lines.append(line)
-        raw = "\n".join(persona_lines)
-        result = (
-            "You are Kenny, a hyperactive desktop pet. "
-            "Keep responses brief and in-character.\n"
-            f"Persona:\n{raw[:1000]}"
-        )
-        logger.debug("_summarize_for_ollama: %d chars -> %d chars", len(text), len(result))
-        return result
-
-    def _default_skill_fallback(self) -> str:
-        return (
-            "You are Kenny, a hyperactive desktop pet with full system awareness. "
-            "You know the user's desktop context and react to their activity."
-        )
+        return build_system_prompt(self._pet_id, facts, compact=True)
 
     def abort(self) -> None:
         self._abort = True
@@ -194,11 +158,25 @@ class OllamaWorker(QThread):
             logger.warning("OllamaWorker.run exception: %s", exc)
             self._emit_error(str(exc))
 
+    MAX_TOOL_ITERATIONS = 10
+
     def _chat_completion(self, messages: list) -> str | None:
+        if self._abort:
+            return None
         if self._ollama_model in _NO_TOOLS_MODELS:
             self._tools_disabled = True
 
+        iteration = 0
         while True:
+            if self._abort:
+                logger.debug("_chat_completion: aborting")
+                return None
+
+            iteration += 1
+            if iteration > self.MAX_TOOL_ITERATIONS:
+                logger.warning("_chat_completion: exceeded max tool iterations (%d)", self.MAX_TOOL_ITERATIONS)
+                return None
+
             tools_enabled = not self._tools_disabled
             if tools_enabled:
                 self._ensure_tools()
@@ -211,14 +189,18 @@ class OllamaWorker(QThread):
             }
             if tools_enabled:
                 payload["tools"] = self._tools
+                messages[0] = {
+                    "role": "system",
+                    "content": self._skill_md + "\n\n" + build_tool_directive(self._tools),
+                }
             else:
                 payload["format"] = "json"
 
             system_size = len(messages[0]["content"]) if messages else 0
             user_size = len(messages[-1]["content"]) if messages else 0
-            logger.debug("_chat_completion: model=%s tools=%s timeout=%s msg_count=%d system=%d user=%d",
+            logger.debug("_chat_completion: model=%s tools=%s timeout=%s msg_count=%d system=%d user=%d iter=%d",
                           self._ollama_model, tools_enabled, self._post_timeout,
-                          len(messages), system_size, user_size)
+                          len(messages), system_size, user_size, iteration)
 
             try:
                 resp = requests.post(
@@ -227,7 +209,7 @@ class OllamaWorker(QThread):
                     timeout=self._post_timeout,
                 )
             except requests.exceptions.Timeout:
-                logger.warning("Ollama request timed out after %ss", self._post_timeout)
+                logger.warning("Ollama request timed out after %ss (iter=%d)", self._post_timeout, iteration)
                 self._timed_out = True
                 return None
 
@@ -265,7 +247,7 @@ class OllamaWorker(QThread):
                 if tc_id:
                     tool_msg["tool_call_id"] = tc_id
                 messages.append(tool_msg)
-            logger.debug("_chat_completion: looping after %d tool calls", len(tool_calls))
+            logger.debug("_chat_completion: looping after %d tool calls (iter=%d)", len(tool_calls), iteration)
 
     def _ensure_tools(self) -> None:
         """Build the LLM tool schema, preferring the live MCP server catalog.
@@ -323,6 +305,8 @@ class OllamaWorker(QThread):
         others = [t for t in OLLAMA_TOOLS if t["function"]["name"] != "change_visual_state"]
         return [change_state, *others]
 
+    _FALLBACK_TOOL_NAMES = frozenset({"change_visual_state", "send_system_toast", "read_clipboard"})
+
     def _execute_tool(self, name: str, args: dict) -> str:
         # Primary path: call the real MCP server so consent gating, validation
         # and FSM/expression routing all happen server-side (single source of
@@ -332,6 +316,7 @@ class OllamaWorker(QThread):
                 return self._mcp.call_tool(name, args)
             except Exception as exc:  # pragma: no cover - depends on runtime MCP state
                 logger.warning("OllamaWorker MCP call_tool failed for '%s': %s", name, exc)
+                return json.dumps({"error": f"Tool '{name}' failed: {exc}. Do NOT retry — proceed without it."})
         # Legacy fallback: emit signals; pet_window performs the action.
         if name == "change_visual_state":
             self.tool_call_requested.emit(name, args)
@@ -342,7 +327,9 @@ class OllamaWorker(QThread):
         elif name == "read_clipboard":
             self.read_clipboard_requested.emit()
             return json.dumps({"status": "ok", "note": "clipboard content dispatched to main thread"})
-        return json.dumps({"error": f"Unknown tool: {name}"})
+        return json.dumps({
+            "error": f"Tool '{name}' is not available. Available tools: {', '.join(sorted(self._FALLBACK_TOOL_NAMES))}. Do NOT retry — proceed without it."
+        })
 
     def _emit_error(self, msg: str) -> None:
         self.error.emit(msg)

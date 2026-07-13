@@ -7,11 +7,28 @@ import time
 import ctypes
 from PyQt6.QtCore import QThread, pyqtSignal
 from mcp.server.fastmcp import FastMCP
-from functools import lru_cache
+from functools import lru_cache, wraps
 
 from src.utils.security import get_safe_data_path
-
 logger = logging.getLogger(__name__)
+
+
+def _log_tool_call(func):
+    """Debug-log every MCP tool invocation with its tool name.
+
+    Applied to all ``_handle_*`` tool implementations via the auto-instrumentation
+    loop below so tool calls are identifiable in the logs without per-tool boilerplate.
+    """
+    tool_name = func.__name__
+    if tool_name.startswith("_handle_"):
+        tool_name = tool_name[len("_handle_"):]
+
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        logger.debug("[MCP] Tool called: %s", tool_name)
+        return func(*args, **kwargs)
+    return wrapper
+
 
 _PROJECT_ROOT = None
 def _get_project_root():
@@ -419,14 +436,12 @@ def _handle_set_log_level(server_thread, level: str) -> dict:
     return {"content": [{"type": "text", "text": f"Log level set to {level_str}"}]}
 def _handle_get_screen_time(server_thread) -> dict:
     """Handle get_screen_time tool call."""
-    logger.debug("[MCP] Tool called: get_screen_time")
     from src.persistence import load_state
     state = load_state()
     screen_time = state.get("screen_time", {})
     return {"content": [{"type": "text", "text": json.dumps(screen_time, indent=2)}]}
 def _handle_get_recent_git_diff(server_thread) -> dict:
     """Handle get_recent_git_diff tool call."""
-    logger.debug("[MCP] Tool called: get_recent_git_diff")
     import subprocess
     try:
         # First try to get staged diff
@@ -445,7 +460,6 @@ def _handle_get_recent_git_diff(server_thread) -> dict:
         return {"content": [{"type": "text", "text": f"Error: {str(e)}"}]}
 def _handle_set_reminder(server_thread, message: str, time_minutes: int) -> dict:
     """Handle set_reminder tool call."""
-    logger.debug(f"[MCP] Tool called: set_reminder with message: {message}")
     import concurrent.futures
     future = concurrent.futures.Future()
     data = {"message": message, "time_minutes": time_minutes, "future": future}
@@ -454,7 +468,6 @@ def _handle_set_reminder(server_thread, message: str, time_minutes: int) -> dict
     return {"content": [{"type": "text", "text": f"Reminder set with ID: {rem_id}"}]}
 def _handle_get_reminders(server_thread) -> dict:
     """Handle get_reminders tool call."""
-    logger.debug("[MCP] Tool called: get_reminders")
     import concurrent.futures
     future = concurrent.futures.Future()
     server_thread._fsm_bridge.reminder_request.emit("get", {"future": future})
@@ -462,7 +475,6 @@ def _handle_get_reminders(server_thread) -> dict:
     return {"content": [{"type": "text", "text": json.dumps(active, indent=2)}]}
 def _handle_dismiss_reminder(server_thread, id: str) -> dict:
     """Handle dismiss_reminder tool call."""
-    logger.debug(f"[MCP] Tool called: dismiss_reminder with id: {id}")
     import concurrent.futures
     future = concurrent.futures.Future()
     data = {"id": id, "future": future}
@@ -604,8 +616,17 @@ def _handle_trigger_pet_animation(server_thread, state: str) -> dict:
             return {"content": [{"type": "text", "text": f"Triggered expression animation: {state}"}]}
     else:
         return {"content": [{"type": "text", "text": f"Error: Invalid state '{state}'. Valid FSM states: {list(FSM_TO_ACTION.keys())}. Valid expression actions: {sorted(EXPRESSION_ACTIONS)}"}]}
-
     return {"content": [{"type": "text", "text": f"State '{state}' handled"}]}
+
+
+# ── Tool call instrumentation ──────────────────────────────────────────────
+# Auto-wrap every MCP tool handler with entry debug logging so tool calls are
+# identifiable in the logs. Runs once at import, after all _handle_* definitions.
+for _name, _func in list(globals().items()):
+    if _name.startswith("_handle_") and callable(_func):
+        globals()[_name] = _log_tool_call(_func)
+
+
 # Legacy tool implementations (copied from old mcp_server.py)
 def _read_clipboard() -> dict:
     """Read UTF-16 text from the Windows clipboard.

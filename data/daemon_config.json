@@ -1,6 +1,6 @@
 {
   "user": {
-    "uid": "03I23yUn4Wd7McOgNkjls4LUg2p2",
+    "uid": "uid1",
     "display_name": ""
   },
   "llm": {
@@ -11,9 +11,9 @@
     "timeout_sec": 180,
     "api_key": "",
     "ollama_url": "http://127.0.0.1:11434",
-    "ollama_model": "llama3.2-1b-q8:latest",
+    "ollama_model": "hf.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M",
     "modelfile_path": "data/Modelfile",
-    "engine": "opencode"
+    "engine": "ollama"
   },
   "pet": {
     "id": "kenny",

@@ -515,7 +515,7 @@ class PetWindow(QWidget):
 
         if self._pet_y > base_ground:
             self._pet_y = base_ground
-        elif self._pet_y < self._ground_y and self._fsm.current_state not in (PetState.FALLING, PetState.DRAGGED) and time.time() - getattr(self, '_last_land_time', 0) >= 0.5:
+        elif self._pet_y < self._ground_y and self._fsm.current_state not in (PetState.FALLING, PetState.DRAGGED, PetState.PERIMETER) and time.time() - getattr(self, '_last_land_time', 0) >= 0.5:
             self._fsm.transition_to(PetState.FALLING)
 
     def _cycle_hyper_color(self) -> None:
@@ -1271,7 +1271,7 @@ class PetWindow(QWidget):
                 pet_center_x = self._pet_x + PET_WIDTH // 2
                 
                 if pet_center_x < w_left or pet_center_x > w_right:
-                    if self._fsm.current_state in (PetState.IDLE, PetState.PERIMETER):
+                    if self._fsm.current_state == PetState.IDLE:
                         self._fsm.transition_to(PetState.PERIMETER)
                         self._perimeter_edge = "bottom"
                         self._perimeter_facing = "right" if pet_center_x < w_left else "left"

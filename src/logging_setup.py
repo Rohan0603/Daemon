@@ -151,6 +151,15 @@ def _apply_overrides(config_overrides: dict[str, str] | None) -> None:
         # httpcore noise: GeneratorExit during normal SSE teardown is harmless
         "httpcore.http11": "WARNING",
         "httpcore.connection": "WARNING",
+        # MCP/SSE handshake noise: dumps the full 23-tool catalog on every
+        # session handshake. INFO keeps structural messages, drops the
+        # byte-level `chunk:` / payload dumps that bloat logs (~200KB/run).
+        "mcp.server.sse": "INFO",
+        "mcp.client.sse": "INFO",
+        "sse_starlette.sse": "INFO",
+        "mcp.server.lowlevel.server": "INFO",
+        # asyncio proactor spam on Windows
+        "asyncio": "INFO",
     }
     if config_overrides:
         default_overrides.update(config_overrides)

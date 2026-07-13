@@ -312,11 +312,16 @@ def main() -> None:
     engine = cfg.get("llm", {}).get("engine", "opencode")
     opencode_server_url = DEFAULT_SERVER_URL
     opencode_api_key = cfg.get("llm", {}).get("api_key", "")
-    if not args.no_opencode and engine != "ollama":
-        if ensure_opencode_serve_running(url=opencode_server_url, api_key=opencode_api_key):
-            logger.debug("opencode serve ready at %s", opencode_server_url)
-        else:
-            logger.info("opencode serve not available; CLI fallback will be used")
+    if not args.no_opencode:
+        # opencode serve is intentionally spawned AFTER the in-process MCP
+        # server (port 4097) is up (see readiness gate below), so opencode
+        # discovers the daemon_fsm MCP server on first boot. Spawning it here
+        # first and then respawning it caused a connection-reset storm on any
+        # in-flight sessions (e.g. EventStreamWorker) — see commit history.
+        # It is started whenever opencode integration is enabled, not only
+        # when opencode is the primary engine: it is also required as the
+        # ollama->opencode fallback and for runtime provider switching.
+        logger.debug("opencode serve will start after MCP server (port 4097) is ready")
     # Also register atexit to clean up opencode serve on crash or abnormal exit
     atexit.register(stop_opencode_serve)
 
@@ -357,8 +362,10 @@ def main() -> None:
 
     # ── MCP readiness gate ────────────────────────────────────────────────
     # Wait for the in-process MCP server (port 4097) to start listening, then
-    # respawn opencode serve so it discovers the daemon_fsm MCP server.
-    if not args.no_opencode and engine != "ollama":
+    # spawn opencode serve ONCE so it discovers the daemon_fsm MCP server on
+    # first boot. Spawning earlier and respawning here caused a connection-reset
+    # storm (EventStreamWorker HTTP 10054) — a single spawn avoids that.
+    if not args.no_opencode:
         _mcp_ready = False
         _mcp_deadline = time.monotonic() + 10.0
         while time.monotonic() < _mcp_deadline:
@@ -368,11 +375,12 @@ def main() -> None:
                     break
             except OSError:
                 pass
-        if _mcp_ready:
-            logger.debug("MCP server ready on port 4097; respawning opencode serve to pick up daemon_fsm")
-            ensure_opencode_serve_running(url=opencode_server_url, api_key=opencode_api_key)
+        if ensure_opencode_serve_running(url=opencode_server_url, api_key=opencode_api_key):
+            logger.debug("opencode serve ready at %s (MCP server ready=%s)", opencode_server_url, _mcp_ready)
+        elif _mcp_ready:
+            logger.warning("opencode serve unavailable; daemon_fsm tools will not be exposed")
         else:
-            logger.warning("MCP server (port 4097) not ready within 10s; daemon_fsm tools may be unavailable")
+            logger.info("opencode serve not available; CLI fallback will be used")
 
     # Log boot timing summary
     boot_start = _boot_marks["config"]

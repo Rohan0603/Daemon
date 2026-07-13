@@ -6,10 +6,24 @@
 
 ## Project Snapshot
 
-**Last updated:** 2026-07-09
-**Branch:** `master` | **Latest commit:** `4441bb1` (TTS optimization)
+**Last updated:** 2026-07-11
+**Branch:** `master` | **Latest commit:** `58cddec` (MCP connection fix)
 **Stack:** Python 3.14, PyQt6, pynput, ctypes, requests, comtypes, Pillow, structlog, prometheus-client
-**Test count:** 800 passed, 1 skipped (35.25s)
+**Test count:** 853 passed, 1 skipped (40.08s)
+
+---
+
+## Recent Fix (2026-07-11): Pet cannot climb screen sides (PERIMETER)
+
+**Symptom:** Pet reaches a screen corner and should climb the vertical side edge, but immediately drops back to the ground.
+
+**Root cause:** `PetWindow._update_ground_y` (src/ui/pet_window.py:518) force-transitioned the pet into FALLING whenever `pet_y < ground_y` and it had been ≥0.5s since landing. While climbing a side edge (PERIMETER, `edge="right"/"left"`, `facing="up"/"down"`) the pet's y is intentionally above ground, so the guard fired on the very next tick and yanked it back down. A secondary guard in the "Seeking & Super Jump" block (pet_window.py:1274) could also reset a climbing pet back to the bottom edge because perimeter uses screen geometry while `current_rect` is the perched window's rect.
+
+**Fix:**
+- Excluded `PetState.PERIMETER` from the force-FALLING guard at pet_window.py:518.
+- Excluded `PetState.PERIMETER` from the Super-Jump reset at pet_window.py:1274 (only `IDLE` is reset now).
+
+**Tests added:** `tests/test_pet_window_unit.py` — `test_perimeter_climbing_not_forced_to_falling`, `test_idle_above_ground_still_forced_to_falling`, `test_tick_perimeter_climbs_up_side`.
 
 ---
 
@@ -202,3 +216,39 @@ Update `AGENTS.md` and this file (or an archive entry) after each task.
 **Known follow-ups (non-blocking):** remove now-dead _get_user_nickname in ollama_worker.py; ThoughtPool starvation / 180s Ollama timeout / two-stage-vs-single-stage docs drift were scoped out (downstream of fix #2).
 
 **Files changed:** src/autonomy/behavior_controller.py, src/llm/ollama_worker.py, src/mcp_server.py + 3 test files.
+
+---
+
+## 2026-07-11 — MCP Connection Fix (daemon_fsm)
+
+**Commit:** `58cddec`
+
+**Root cause (confirmed by opencode mcp list):** opencode.json registered daemon_fsm as `"url": "http://127.0.0.1:4097"` (root path) but FastMCP serves SSE at `/sse`. opencode's remote MCP client connected to root, got 404, and left the toolset disconnected. Additionally, opencode serve was spawned before the in-process MCP server on 4097 was ready, so even with `/sse` the initial connection would fail.
+
+**Fixes:**
+1. **`/sse` path** — `.opencode/opencode.json`: `"url": "http://127.0.0.1:4097"` → `"http://127.0.0.1:4097/sse"`
+2. **Boot ordering** — `daemon.py`: Added MCP readiness gate after PetWindow construction; polls port 4097 (10s timeout), then respawns opencode serve via `ensure_opencode_serve_running()` so it discovers the live daemon_fsm server.
+3. **Tool reinforcement** — `.opencode/skills/kenny/SKILL.md`: Added "User Physical Commands (MANDATORY)" section instructing the model to call `change_visual_state`/`trigger_pet_animation` for physical commands instead of only narrating.
+
+**Verification:** `py -m pytest tests/ -v` — 842 passed, 3 failed (pre-existing diary compaction), 1 skipped in 51.03s.
+
+**Files changed:** `.opencode/opencode.json`, `.opencode/skills/kenny/SKILL.md`, `daemon.py`
+
+---
+
+## 2026-07-11 — Fix "no response from opencode AND ollama" (stuck on "...")
+
+**Symptom reported:** Pet sits in THINKING with "..." forever for BOTH providers.
+
+**Root cause:** Both `OpencodeWorker` and `OllamaWorker` call `_ensure_tools()` → `build_client().get_tool_schema()` first. `src/llm/mcp_client.py` ran `asyncio.run(...)` with **no timeout**. A broken/half-open port 4097 (known: zombie Python from a prior run — AGENTS.md) makes the SSE `list_tools()` handshake block forever → worker never emits `response_ready`/`error` → pet stuck on "...". Confirmed via dead-port sim (accept-but-never-respond = infinite hang pre-fix).
+
+**Secondary regression (uncommitted `daemon.py`):** opencode serve startup was gated behind `engine != "ollama"`, so with `engine: "ollama"` opencode serve never started → opencode provider dead AND the ollama→opencode `parse_failed` fallback (`pet_window.py:1790`) dead.
+
+**Fixes:**
+1. `src/llm/mcp_client.py` — wrapped `list_tools`/`call_tool` in `asyncio.wait_for` (`LIST_TOOLS_TIMEOUT=8s`, `CALL_TOOL_TIMEOUT=10s`); `get_tool_schema()` catches failure → returns `[]` (worker proceeds without tools). Verified: dead port → `[]` in 8s; OllamaWorker still delivers via fallback tools.
+2. `daemon.py` — removed `engine != "ollama"` guard so opencode serve starts whenever `not args.no_opencode` (fallback + runtime provider switch).
+3. `tests/test_mcp_client.py` — added `test_get_tool_schema_returns_empty_on_failure_no_hang`.
+
+**Verification:** mcp_client + ollama_worker + opencode_worker + pet_window_tool_routing → 49 passed; new test passes.
+
+**User action:** If hang recurs, kill zombie Python on 4097 (`taskkill /F /IM python.exe`) — stale MCP server is the usual trigger.

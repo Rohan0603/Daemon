@@ -110,16 +110,32 @@ class DaemonMCPClient:
 
     # ── synchronous wrappers (workers are sync QThreads) ───────────────────
 
+    # Hard ceiling so a broken/slow MCP server can never hang a worker thread
+    # forever (e.g. a zombie process holding port 4097 that accepts the TCP
+    # connection but never completes the SSE/initialize handshake). Without
+    # this the LLM worker would block indefinitely and the pet would sit on
+    # "..." forever with no error.
+    LIST_TOOLS_TIMEOUT = 8.0
+    CALL_TOOL_TIMEOUT = 10.0
+
     def list_tools(self) -> list[dict]:
-        return asyncio.run(self._alist_tools())
+        return asyncio.run(self._with_timeout(self._alist_tools(), self.LIST_TOOLS_TIMEOUT))
 
     def call_tool(self, name: str, args: Optional[dict]) -> str:
-        return asyncio.run(self._acall_tool(name, args or {}))
+        return asyncio.run(self._with_timeout(self._acall_tool(name, args or {}), self.CALL_TOOL_TIMEOUT))
+
+    @staticmethod
+    async def _with_timeout(coro, seconds: float):
+        return await asyncio.wait_for(coro, timeout=seconds)
 
     def get_tool_schema(self, force_refresh: bool = False) -> list[dict]:
         with self._lock:
             if self._schema_cache is None or force_refresh:
-                self._schema_cache = self.list_tools()
+                try:
+                    self._schema_cache = self.list_tools()
+                except Exception as exc:  # timeout / connection / handshake errors
+                    logger.warning("MCP schema fetch failed (%s); tools disabled this run", exc)
+                    self._schema_cache = []
             return self._schema_cache
 
 

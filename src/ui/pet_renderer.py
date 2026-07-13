@@ -520,8 +520,8 @@ class PetRenderer:
             return  # hidden phase
 
         size = int(32 * ctx.scale)
-        x = ctx.pet_x + size // 2 - 4
-        y = ctx.pet_y + size - 8
+        x = int(ctx.pet_x) + size // 2 - 4
+        y = int(ctx.pet_y) + size - 8
 
         painter.save()
         painter.setPen(QColor(0, 255, 200, 220))  # bright cyan-green, slightly transparent

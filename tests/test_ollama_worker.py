@@ -156,6 +156,8 @@ class TestOllamaWorker:
         worker.parent = MagicMock(return_value=mock_parent)
         
         # Verify custom system prompt loader substitutes variables correctly
+        # and returns the FULL SKILL.md (no hardcoded persona slice / no
+        # second copy of Kenny). The single source is the SKILL.md file.
         with patch.object(Path, "exists", return_value=True), \
              patch.object(Path, "read_text", return_value="## Identity & Obsession\nIdentity: {user_nickname} deployed by {user_partner_name} for {user_engineer_name}\n## Phonetics & Delivery (CRITICAL - TTS reads verbatim)"):
             skill_md = worker._load_skill_md()
@@ -163,7 +165,8 @@ class TestOllamaWorker:
             assert "test_partner" in skill_md
             assert "test_engineer" in skill_md
             assert "{user_nickname}" not in skill_md
-            assert "Phonetics & Delivery" not in skill_md
+            # Full SKILL.md is returned, including the non-persona sections.
+            assert "Phonetics & Delivery" in skill_md
 
 
 class TestGarbageFilterNickname(unittest.TestCase):

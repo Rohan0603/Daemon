@@ -179,6 +179,61 @@ def test_firestore_sync_timer_stopped_on_shutdown(safe_pet_window):
 
 
 @pytest.mark.fast
+def test_perimeter_climbing_not_forced_to_falling(safe_pet_window, monkeypatch):
+    """Pet climbing a screen side (PERIMETER, above ground) must not be yanked into FALLING."""
+    from src.pet_fsm import PetState
+    ground = 900
+    monkeypatch.setattr(safe_pet_window, "_compute_ground_y", lambda: ground)
+    monkeypatch.setattr(safe_pet_window, "_get_logical_window_rect", lambda: None)
+    safe_pet_window._ground_y = ground
+    safe_pet_window._pet_y = ground - 50  # above ground while climbing
+    safe_pet_window._pet_x = 100
+    safe_pet_window._fsm.current_state = PetState.PERIMETER
+    safe_pet_window._perimeter_edge = "right"
+    safe_pet_window._perimeter_facing = "up"
+    safe_pet_window._last_land_time = 0.0  # long ago
+
+    safe_pet_window._update_ground_y()
+
+    assert safe_pet_window._fsm.current_state == PetState.PERIMETER
+    assert safe_pet_window._pet_y == ground - 50  # position preserved
+
+
+@pytest.mark.fast
+def test_idle_above_ground_still_forced_to_falling(safe_pet_window, monkeypatch):
+    """Guard still drops a non-perimeter pet that is above ground back into FALLING."""
+    from src.pet_fsm import PetState
+    ground = 900
+    monkeypatch.setattr(safe_pet_window, "_compute_ground_y", lambda: ground)
+    monkeypatch.setattr(safe_pet_window, "_get_logical_window_rect", lambda: None)
+    safe_pet_window._ground_y = ground
+    safe_pet_window._pet_y = ground - 120  # somehow above ground
+    safe_pet_window._pet_x = 100
+    safe_pet_window._fsm.current_state = PetState.IDLE
+    safe_pet_window._last_land_time = 0.0  # long ago
+
+    safe_pet_window._update_ground_y()
+
+    assert safe_pet_window._fsm.current_state == PetState.FALLING
+
+
+@pytest.mark.fast
+def test_tick_perimeter_climbs_up_side(safe_pet_window):
+    """On a vertical edge, _tick_perimeter must move the pet upward (toward y=0)."""
+    from src.pet_fsm import PetState
+    safe_pet_window._fsm.current_state = PetState.PERIMETER
+    safe_pet_window._perimeter_edge = "right"
+    safe_pet_window._perimeter_facing = "up"
+    safe_pet_window._pet_y = 500
+    safe_pet_window._pet_x = 100
+    before = safe_pet_window._pet_y
+
+    safe_pet_window._tick_perimeter()
+
+    assert safe_pet_window._pet_y < before  # climbed up
+
+
+@pytest.mark.fast
 def test_firestore_sync_timer_started_after_auth(safe_pet_window):
     """Timer is started when _on_boot_check_auth sets up Firebase."""
     with patch("src.firebase_crud.FirebaseCRUD") as mock_crud_cls, \

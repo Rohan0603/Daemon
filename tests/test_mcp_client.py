@@ -81,3 +81,21 @@ def test_list_and_call_tools_via_fake_session():
 def test_get_tool_schema_is_cached():
     client = DaemonMCPClient("http://127.0.0.1:4097/sse")
     assert client.get_tool_schema() is client.get_tool_schema()
+
+
+def test_get_tool_schema_returns_empty_on_failure_no_hang():
+    """A broken/slow MCP server (e.g. a zombie holding port 4097) must not
+    hang the worker thread forever — the call is bounded by a timeout and the
+    schema falls back to [] so the LLM request still proceeds."""
+    import asyncio
+
+    client = DaemonMCPClient("http://127.0.0.1:4097/sse")
+
+    def _boom(*a, **k):
+        raise asyncio.TimeoutError("simulated dead server")
+
+    client.list_tools = _boom
+    schema = client.get_tool_schema()
+    assert schema == [], "dead MCP server must fall back to empty schema"
+    # Second call must not retry the failing fetch (cached empty result).
+    assert client.get_tool_schema() == []

@@ -88,3 +88,25 @@ def test_draw_ide_cursor_returns_early_when_not_ide_mode():
         renderer._draw_ide_cursor(painter, ctx)
     except Exception as e:
         pytest.fail(f"raised: {e}")
+
+
+def test_draw_ide_cursor_handles_float_coords():
+    """Regression: pet_x/pet_y are floats at runtime; drawText needs int args.
+
+    Uses a REAL QPainter so the drawText(int, int, str) signature is enforced
+    (a MagicMock would silently swallow the float args and miss the crash).
+    """
+    from PyQt6.QtGui import QPixmap
+
+    renderer = PetRenderer()
+    # Non-integer coordinates mirror the real FSM physics output
+    ctx = _make_ctx(ide_mode=True, anim_tick=0, pet_x=100.7, pet_y=42.3)
+    pixmap = QPixmap(200, 200)
+    painter = QPainter(pixmap)
+    try:
+        renderer._draw_ide_cursor(painter, ctx)
+    except TypeError as e:
+        painter.end()
+        pytest.fail(f"_draw_ide_cursor rejected float coords: {e}")
+    finally:
+        painter.end()

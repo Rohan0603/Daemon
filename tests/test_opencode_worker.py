@@ -21,6 +21,41 @@ def _mock_response(status_code=200, json_payload=None, text=""):
 # ── Module-level tests ──────────────────────────────────────────────────────
 
 
+def test_to_opencode_tools_converts_openai_format():
+    from src.llm.opencode_worker import OpencodeWorker
+
+    openai_tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "change_visual_state",
+                "description": "Change the pet's visual state.",
+                "parameters": {"type": "object", "properties": {"action": {"type": "string"}}},
+            },
+        }
+    ]
+    converted = OpencodeWorker._to_opencode_tools(openai_tools)
+    assert len(converted) == 1
+    assert converted[0] == {
+        "name": "change_visual_state",
+        "description": "Change the pet's visual state.",
+        "input_schema": {"type": "object", "properties": {"action": {"type": "string"}}},
+    }
+
+
+def test_to_opencode_tools_skips_malformed_entries():
+    from src.llm.opencode_worker import OpencodeWorker
+
+    converted = OpencodeWorker._to_opencode_tools([{"type": "function"}, None, "junk"])
+    assert converted == []
+
+
+def test_to_opencode_tools_handles_none():
+    from src.llm.opencode_worker import OpencodeWorker
+
+    assert OpencodeWorker._to_opencode_tools(None) == []
+
+
 def test_module_logger_has_debug_method():
     from src.llm.opencode_worker import logger
     assert hasattr(logger, "debug")
