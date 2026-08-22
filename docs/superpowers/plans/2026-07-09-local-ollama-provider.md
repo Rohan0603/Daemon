@@ -647,7 +647,7 @@ Add to `assets/daemon_config_template.json` → `llm` section:
 ```json
 "llm": {
     "provider": "opencode",
-    "model_id": "opencode/deepseek-v4-flash-free",
+    "model_id": "opencode/nemotron-3.5-lightning-free",
     "provider": "opencode-zen",
     "server_url": "https://opencode.ai/zen/v1",
     "zen_api_key": "YOUR_ZEN_API_KEY_HERE",

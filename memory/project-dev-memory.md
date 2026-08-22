@@ -185,11 +185,50 @@
 
 ## What To Do Next
 
-All planned development phases through Phase 75+ are complete. Potential future work:
+### 🚀 Immediate Top Priority: Multi-Layer Interaction Architecture (Desktop & Code)
+
+*Design Spec:* `docs/superpowers/specs/2026-08-22-multi-layer-interaction-architecture-design.md`  
+*Implementation Plan:* `docs/superpowers/plans/2026-08-22-multi-layer-interaction-architecture.md`
+
+1. **Windows UI Interaction Layer:**
+   - **Semantic UIA Tree Engine (`src/system/uia_navigator.py`):** Structured accessibility tree inspection via Windows UI Automation API (`comtypes`/`UIAutomationCore`), programmatic `InvokePattern`/`ValuePattern` execution (fast, reliable, zero cursor movement).
+   - **Agentic Computer Use Vision Engine (`src/system/vision_controller.py`):** High-speed screenshot capture with coordinate grid / Set-of-Marks overlay, vision LLM `(x, y)` coordinate targeting, and smooth PyAutoGUI/Win32 `SendInput` cursor actions for custom canvas/game apps.
+
+2. **Code & Developer Integration Layer:**
+   - **Background File System Watcher (`src/system/fs_watcher.py`):** `watchdog`-based workspace monitoring with 500ms debouncing, pre-warming local AST & vector database cache on file saves.
+   - **Language Server Protocol (LSP) Integration (`src/system/lsp_client.py`):** JSON-RPC client connected to `tsserver`, `pyright`, `rust-analyzer`, etc., extracting real-time diagnostics, definitions, references, and syntax trees.
+   - **Native IDE WebSocket Bridge (`src/system/ide_bridge.py` + VS Code Extension):** Authenticated local WebSocket server (`127.0.0.1:4098`) pairing with a lightweight IDE extension for atomic code insertion, automatic formatting, and live cursor/selection tracking.
+
+3. **Persisted Memory: Cloud Firestore Native Vector DB & RAG (100% Free / Spark Plan):**
+   - *Design Spec:* `docs/superpowers/specs/2026-08-22-firestore-vector-rag-memory-design.md` | *Plan:* `docs/superpowers/plans/2026-08-22-firestore-vector-rag-memory.md`
+   - **Client-side Embeddings:** Generate 384-dim embeddings locally via ONNX/`fastembed` (`all-MiniLM-L6-v2`) or local Ollama `/api/embeddings`, avoiding paid Firebase Extensions / Cloud Functions on Blaze.
+   - **Firestore Native `find_nearest` kNN Queries:** Store `Vector` types on memory documents and query with distance metrics directly over client SDK within the 50k daily free read quota.
+   - **RAG Context Integration (`src/memory/rag_retriever.py`):** Semantic retrieval of top-K relevant memories/diaries on user questions, with offline local cosine similarity fallback.
+
+| Interaction Method | How It Works | Best For | Limitation |
+| :--- | :--- | :--- | :--- |
+| **UI Automation (UIA)** | Reads OS accessibility tree programmatically. | Navigating Windows menus, native apps, web forms. | Fails if app does not support accessibility APIs. |
+| **Computer Vision** | Takes screenshots, calculates screen coordinates. | Legacy apps, complex UI dashboards, games. | Higher latency; vulnerable to screen resolution changes. |
+| **File Watching** | Background process monitoring workspace changes. | Immediate context synchronization, vector DB updates. | Passive observation; cannot interact with UI components. |
+| **LSP Integration** | Connects directly to language servers (`tsserver`, etc.). | Deep codebase understanding, diagnostics, refactoring. | Strictly limited to code syntax and semantics. |
+| **Native IDE Extension** | WebSocket bridge to IDE extension (VS Code/JetBrains). | Atomic code insertion, diff application, editor state. | Requires installing the editor extension. |
+| **Firestore Vector RAG** | Client-side embeddings + native Firestore kNN search. | Semantic memory recall, diary search, zero Cloud Functions cost. | Limited to 50k reads/day on Spark; requires client embeddings. |
+
+### Secondary / Future Backlog
 - EventStreamWorker 401/403 handling (declined, not yet worth it)
 - Constants.py domain split (skipped, YAGNI)
 - Sensitive data redaction filter (skipped, low-value until prod)
 - Multi-pet support (core infrastructure exists, UI work pending)
+
+---
+
+### 🎯 Ultimate End Goal (Release Milestone): Packaging, Distribution & Shipping
+*Design Spec:* `docs/superpowers/specs/2026-08-22-packaging-and-distribution-design.md` | *Plan:* `docs/superpowers/plans/2026-08-22-packaging-and-distribution.md`
+
+- **Standalone PyInstaller Build (`daemon.spec`):** Full bundle of PyQt6, FastMCP, Uvicorn, background workers, assets, and standalone bundled FFmpeg binaries (zero external dependencies).
+- **First-Run Onboarding Wizard (`src/ui/onboarding_wizard.py`):** 3-step setup dialog for Firebase Auth / Guest Mode, LLM engine selection (Opencode / Local Ollama), and consent boundaries.
+- **Native Windows Setup (`DaemonSetup.exe` via Inno Setup):** Standard user install (`%LOCALAPPDATA%\Daemon`), Desktop & Start Menu shortcuts, "Run on Startup" toggle, and clean uninstaller preserving user memory.
+- **Auto-Updater Pipeline (`src/system/auto_updater.py`):** GitHub Releases integration with in-app update checks and silent downloads.
 
 ---
 
