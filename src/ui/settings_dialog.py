@@ -218,6 +218,7 @@ class SettingsDialog(QDialog):
         oc_layout.addWidget(QLabel("Server URL:"))
         oc_layout.addWidget(self._llm_server_url)
         llm_layout.addWidget(self._opencode_widget)
+        llm_layout.addStretch(1)
 
         # Ollama fields
         self._ollama_widget = QWidget()
@@ -246,13 +247,8 @@ class SettingsDialog(QDialog):
         ol_layout.addWidget(QLabel("Ollama URL:"))
         ol_layout.addWidget(self._ollama_url_edit)
         ol_layout.addLayout(model_row)
-
-        self._ollama_status_label = QLabel(f"Status: {ollama_status}" if ollama_status else "Status: unknown")
-        self._ollama_restart_btn = QPushButton("Restart Ollama")
-        self._ollama_restart_btn.clicked.connect(self._refresh_ollama_models)
-        ol_layout.addWidget(self._ollama_status_label)
-        ol_layout.addWidget(self._ollama_restart_btn)
         llm_layout.addWidget(self._ollama_widget)
+        llm_layout.addStretch(1)
 
         # Marshal background-thread results back onto the UI thread.
         self._models_fetched.connect(self._apply_fetched_models)
@@ -304,8 +300,9 @@ class SettingsDialog(QDialog):
         is_ollama = self._provider_combo.currentData() == "ollama"
         self._opencode_widget.setVisible(not is_ollama)
         self._ollama_widget.setVisible(is_ollama)
-        if is_ollama:
-            self._refresh_ollama_models()
+        self._opencode_widget.updateGeometry()
+        self._ollama_widget.updateGeometry()
+        QApplication.processEvents()
         self.value_changed.emit()
 
     def _refresh_ollama_models(self) -> None:

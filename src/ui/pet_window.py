@@ -1995,10 +1995,14 @@ class PetWindow(QWidget):
         if self._bubble_timer_ms > 0:
             if len(self._bubble_queue) >= BUBBLE_QUEUE_MAX_SIZE:
                 logger.debug("_show_bubble dropped (queue full): '%s'", text)
+                self._tts.enqueue(text)
+                self.update()
                 return
             import time as _time
             self._bubble_queue.append((text, _time.time()))
-            logger.info("_show_bubble queued: '%s' (queue size: %d)", text, len(self._bubble_queue))
+            self._start_typewriter(text)
+            self._tts.enqueue(text)
+            self.update()
             return
         pages = self._paginate_text(text)
         if len(pages) > 1:

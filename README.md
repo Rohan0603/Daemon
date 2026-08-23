@@ -6,6 +6,49 @@ A mischievous, always-on-top Windows desktop pet built with PyQt6. Lives on your
 
 - **IDE Coding Assistant Mode** — automatically detects when you're in VS Code, PyCharm, IntelliJ, or other IDEs; switches to a teal-tinted body, blinking terminal cursor, and `code_assist`-type autonomous prompts for coding-focused interaction.
 
+## Run the Fine-Tuning Notebook on Kaggle
+
+`daemon.ipynb` is configured for Kaggle GPU execution through the Kaggle CLI. The
+root-level `kernel-metadata.json` targets the private kernel
+`rohanponnanna06/daemon-kenny-finetune` with GPU and internet access enabled.
+
+### One-time setup
+
+Install the official CLI and authenticate with Kaggle OAuth:
+
+```powershell
+py -m pip install kaggle
+py -m kaggle auth login
+```
+
+The login flow opens a browser. Do not put API tokens in the notebook or commit
+credential files to the repository.
+
+### Submit from VS Code
+
+Run these commands from the repository root:
+
+```powershell
+# Upload daemon.ipynb and start a Kaggle GPU run
+py -m kaggle kernels push -p .
+
+# Check the remote run
+py -m kaggle kernels status rohanponnanna06/daemon-kenny-finetune
+
+# Download generated files after the run finishes
+py -m kaggle kernels output rohanponnanna06/daemon-kenny-finetune -p kaggle-output
+```
+
+Open the remote notebook at
+`https://www.kaggle.com/code/rohanponnanna06/daemon-kenny-finetune` to view live
+logs and the GPU session. Kaggle executes the notebook remotely; it does not
+provide its hosted GPU as a live interactive Jupyter kernel that VS Code can
+attach to. Edit locally, push again, and download outputs when the run is done.
+
+The notebook expects the training dataset at the `DATASET_PATH` defined in its
+dataset-loading cell. Update that Kaggle input path if the dataset slug or file
+name changes.
+
 ---
 
 ## Architecture Overview
