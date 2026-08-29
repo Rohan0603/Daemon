@@ -87,3 +87,14 @@ class TestSettingsDialog:
         assert values["allow_clipboard_hijacking"] is False
         assert values["allow_mouse_interference"] is False
         assert values["allow_keyboard_injection"] is False
+
+    def test_feature_toggles_default_enabled_and_persist_values(self, app):
+        dialog = SettingsDialog()
+        assert all(dialog.get_values()[key] is True for key in (
+            "feature_pet_interaction", "feature_activity_tracking",
+            "feature_autonomous_behavior", "feature_memory_sync",
+            "feature_code_intelligence", "feature_desktop_interaction",
+        ))
+        dialog._feature_checkboxes["feature_code_intelligence"].setChecked(False)
+        assert dialog.get_values()["feature_code_intelligence"] is False
+        assert dialog._tabs.tabText(3) == "Capabilities"

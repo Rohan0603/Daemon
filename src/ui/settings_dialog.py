@@ -2,7 +2,7 @@
 from __future__ import annotations
 import threading
 from PyQt6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
+    QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
     QCheckBox, QComboBox, QDialogButtonBox,
     QGroupBox, QTabWidget, QWidget, QLineEdit,
     QPushButton, QApplication,
@@ -36,6 +36,12 @@ class SettingsDialog(QDialog):
                  allow_mouse_interference: bool = False,
                  allow_keyboard_injection: bool = False,
                  allow_window_management: bool = False,
+                 feature_pet_interaction: bool = True,
+                 feature_activity_tracking: bool = True,
+                 feature_autonomous_behavior: bool = True,
+                 feature_memory_sync: bool = True,
+                 feature_code_intelligence: bool = True,
+                 feature_desktop_interaction: bool = True,
                  llm_provider: str = "opencode",
                  ollama_url: str = "http://127.0.0.1:11434",
                  ollama_model: str = "llama3.2-1b-q8:latest",
@@ -49,7 +55,7 @@ class SettingsDialog(QDialog):
                  parent=None):
         super().__init__(parent)
         self.setWindowTitle("Daemon Settings")
-        self.setFixedSize(450, 520)
+        self.setFixedSize(500, 620)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
@@ -136,9 +142,29 @@ class SettingsDialog(QDialog):
         tab2_layout.addStretch()
         self._tabs.addTab(tab2, "Voice")
 
-        # --- Tab 3: Boundaries ---
+        # --- Tab 3: Capabilities and boundaries ---
         tab3 = QWidget()
         tab3_layout = QVBoxLayout(tab3)
+        tab3_layout.addWidget(QLabel("Choose capabilities to enable. All are enabled by default."))
+
+        feature_groups = (
+            ("Core pet interaction", "feature_pet_interaction", feature_pet_interaction),
+            ("System activity awareness", "feature_activity_tracking", feature_activity_tracking),
+            ("Autonomous behavior and thoughts", "feature_autonomous_behavior", feature_autonomous_behavior),
+            ("Memory and cloud synchronization", "feature_memory_sync", feature_memory_sync),
+            ("Code intelligence (file watcher and LSP)", "feature_code_intelligence", feature_code_intelligence),
+            ("Desktop interaction (UIA and vision)", "feature_desktop_interaction", feature_desktop_interaction),
+        )
+        self._feature_checkboxes = {}
+        features_group = QGroupBox("Main functionalities")
+        features_layout = QVBoxLayout(features_group)
+        for label_text, key, checked in feature_groups:
+            checkbox = QCheckBox(label_text)
+            checkbox.setChecked(checked)
+            checkbox.toggled.connect(self.value_changed.emit)
+            features_layout.addWidget(checkbox)
+            self._feature_checkboxes[key] = checkbox
+        tab3_layout.addWidget(features_group)
 
         tier1 = QGroupBox("Tier 1: Passive Annoyance (Low Risk)")
         tier1_layout = QVBoxLayout(tier1)
@@ -182,9 +208,9 @@ class SettingsDialog(QDialog):
         tab3_layout.addWidget(tier3)
 
         tab3_layout.addStretch()
-        self._tabs.addTab(tab3, "Boundaries")
+        self._tabs.addTab(tab3, "Capabilities")
 
-        # --- Tab 4: Connections ---
+        # --- Tab 5: Connections ---
         tab4 = QWidget()
         tab4_layout = QVBoxLayout(tab4)
         
@@ -471,6 +497,7 @@ class SettingsDialog(QDialog):
             "allow_mouse_interference": self._cb_mouse_interference.isChecked(),
             "allow_keyboard_injection": self._cb_keyboard_injection.isChecked(),
             "allow_window_management": self._cb_window_management.isChecked(),
+            **{key: checkbox.isChecked() for key, checkbox in self._feature_checkboxes.items()},
             "LLM_PROVIDER": self._provider_combo.currentData(),
             "OLLAMA_URL": self._ollama_url_edit.text(),
             "OLLAMA_MODEL": self._ollama_model_combo.currentText(),

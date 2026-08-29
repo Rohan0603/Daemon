@@ -14,6 +14,7 @@ from src.brain_schema import (
     apply_brain_update,
 )
 from src.firebase_crud import FirebaseCRUD
+from src.memory.embedding_engine import EmbeddingEngine
 
 
 class MemoryManager:
@@ -28,6 +29,7 @@ class MemoryManager:
         self._cached_user_data: dict = {}
         self._user_data_cache_time: float = 0.0
         self._USER_DATA_CACHE_TTL: float = 30.0
+        self._embedding_engine = EmbeddingEngine()
 
     @property
     def _brain_collection(self) -> str:
@@ -183,6 +185,24 @@ class MemoryManager:
 
         if not user_facts and not pet_facts:
             logger.info("[MemoryManager] sync_from_local: no relevant facts to push (all non-schema keys)")
+        self._write_vector_records(facts)
+
+    def _write_vector_records(self, facts: dict) -> None:
+        """Write searchable sidecar documents while retaining structured brain data."""
+        engine = getattr(self, "_embedding_engine", None)
+        if engine is None:
+            engine = self._embedding_engine = EmbeddingEngine()
+        collection = f"{self._brain_collection}/{self._brain_doc_id}/memories"
+        for key, value in facts.items():
+            if key not in _BRAIN_SCHEMA:
+                continue
+            content = str(value)
+            self.crud.set(collection, f"memory_{key}", {
+                "source": "core_brain",
+                "key": key,
+                "content": content,
+                "embedding": engine.embed(content),
+            }, merge=True)
 
     # ── Diary (local file during session, Firebase only at startup/quit) ──────
 

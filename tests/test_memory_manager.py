@@ -352,7 +352,7 @@ def test_sync_from_local_pushes_memory_facts(tmp_path):
     mock_crud.get.assert_any_call("users", "test-uid")
     mock_crud.get.assert_any_call("users/test-uid/pets", "kenny")
 
-    assert mock_crud.set.call_count == 2
+    assert mock_crud.set.call_count == 4
     user_call = mock_crud.set.call_args_list[0]
     pet_call = mock_crud.set.call_args_list[1]
     assert user_call[0][0] == "users"

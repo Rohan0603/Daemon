@@ -40,6 +40,14 @@
     "allow_window_management": false,
     "allow_keyboard_injection": false
   },
+  "features": {
+    "pet_interaction": true,
+    "activity_tracking": true,
+    "autonomous_behavior": true,
+    "memory_sync": true,
+    "code_intelligence": true,
+    "desktop_interaction": true
+  },
   "window": {
     "monitor": false
   },
@@ -50,6 +58,11 @@
   "mcp": {
     "host": "127.0.0.1",
     "port": 4097
+  },
+  "ide_bridge": {
+    "host": "127.0.0.1",
+    "port": 4098,
+    "token": ""
   },
   "behavior": {
     "apm_hyper_threshold": 150,

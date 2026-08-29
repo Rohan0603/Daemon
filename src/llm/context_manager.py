@@ -65,9 +65,10 @@ def _xml_escape(text: str) -> str:
 
 
 class ContextManager:
-    def __init__(self, memory: "Memory", history: "History") -> None:
+    def __init__(self, memory: "Memory", history: "History", rag_retriever=None) -> None:
         self._memory = memory
         self._history = history
+        self._rag_retriever = rag_retriever
         self._snapshot: dict = {}
         self._cached_prompt: str | None = None
         self._cache_key: tuple | None = None
@@ -90,7 +91,14 @@ class ContextManager:
         if not facts:
             return ""
         items = [f"{k}: {v[0] if isinstance(v, list) else v}" for k, v in list(facts.items())[:5]]
-        return "Memory: " + " | ".join(items)
+        block = "Memory: " + " | ".join(items)
+        if self._rag_retriever is not None:
+            related = self._rag_retriever.retrieve("current context", limit=3)
+            if related:
+                block += "\nRelated semantic memory: " + " | ".join(
+                    str(item.get("content", "")) for item in related
+                )
+        return block
 
     def _build_persona_tokens(self) -> str:
         facts = self._memory.get_all() if getattr(self, "_memory", None) else {}

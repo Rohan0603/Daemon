@@ -3,6 +3,7 @@ import logging
 import time
 import uuid
 from urllib.parse import quote
+from typing import Sequence
 
 import requests
 from src.config import load_config
@@ -231,3 +232,50 @@ class FirebaseCRUD:
     ) -> list[str]:
         docs = self.query(collection, order_by=order_by, limit=limit, ascending=ascending)
         return [d[text_field] for d in docs if d.get(text_field)]
+
+    def find_nearest_vector(
+        self,
+        collection: str,
+        vector: Sequence[float],
+        *,
+        limit: int = 5,
+        vector_field: str = "embedding",
+        distance_measure: str = "COSINE",
+        category_field: str | None = None,
+        category_value: str | None = None,
+    ) -> list[dict]:
+        """Run Firestore native kNN search with optional category pre-filter."""
+        if not vector:
+            raise ValueError("vector must not be empty")
+        if not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        if distance_measure not in {"COSINE", "EUCLIDEAN", "DOT_PRODUCT"}:
+            raise ValueError("unsupported distance measure")
+        if (category_field is None) != (category_value is None):
+            raise ValueError("category_field and category_value must be provided together")
+
+        def _do():
+            ref = self._client.collection(collection)
+            if category_field is not None:
+                ref = ref.where(category_field, "==", category_value)
+            try:
+                from google.cloud.firestore_v1.vector import Vector
+                query_vector = Vector(list(vector))
+            except ImportError:
+                query_vector = list(vector)
+            query = ref.find_nearest(
+                vector_field=vector_field,
+                query_vector=query_vector,
+                distance_measure=distance_measure,
+                limit=limit,
+                distance_result_field="vector_distance",
+            )
+            results = []
+            for snapshot in query.stream():
+                item = snapshot.to_dict() or {}
+                item.setdefault("id", snapshot.id)
+                results.append(item)
+            return results
+
+        result = self._with_retry(_do)
+        return result or []

@@ -266,6 +266,48 @@
 2. **Code & Developer Integration Layer:**
    - **Background File System Watcher (`src/system/fs_watcher.py`):** `watchdog`-based workspace monitoring with 500ms debouncing, pre-warming local AST & vector database cache on file saves.
    - **Language Server Protocol (LSP) Integration (`src/system/lsp_client.py`):** JSON-RPC client connected to `tsserver`, `pyright`, `rust-analyzer`, etc., extracting real-time diagnostics, definitions, references, and syntax trees.
+
+## 2026-08-29 - Categorized Capability Toggles
+
+- Added one Settings → Capabilities tab containing categorized feature toggles plus existing consent boundaries.
+- All feature toggles default to enabled and persist through existing nested configuration save path.
+- MCP desktop and code tools honor feature toggles while retaining separate consent gates.
+- Added settings and MCP feature-gate tests.
+
+## 2026-08-29 - Client-Side Embedding Engine (Phase 1 complete)
+
+- Added `src/memory/embedding_engine.py` with normalized 384-dimensional embeddings, Ollama `/api/embeddings` support, dependency-free offline hashing fallback, LRU caching, batch embedding, and cosine similarity.
+- Added deterministic provider, cache, validation, and Ollama response tests.
+- Verification: embedding tests pass; next implementation priority is Firestore native vector search.
+
+## 2026-08-29 - Firestore Native Vector Search (Phase 2 complete)
+
+- Added `FirebaseCRUD.find_nearest_vector()` with native Firestore `Vector` conversion, COSINE/EUCLIDEAN/DOT_PRODUCT validation, result IDs, limits, retries, and optional category pre-filtering.
+- Added mocked Firestore vector query tests.
+- Verification: focused vector CRUD tests pass; next implementation priority is semantic RAG retrieval.
+
+## 2026-08-29 - Semantic RAG Retriever (Phase 3 foundation)
+
+- Added hybrid `RAGRetriever` using embedding queries, Firestore kNN when available, local cosine-ranked fallback, score thresholds, and bounded results.
+- Added online/offline retrieval tests.
+- Verification: focused RAG tests pass; remaining Phase 3 work is ContextManager and MCP wiring.
+- ContextManager accepts optional RAG retrieval and MCP exposes `query_semantic_memory`; feature is gated by `memory_sync`.
+
+## 2026-08-29 - Legacy vector migration
+
+- Added `scripts/migrate_to_vector_db.py` to vectorize legacy memory facts and diary entries into a preserved sidecar.
+- Supports dry-run, deterministic offline embeddings, missing input stores, and non-mutating source reads.
+- Verification: RAG, MCP, and migration focused tests pass (7 passed).
+- MemoryManager now dual-writes vector sidecar documents under each pet's `memories` collection while preserving structured brain fields.
+
+## 2026-08-29 - Native IDE WebSocket Bridge (Phase 5 complete)
+
+- Added authenticated localhost `IDEBridge` on `127.0.0.1:4098` with context synchronization and editor operation protocol handlers.
+- Added minimal VS Code extension under `extensions/vscode-daemon/`.
+- Added bridge validation and dispatch tests.
+- Verification: 3 bridge tests passed; websocket dependency added to requirements.
+- Next implementation priority: client-side embedding engine.
+
    - **Native IDE WebSocket Bridge (`src/system/ide_bridge.py` + VS Code Extension):** Authenticated local WebSocket server (`127.0.0.1:4098`) pairing with a lightweight IDE extension for atomic code insertion, automatic formatting, and live cursor/selection tracking.
 
 3. **Persisted Memory: Cloud Firestore Native Vector DB & RAG (100% Free / Spark Plan):**

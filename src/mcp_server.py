@@ -99,6 +99,21 @@ CONSENT_TOOL_MAP = {
     "vision_capture_screen": "allow_window_management",
     "vision_click_coordinate": "allow_mouse_interference",
 }
+FEATURE_TOOL_MAP = {
+    "change_visual_state": "pet_interaction",
+    "trigger_pet_animation": "pet_interaction",
+    "read_clipboard": "desktop_interaction",
+    "capture_blackmail_evidence": "desktop_interaction",
+    "get_screen_context": "desktop_interaction",
+    "get_browser_context": "desktop_interaction",
+    "uia_get_window_tree": "desktop_interaction",
+    "uia_interact_element": "desktop_interaction",
+    "vision_capture_screen": "desktop_interaction",
+    "vision_click_coordinate": "desktop_interaction",
+    "lsp_get_diagnostics": "code_intelligence",
+    "lsp_get_symbol_info": "code_intelligence",
+    "query_semantic_memory": "memory_sync",
+}
 # Submit function for Pyodide compatibility
 def mcp_submit(event: str, data: dict = None) -> None:
     """Send an event to the event system (Pyodide compatibility)."""
@@ -111,7 +126,8 @@ def mcp_submit(event: str, data: dict = None) -> None:
     submit_event(data)
 class MCPServerThread(QThread):
     """QThread wrapper for FastMCP SSE server."""
-    def __init__(self, memory=None, diary_store=None, history=None, config=None, fsm_bridge=None, action_layer=None):
+    def __init__(self, memory=None, diary_store=None, history=None, config=None,
+                 fsm_bridge=None, action_layer=None, features=None):
         super().__init__()
         self._memory = memory
         self._diary_store = diary_store
@@ -119,6 +135,7 @@ class MCPServerThread(QThread):
         self._config = config
         self._fsm_bridge = fsm_bridge
         self._action_layer = action_layer
+        self._features = features or {}
         self._server = None
         self._uvicorn_server = None
         self._stop_event = False
@@ -263,6 +280,14 @@ def _create_fastmcp_app(server_thread):
         return _handle_query_memory(server_thread, type, keyword, limit)
 
     @app.tool()
+    def query_semantic_memory(query: str, limit: int = 5) -> dict:
+        """Search indexed memory and diary records by semantic similarity."""
+        retriever = getattr(server_thread, "_rag_retriever", None)
+        if retriever is None:
+            return {"error": "Semantic memory is not configured"}
+        return retriever.retrieve(query, limit)
+
+    @app.tool()
     def get_screen_context() -> dict:
         """Returns pruned UIA XML (depth 7) from the active window."""
         return _handle_get_screen_context(server_thread)
@@ -337,6 +362,12 @@ def _is_tool_allowed(server_thread, tool_name: str) -> tuple[bool, str]:
     config = getattr(server_thread, "_config", None)
     if config is None:
         return True, ""
+
+    feature_key = FEATURE_TOOL_MAP.get(tool_name)
+    if feature_key is not None and not getattr(server_thread, "_features", {}).get(feature_key, True):
+        msg = f"ERROR: User has disabled feature 'features.{feature_key}'. Tool '{tool_name}' blocked."
+        logger.info("MCP feature disabled: %s (%s)", tool_name, feature_key)
+        return False, msg
 
     consent_key = CONSENT_TOOL_MAP.get(tool_name)
     if consent_key is None:

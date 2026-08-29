@@ -26,28 +26,37 @@
   - Direct JSON-RPC connection to language servers (`tsserver`, `pyright`, `rust-analyzer`, `gopls`).
   - Real-time compiler diagnostics, type info, definition/reference lookup, and AST syntax trees.
   - MCP Tools: `lsp_get_diagnostics`, `lsp_get_symbol_info` (definitions and references).
-- [ ] **Native IDE WebSocket Bridge (`src/system/ide_bridge.py` + VS Code Extension)**:
+- [x] **Native IDE WebSocket Bridge (`src/system/ide_bridge.py` + VS Code Extension)**:
   - Local authenticated WebSocket server on `127.0.0.1:4098`.
   - Atomic code insertion, diff application, and automatic formatting directly in editor.
   - Real-time cursor position, active selection, and open tab synchronization.
+### User Capability Controls
+- [x] Categorized feature toggles in Settings → Capabilities, merged with consent boundaries:
+  - Core pet interaction
+  - System activity awareness
+  - Autonomous behavior and thoughts
+  - Memory and cloud synchronization
+  - Code intelligence (file watcher and LSP)
+  - Desktop interaction (UIA and vision)
+  - All capabilities default to enabled; disabled desktop/code MCP tools are blocked.
 
 ### 3. Persisted Memory: Cloud Firestore Native Vector DB & RAG (100% Free on Spark Plan)
 *Design Spec:* `docs/superpowers/specs/2026-08-22-firestore-vector-rag-memory-design.md`  
 *Implementation Plan:* `docs/superpowers/plans/2026-08-22-firestore-vector-rag-memory.md`
 
-- [ ] **Client-Side Embedding Engine (`src/memory/embedding_engine.py`)**:
+- [x] **Client-Side Embedding Engine (`src/memory/embedding_engine.py`)**:
   - Local embedding generation (e.g. `all-MiniLM-L6-v2` via ONNX/`fastembed` or Ollama `/api/embeddings`).
   - Completely eliminates paid Firebase Extensions (which require Blaze pay-as-you-go + Cloud Functions).
   - 384-dimensional vector embedding generation with LRU caching.
-- [ ] **Firestore Native Vector Query & kNN Search (`src/firebase_crud.py`)**:
+- [x] **Firestore Native Vector Query & kNN Search (`src/firebase_crud.py`)**:
   - Store vector embeddings using Firestore's native `Vector` type on documents under `users/{uid}/pets/{pet_id}/memories`.
   - Execute `collection.find_nearest()` kNN queries directly via client SDK.
   - Quota optimization: 1 read per 100 index entries scanned + 1 read per returned result document (stays well under the 50,000 daily free read limit).
-- [ ] **Semantic RAG Retrieval Pipeline (`src/memory/rag_retriever.py`)**:
+- [x] **Semantic RAG Retrieval Pipeline (`src/memory/rag_retriever.py`)**:
   - Context-aware retrieval of top-K relevant memories and diary entries on user questions or autonomous triggers.
   - Local cosine similarity fallback on cached JSON records during offline/network failure.
   - MCP Tool: `query_semantic_memory(query, limit=5)`.
-- [ ] **Legacy Memory Migration Script (`scripts/migrate_to_vector_db.py`)**:
+- [x] **Legacy Memory Migration Script (`scripts/migrate_to_vector_db.py`)**:
   - Vectorizes existing `core_brain` and historical diary entries into semantic chunks with embeddings.
 
 | Interaction Method | How It Works | Best For | Limitation |

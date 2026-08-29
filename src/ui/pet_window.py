@@ -279,7 +279,13 @@ class PetWindow(QWidget):
         self._action_layer = ActionLayer()
         self._fsm_bridge.action_triggered.connect(self._on_mcp_expression_action)
         self._fsm_bridge.action_requested.connect(self.trigger_state_override)
-        self._mcp_server = MCPServer(fsm_bridge=self._fsm_bridge, memory=self._memory, diary_store=self._diary_store, history=self._history, config=self._config.get("consent", {}), action_layer=self._action_layer)
+        self._mcp_server = MCPServer(
+            fsm_bridge=self._fsm_bridge, memory=self._memory,
+            diary_store=self._diary_store, history=self._history,
+            config=self._config.get("consent", {}),
+            features=self._config.get("features", {}),
+            action_layer=self._action_layer,
+        )
         self._write_coalescer = WriteCoalescer(
             memory=self._memory, history=self._history,
             memory_manager=self._firebase_mem,
@@ -1154,6 +1160,13 @@ class PetWindow(QWidget):
                 "allow_keyboard_injection": False,
             }.items()
         }
+        self._saved_features = {
+            f"feature_{key}": self._config.get("features", {}).get(key, True)
+            for key in (
+                "pet_interaction", "activity_tracking", "autonomous_behavior",
+                "memory_sync", "code_intelligence", "desktop_interaction",
+            )
+        }
 
         dialog = SettingsDialog(
             pet_scale=self._pet_scale,
@@ -1175,6 +1188,7 @@ class PetWindow(QWidget):
             opencode_backup_url=self._config.get("llm", {}).get("opencode_backup_url", "http://127.0.0.1:4096"),
             firebase_project_id=self._config.get("firebase", {}).get("project_id", ""),
             **self._saved_consent,
+            **self._saved_features,
             parent=self,
         )
         dialog.value_changed.connect(lambda: self._apply_settings(dialog.get_values()))
@@ -1206,7 +1220,14 @@ class PetWindow(QWidget):
                         "allow_mouse_interference", "allow_window_management",
                         "allow_keyboard_injection")
         consent_state = {k: values.get(k, False) for k in consent_keys}
-        logger.info("Consent Matrix updated by user: %s", consent_state)
+        feature_keys = (
+            "feature_pet_interaction", "feature_activity_tracking",
+            "feature_autonomous_behavior", "feature_memory_sync",
+            "feature_code_intelligence", "feature_desktop_interaction",
+        )
+        feature_state = {k: values.get(k, True) for k in feature_keys}
+        logger.info("Capability settings updated by user: consent=%s features=%s",
+                    consent_state, feature_state)
         
         # Convert the flat UI dictionary back into the nested config structure
         nested_cfg = unflatten_config(values)
@@ -1215,6 +1236,7 @@ class PetWindow(QWidget):
         self._config = nested_cfg
         if self._mcp_server:
             self._mcp_server._config = self._config.get("consent", {})
+            self._mcp_server._features = self._config.get("features", {})
 
         # Push runtime config changes for Ollama so workers pick them up instantly
         config_set("llm.engine", values.get("LLM_PROVIDER", "opencode"))
@@ -3087,6 +3109,4 @@ class PetWindow(QWidget):
         except Exception as e:
             logger.warning("Opencode API session close failed (ignored): %s", e)
         self._opencode_session_id = None
-
-
 

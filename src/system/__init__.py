@@ -9,6 +9,7 @@ from .uia_navigator import UIANavigator
 from .vision_controller import VisionController
 from .fs_watcher import WorkspaceFileWatcher
 from .lsp_client import LSPClient, LSPError
+from .ide_bridge import IDEBridge
 
 __all__ = [
     "APMWorker", "ClickThroughManager", "EventStreamWorker",
@@ -16,4 +17,5 @@ __all__ = [
     "WorkspaceFileWatcher",
     "LSPClient", "LSPError",
     "get_active_window_title", "normalize_window_title",
+    "IDEBridge",
 ]
