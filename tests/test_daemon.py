@@ -38,6 +38,24 @@ def test_crash_dump_not_rotated_when_missing(tmp_path):
     assert not crash_log.exists()
 
 
+def test_ensure_ffmpeg_on_path_finds_any_winget_version(tmp_path, monkeypatch):
+    import os
+
+    package_bin = (
+        tmp_path / "Microsoft" / "WinGet" / "Packages"
+        / "Gyan.FFmpeg.Shared_Test" / "ffmpeg-8.0.1-full_build" / "bin"
+    )
+    package_bin.mkdir(parents=True)
+    (package_bin / "ffmpeg.exe").write_bytes(b"")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setenv("PATH", "")
+
+    from daemon import _ensure_ffmpeg_on_path
+    _ensure_ffmpeg_on_path()
+
+    assert str(package_bin) in os.environ["PATH"]
+
+
 def test_probe_ollama_sets_available_true(monkeypatch):
     """When GET /api/tags returns ok=True, session is set to True."""
     from unittest.mock import MagicMock, patch

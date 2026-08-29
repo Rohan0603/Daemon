@@ -2,10 +2,11 @@ import logging
 import os
 import sys
 import time
+import json
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
-from src.log_context import CorrelationIdDefault
+from src.log_context import CorrelationIdDefault, RepeatedEventFilter, SafeLogFilter
 
 _LOG_FORMAT = "[%(asctime)s] [%(levelname)-7s] [%(name)s] [cid=%(correlation_id)s] %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -41,6 +42,7 @@ def setup_logging(
     backup_count: int = 5,
     json_output: bool = False,
     config_overrides: dict[str, str] | None = None,
+    settings_path: str | None = None,
 ) -> None:
     """Configure logging with optional structlog JSON output.
 
@@ -52,8 +54,10 @@ def setup_logging(
     import warnings
     # Suppress Strands deprecation: `**kwargs` parameter is deprecating
     warnings.filterwarnings("ignore", message="`\\*\\*kwargs` parameter is deprecating")
+    settings = _load_settings(settings_path)
+    root_level = "DEBUG" if debug else settings.get("level", "INFO")
     root = logging.getLogger()
-    root.setLevel(logging.DEBUG if debug else logging.INFO)
+    set_global_log_level(root_level, root=root)
     root.handlers.clear()
 
     # ── Optional structlog JSON output ────────────────────────────────────
@@ -86,6 +90,8 @@ def setup_logging(
             console = logging.StreamHandler(sys.stdout)
             console.setLevel(root.level)
             console.setFormatter(json_formatter)
+            console.addFilter(SafeLogFilter())
+            console.addFilter(RepeatedEventFilter(max_repeats=100))
             root.addHandler(console)
 
             # File handler formatter: JSON as well (structured is the point)
@@ -95,7 +101,7 @@ def setup_logging(
 
             _add_file_handler(root, file_formatter, log_dir, max_bytes, backup_count)
             _cleanup_old_logs(log_dir)
-            _apply_overrides(config_overrides)
+            _apply_overrides({**settings.get("levels", {}), **(config_overrides or {})})
             logging.captureWarnings(True)
             return
         except ImportError:
@@ -107,12 +113,50 @@ def setup_logging(
     console = logging.StreamHandler()
     console.setLevel(root.level)
     console.setFormatter(formatter)
+    console.addFilter(SafeLogFilter())
+    console.addFilter(RepeatedEventFilter(max_repeats=100))
     root.addHandler(console)
 
     _add_file_handler(root, formatter, log_dir, max_bytes, backup_count)
     _cleanup_old_logs(log_dir)
-    _apply_overrides(config_overrides)
+    _apply_overrides({**settings.get("levels", {}), **(config_overrides or {})})
     logging.captureWarnings(True)
+
+
+def set_global_log_level(level: object, *, root: logging.Logger | None = None) -> int:
+    """Set process-wide logger and handler levels, returning the numeric level."""
+    root_logger = root or logging.getLogger()
+    level_value = _level_value(level)
+    root_logger.setLevel(level_value)
+    for handler in root_logger.handlers:
+        handler.setLevel(level_value)
+    return level_value
+
+
+def _level_value(level: object) -> int:
+    if not isinstance(level, str):
+        return logging.INFO
+    return getattr(logging, level.upper(), logging.INFO)
+
+
+def _load_settings(settings_path: str | None) -> dict:
+    if not settings_path:
+        return {}
+    try:
+        with open(settings_path, "r", encoding="utf-8") as settings_file:
+            settings = json.load(settings_file)
+    except FileNotFoundError:
+        return {}
+    except json.JSONDecodeError as exc:
+        logging.getLogger(__name__).warning("Invalid log settings file %s: %s", settings_path, exc)
+        return {}
+    if not isinstance(settings, dict):
+        logging.getLogger(__name__).warning("Log settings file %s must contain a JSON object", settings_path)
+        return {}
+    levels = settings.get("levels", {})
+    if not isinstance(levels, dict):
+        settings["levels"] = {}
+    return settings
 
 
 def _add_file_handler(
@@ -133,6 +177,8 @@ def _add_file_handler(
     )
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
+    file_handler.addFilter(SafeLogFilter())
+    file_handler.addFilter(RepeatedEventFilter(max_repeats=100))
     root.addHandler(file_handler)
 
 
@@ -166,4 +212,4 @@ def _apply_overrides(config_overrides: dict[str, str] | None) -> None:
     for name, level in default_overrides.items():
         if not isinstance(level, str):
             continue
-        logging.getLogger(name).setLevel(getattr(logging, level.upper(), logging.INFO))
+        logging.getLogger(name).setLevel(_level_value(level))

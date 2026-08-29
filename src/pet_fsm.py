@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 import time
 from dataclasses import dataclass
 from enum import Enum, auto
@@ -9,6 +10,8 @@ from src.constants import (
     APM_HYPER_THRESHOLD, SLEEP_IDLE_SECONDS,
     MIN_CHASE_DURATION_MS,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class PetState(Enum):
@@ -54,6 +57,7 @@ class PetFSM:
             return
         old = self.current_state
         self.current_state = new_state
+        logger.debug("FSM transition_to: %s -> %s", old.name, new_state.name)
         if on_transition:
             on_transition(old, new_state)
 
@@ -61,6 +65,7 @@ class PetFSM:
         next_state = self._evaluate(ctx)
         if next_state == self.current_state:
             return next_state
+        logger.debug("FSM update: %s -> %s (dt_ms=%d)", self.current_state.name, next_state.name, dt_ms)
         self.current_state = next_state
         return next_state
 
@@ -150,4 +155,3 @@ class PetFSM:
 
         # Priority 15: IDLE (default)
         return PetState.IDLE
-

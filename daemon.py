@@ -105,7 +105,7 @@ def _firebase_sync_retry(fn, label):
 
 
 def _ensure_ffmpeg_on_path():
-    """Add the winget ffmpeg install directory to PATH if present."""
+    """Add an installed WinGet FFmpeg bin directory to PATH if present."""
     ffmpeg_dir = os.path.join(
         os.environ.get("LOCALAPPDATA", ""),
         "Microsoft", "WinGet", "Packages",
@@ -113,9 +113,12 @@ def _ensure_ffmpeg_on_path():
     if os.path.isdir(ffmpeg_dir):
         for entry in os.listdir(ffmpeg_dir):
             if entry.lower().startswith("gyan.ffmpeg"):
-                bin_dir = os.path.join(ffmpeg_dir, entry, "ffmpeg-8.1.1-essentials_build", "bin")
-                if os.path.isdir(bin_dir) and bin_dir not in os.environ.get("PATH", ""):
-                    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+                package_dir = os.path.join(ffmpeg_dir, entry)
+                for root, _dirs, files in os.walk(package_dir):
+                    if "ffmpeg.exe" in (name.lower() for name in files):
+                        if root not in os.environ.get("PATH", ""):
+                            os.environ["PATH"] = root + os.pathsep + os.environ.get("PATH", "")
+                        return
 
 
 def _lock_path(pet_id: str) -> Path:
@@ -191,24 +194,19 @@ def main() -> None:
             llm_model_id=cfg.get("llm", {}).get("model_id") or "gemini-2.5-flash",
             llm_api_key=cfg.get("llm", {}).get("api_key", ""),
             llm_server_url=cfg.get("llm", {}).get("server_url") or "http://127.0.0.1:4096",
-            firebase_api_key=cfg.get("firebase", {}).get("api_key", ""),
             firebase_project_id=cfg.get("firebase", {}).get("project_id", "")
         )
         result = dialog.exec()
         if result == dialog.DialogCode.Accepted:
             from src.config import save_config
             vals = dialog.get_values()
-            save_config({
-                "llm": {
-                    "model_id": vals["OPENCODE_API_MODEL_ID"],
-                    "api_key": vals["OPENCODE_API_KEY"],
-                    "server_url": vals["OPENCODE_SERVER_URL"],
-                },
-                "firebase": {
-                    "api_key": vals["FIREBASE_API_KEY"],
-                    "project_id": vals["FIREBASE_PROJECT_ID"],
-                }
+            cfg.setdefault("llm", {}).update({
+                "model_id": vals["OPENCODE_API_MODEL_ID"],
+                "api_key": vals["OPENCODE_API_KEY"],
+                "server_url": vals["OPENCODE_SERVER_URL"],
             })
+            cfg.setdefault("firebase", {})["project_id"] = vals["FIREBASE_PROJECT_ID"]
+            save_config(cfg)
             # User saved, reload config and re-validate
             cfg = load_config()
             try:
@@ -238,8 +236,8 @@ def main() -> None:
     init_observability()
 
     parser = argparse.ArgumentParser(description="Daemon Desktop Pet")
-    parser.add_argument("--debug", action="store_true", help="Run headless FSM simulation")
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose debug logging")
+    parser.add_argument("--debug", action="store_true", help="Run the application with DEBUG logging")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose DEBUG logging")
     parser.add_argument("--no-opencode", action="store_true", help="Disable opencode integration")
     parser.add_argument("--no-auth", action="store_true", help="Disable Firebase auth login")
     parser.add_argument("--pet-id", type=str, default=None, help="Pet persona ID (default: kenny)")
@@ -255,12 +253,13 @@ def main() -> None:
     from src.logging_setup import setup_logging
     log_config = cfg.get("logging", {})
     setup_logging(
-        debug=args.verbose,
+        debug=args.debug or args.verbose,
         log_dir=log_config.get("dir", "logs"),
         json_output=log_config.get("json", False),
         max_bytes=log_config.get("max_bytes", 10 * 1024 * 1024),
         backup_count=log_config.get("backup_count", 5),
         config_overrides=log_config.get("levels"),
+        settings_path=log_config.get("settings_path", "data/log_settings.json"),
     )
 
 
@@ -322,10 +321,6 @@ def main() -> None:
             logger.info("Windows console control handler installed")
         except Exception as e:
             logger.warning("Failed to install console control handler: %s", e)
-
-    if args.debug:
-        _run_debug_simulation()
-        return
 
     from src.opencode_serve_manager import ensure_opencode_serve_running, stop_opencode_serve
     engine = cfg.get("llm", {}).get("engine", "opencode")
@@ -453,47 +448,5 @@ def main() -> None:
     })
 
     sys.exit(exit_code)
-
-
-
-def _run_debug_simulation() -> None:
-    from dataclasses import replace
-    from src.pet_fsm import PetFSM, FSMContext, PetState
-
-    fsm = PetFSM()
-    prev_state = fsm.current_state
-
-    for tick in range(100):
-        ctx = FSMContext(
-            cursor_pos=(9999, 9999),
-            pet_rect=(100, 900, 40, 50),
-            apm=0,
-            is_dragged=False,
-            is_falling=False,
-            query_pending=False,
-            autonomous_query_pending=False,
-            build_event=None,
-            idle_seconds=float(tick),
-            wander_due=(tick == 5),
-            hyper_sustained_seconds=0.0,
-            hyper_cooldown_seconds=0.0,
-            state_elapsed_ms=tick * 33,
-        )
-
-        if 70 <= tick < 80:
-            ctx = replace(ctx, is_dragged=True)
-        if 80 <= tick < 90:
-            ctx = replace(ctx, is_dragged=False, is_falling=True)
-        if tick >= 90:
-            ctx = replace(ctx, is_falling=False)
-
-        new_state = fsm.update(33, ctx)
-        if new_state != prev_state:
-            logger.info("[tick %03d] %s -> %s", tick, prev_state.name, new_state.name)
-            prev_state = new_state
-
-    logger.info("simulation complete")
-
-
 if __name__ == "__main__":
     main()

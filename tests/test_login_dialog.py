@@ -36,6 +36,12 @@ def test_get_credentials(dialog: LoginDialog) -> None:
     assert password == "p@ss123"
 
 
+def test_remember_me_enabled_by_default(dialog: LoginDialog) -> None:
+    assert dialog.remember_me
+    dialog._remember_me.setChecked(False)
+    assert not dialog.remember_me
+
+
 def test_show_error(dialog: LoginDialog) -> None:
     dialog.show()
     dialog.show_error("Wrong password")

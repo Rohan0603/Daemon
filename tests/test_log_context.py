@@ -4,6 +4,9 @@ from src.log_context import (
     set_correlation_id,
     reset_correlation_id,
     CorrelationIdDefault,
+    RepeatedEventFilter,
+    correlation_scope,
+    redact_sensitive,
 )
 
 
@@ -39,3 +42,33 @@ def test_formatter_defaults_to_dash():
     record = logging.LogRecord("test", logging.INFO, "", 0, "msg", (), None)
     result = fmt.format(record)
     assert "[cid=-]" in result
+
+
+def test_correlation_scope_restores_previous_value():
+    set_correlation_id("outer")
+    with correlation_scope("inner") as cid:
+        assert cid == "inner"
+        assert get_correlation_id() == "inner"
+    assert get_correlation_id() == "outer"
+
+
+def test_redaction_masks_sensitive_fields_and_truncates():
+    result = redact_sensitive(
+        {"password": "secret", "message": "x" * 20, "nested": {"api_key": "key"}}
+        , max_length=10
+    )
+    assert result["password"] == "[REDACTED]"
+    assert result["nested"]["api_key"] == "[REDACTED]"
+    assert result["message"].endswith("…")
+
+
+def test_repeated_event_filter_is_bounded_and_suppresses():
+    event_filter = RepeatedEventFilter(max_repeats=2, max_keys=2)
+    records = [
+        logging.LogRecord("test", logging.WARNING, "", 0, "repeat", (), None)
+        for _ in range(3)
+    ]
+    assert [event_filter.filter(record) for record in records] == [True, True, False]
+    for index in range(5):
+        event_filter.filter(logging.LogRecord("test", logging.INFO, "", index, str(index), (), None))
+    assert len(event_filter._events) == 2

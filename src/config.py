@@ -379,6 +379,11 @@ def _resolve_packaged_paths(cfg: dict) -> None:
         if not path.is_absolute():
             name = path.name if path.parts and path.parts[0].lower() == "data" else str(path)
             storage[key] = str(STORAGE_DIR / name)
+    logging_cfg = cfg.get("logging", {})
+    for key in ("settings_path", "dir"):
+        value = logging_cfg.get(key)
+        if isinstance(value, str) and value and not Path(value).is_absolute():
+            logging_cfg[key] = str(STORAGE_DIR / Path(value).name)
 
 
 def load_config() -> dict:
@@ -568,6 +573,9 @@ def save_config(cfg: dict, path=None) -> None:
         save_path.parent.mkdir(parents=True, exist_ok=True)
         with open(save_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2, ensure_ascii=False)
+        if save_path == CONFIG_PATH:
+            _RUNTIME_CONFIG.clear()
+            _RUNTIME_CONFIG.update(copy.deepcopy(cfg))
     except Exception as e:
         logger.error("Failed to save config: %s", e)
         raise

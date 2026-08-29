@@ -1,5 +1,6 @@
 # src/pet_window.py
 from __future__ import annotations
+import copy
 import json
 import logging
 from typing import Any
@@ -48,6 +49,7 @@ from src.llm import (
     OpencodeWorker,
 )
 from src.memory import Memory
+from src.memory import EmbeddingEngine, RAGRetriever
 from src.history import History
 from src.memory_manager import MemoryManager
 from src.write_coalescer import WriteCoalescer
@@ -277,6 +279,10 @@ class PetWindow(QWidget):
 
         self._diary_store = DiaryStore(self._diary_path)
         self._action_layer = ActionLayer()
+        self._rag_retriever = RAGRetriever(
+            EmbeddingEngine(),
+            records=self._rag_records(),
+        )
         self._fsm_bridge.action_triggered.connect(self._on_mcp_expression_action)
         self._fsm_bridge.action_requested.connect(self.trigger_state_override)
         self._mcp_server = MCPServer(
@@ -285,6 +291,7 @@ class PetWindow(QWidget):
             config=self._config.get("consent", {}),
             features=self._config.get("features", {}),
             action_layer=self._action_layer,
+            rag_retriever=self._rag_retriever,
         )
         self._write_coalescer = WriteCoalescer(
             memory=self._memory, history=self._history,
@@ -298,6 +305,7 @@ class PetWindow(QWidget):
 
         self._context_manager = ContextManager(
             memory=self._memory, history=self._history,
+            rag_retriever=self._rag_retriever,
         )
         self._response_manager = AutonomousResponseManager(
             cache_path=RESPONSE_CACHE_PATH,
@@ -794,6 +802,7 @@ class PetWindow(QWidget):
             action = args.get("action", "idle")
             target_x = args.get("target_x")
             target_y = args.get("target_y")
+            logger.debug("LLM action triggered: %s (target=%s,%s)", action, target_x, target_y)
             # Mirror the MCP server's FSM/EXPRESSION split so physical
             # animations like "jump" (expression actions) actually reach the
             # ActionLayer instead of being dropped by the FSM-only handler.
@@ -1184,8 +1193,6 @@ class PetWindow(QWidget):
             llm_model_id=self._config.get("llm", {}).get("model_id") or "gemini-2.5-flash",
             llm_api_key=self._config.get("llm", {}).get("api_key", ""),
             llm_server_url=self._config.get("llm", {}).get("server_url") or "http://127.0.0.1:4096",
-            local_llm_url=self._config.get("llm", {}).get("local_llm_url", "http://127.0.0.1:11434"),
-            opencode_backup_url=self._config.get("llm", {}).get("opencode_backup_url", "http://127.0.0.1:4096"),
             firebase_project_id=self._config.get("firebase", {}).get("project_id", ""),
             **self._saved_consent,
             **self._saved_features,
@@ -1214,7 +1221,7 @@ class PetWindow(QWidget):
             self._chattiness = values["chattiness"]
 
     def _save_settings(self, values: dict) -> None:
-        from src.config import save_config, unflatten_config, config_set
+        from src.config import save_config, unflatten_config
         consent_keys = ("allow_intrusive_animations", "allow_audio_disruptions",
                         "allow_browser_redirection", "allow_clipboard_hijacking",
                         "allow_mouse_interference", "allow_window_management",
@@ -1226,27 +1233,19 @@ class PetWindow(QWidget):
             "feature_code_intelligence", "feature_desktop_interaction",
         )
         feature_state = {k: values.get(k, True) for k in feature_keys}
-        logger.info("Capability settings updated by user: consent=%s features=%s",
-                    consent_state, feature_state)
+        logger.info("Capability settings updated by user (consents=%d, features=%d)",
+                    len(consent_state), len(feature_state))
         
         # Convert the flat UI dictionary back into the nested config structure
-        nested_cfg = unflatten_config(values)
+        nested_cfg = copy.deepcopy(self._config)
+        for section, section_values in unflatten_config(values).items():
+            nested_cfg.setdefault(section, {}).update(section_values)
         nested_cfg["firebase"] = dict(self._config.get("firebase", {}))
         save_config(nested_cfg)
         self._config = nested_cfg
         if self._mcp_server:
             self._mcp_server._config = self._config.get("consent", {})
             self._mcp_server._features = self._config.get("features", {})
-
-        # Push runtime config changes for Ollama so workers pick them up instantly
-        config_set("llm.engine", values.get("LLM_PROVIDER", "opencode"))
-        config_set("llm.ollama_url", values.get("OLLAMA_URL", "http://127.0.0.1:11434"))
-        config_set("llm.ollama_model", values.get("OLLAMA_MODEL", "llama3.2-1b-q8:latest"))
-
-        config_set("llm.local_llm_url",
-                   values.get("LOCAL_LLM_URL", "http://127.0.0.1:11434").strip() or "http://127.0.0.1:11434")
-        config_set("llm.opencode_backup_url",
-                   values.get("OPENCODE_BACKUP_URL", "http://127.0.0.1:4096").strip() or "http://127.0.0.1:4096")
 
         # Orchestrate the local Ollama lifecycle when the active brain changes.
         new_provider = values.get("LLM_PROVIDER", "opencode")
@@ -1703,7 +1702,7 @@ class PetWindow(QWidget):
             logger.critical("CRASH in paintEvent: %s", e, exc_info=True)
 
     def mouseDoubleClickEvent(self, event) -> None:
-        logger.info("mouseDoubleClickEvent triggered. opencode_enabled=%s, current_state=%s", self._opencode_enabled, self._fsm.current_state)
+        logger.debug("Input gesture received; provider_enabled=%s state=%s", self._opencode_enabled, self._fsm.current_state.name)
         if not self._opencode_enabled:
             return
         if self._fsm.current_state == PetState.THINKING:
@@ -1719,7 +1718,7 @@ class PetWindow(QWidget):
         field_y = self._pet_y - INPUT_HEIGHT - INPUT_Y_OFFSET
         screen_geom = self.screen().availableGeometry()
         field_y = max(0, field_y)
-        logger.info("Displaying input field at coordinates (%d, %d)", field_x, field_y)
+        logger.debug("Input field displayed")
         self._input_field.move(int(field_x), int(field_y))
         self._input_field.clear()
         self._input_field.show()
@@ -1733,7 +1732,7 @@ class PetWindow(QWidget):
         self._input_field.hide()
         if not text:
             return
-        logger.info("User input submitted: '%s'", text)
+        logger.info("User input submitted (chars=%d)", len(text))
         self._events.emit_user_input(text)
         self._clear_bubble_queue()
         self._consecutive_engaged = ENGAGED_THRESHOLD
@@ -1749,6 +1748,7 @@ class PetWindow(QWidget):
             if ":" in parts:
                 key, value = parts.split(":", 1)
                 self._memory.remember(key.strip(), value.strip())
+                self._refresh_rag_records()
                 self._show_bubble(f"Alright, alright... I'll remember: {key.strip()}! Don't make me forget, man!")
             else:
                 self._show_bubble("Oh geez... usage is !remember key: value. Get it right, dude!")
@@ -1756,6 +1756,7 @@ class PetWindow(QWidget):
         if text.startswith("!forget"):
             key = text[7:].strip()
             if self._memory.forget(key):
+                self._refresh_rag_records()
                 self._show_bubble(f"Oh man... I forgot: {key}. It's gone forever!")
             else:
                 self._show_bubble(f"What the hell?! I never knew about {key} in the first place!")
@@ -1775,7 +1776,7 @@ class PetWindow(QWidget):
             return
 
         context = get_active_window_title()
-        logger.info("Starting user query: '%s', active window: '%s'", text[:40], context)
+        logger.info("Starting user query (chars=%d, active_window_present=%s)", len(text), bool(context))
         self._current_user_input = text
         self._last_mode = "user_input"
 
@@ -1803,12 +1804,12 @@ class PetWindow(QWidget):
 
 
     def _on_opencode_result(self, text: str) -> None:
-        logger.info("_on_opencode_result called with text: '%s'", text)
+        logger.info("LLM response received (chars=%d)", len(text))
         self._autonomous_query_pending = False
         self._session_active = True
         self._fsm.current_state = PetState.IDLE
         user_input = self._opencode_worker._user_input if self._opencode_worker else ""
-        logger.debug("_on_opencode_result | text='%.40s...' | user_input='%s'", text, user_input)
+        logger.debug("LLM response dispatched (response_chars=%d, input_chars=%d)", len(text), len(user_input))
         self._show_bubble(text)
         self._history.add_entry(user_input, text, "idle")
         if self._opencode_worker is not None:
@@ -1818,7 +1819,7 @@ class PetWindow(QWidget):
         self._boredom_timer_ms = AUTONOMOUS_QUERY_INTERVAL_SEC * 1000
 
     def _on_opencode_error(self, error: str) -> None:
-        logger.warning("_on_opencode_error called with error: '%s'", error)
+        logger.warning("LLM request failed (category=%s)", error)
         if self.__dict__.get('_force_quit', False):
             logger.debug("Skipping error handler during shutdown")
             return
@@ -1830,7 +1831,7 @@ class PetWindow(QWidget):
         if error == "parse_failed" and self._llm_provider == "ollama":
             fallback_input = getattr(self, "_current_user_input", "")
             fallback_mode = getattr(self, "_last_mode", "general")
-            logger.info("Ollama parse_failed — falling back to opencode serve (input='%s')", fallback_input)
+            logger.info("Ollama parse_failed; falling back to opencode serve")
             self._llm_provider = "opencode"
             self._opencode_session_id = None
             if fallback_input:
@@ -2005,7 +2006,8 @@ class PetWindow(QWidget):
                     self._bubble_pages = []
                     self._bubble_page_index = 0
                     self._start_typewriter(item_text)
-                logger.info("_show_next_bubble -> '%s' (%d remaining, %d pages)", item_text, len(self._bubble_queue), len(pages))
+                logger.debug("Showing next bubble (chars=%d, remaining=%d, pages=%d)",
+                             len(item_text), len(self._bubble_queue), len(pages))
         else:
             self._bubble_text = ""
             self._bubble_timer_ms = 0
@@ -2017,7 +2019,7 @@ class PetWindow(QWidget):
     def _show_bubble(self, text: str) -> None:
         if self._bubble_timer_ms > 0:
             if len(self._bubble_queue) >= BUBBLE_QUEUE_MAX_SIZE:
-                logger.debug("_show_bubble dropped (queue full): '%s'", text)
+                logger.debug("Bubble dropped because queue is full (chars=%d)", len(text))
                 self._tts.enqueue(text)
                 self.update()
                 return
@@ -2036,7 +2038,8 @@ class PetWindow(QWidget):
             self._bubble_pages = []
             self._bubble_page_index = 0
             self._start_typewriter(text)
-        logger.info("_show_bubble called with text: '%s' (duration: %dms, pages: %d)", text, self._bubble_duration(text), len(pages))
+        logger.debug("Bubble queued (chars=%d, duration_ms=%d, pages=%d)",
+                     len(text), self._bubble_duration(text), len(pages))
         self._tts.enqueue(text)
         self.update()
 
@@ -2154,9 +2157,30 @@ class PetWindow(QWidget):
             self._firestore_sync_timer.stop()
         self._firebase_mem = None
         self._crud = None
+        self._rag_retriever.crud = None
         self._firebase_available = False
         self._fresh_login = True
         self._show_bubble("Firebase account signed out. Cloud memory is offline until next launch.")
+
+    def _rag_records(self) -> list[dict[str, Any]]:
+        records = [
+            {"id": f"memory:{key}", "source": "memory", "content": str(value)}
+            for key, value in self._memory.get_all().items()
+        ]
+        records.extend(
+            {
+                "id": f"diary:{index}",
+                "source": "diary",
+                "content": str(entry.get("content", entry.get("text", ""))),
+                "timestamp": entry.get("timestamp", 0),
+            }
+            for index, entry in enumerate(self._diary_store.get_entries())
+            if entry.get("content") or entry.get("text")
+        )
+        return records
+
+    def _refresh_rag_records(self) -> None:
+        self._rag_retriever.replace_records(self._rag_records())
 
     def _on_pin_toggle(self) -> None:
         self._pinned = not self._pinned
@@ -2174,9 +2198,9 @@ class PetWindow(QWidget):
             self._show_bubble(_LOGIN_PROMPT)
 
             def on_sign_in(email: str, password: str) -> str | None:
-                return self._auth.sign_in(email, password)
+                return self._auth.sign_in(email, password, remember_me=dialog.remember_me)
             def on_sign_up(email: str, password: str) -> str | None:
-                return self._auth.sign_up(email, password)
+                return self._auth.sign_up(email, password, remember_me=dialog.remember_me)
 
             from .login_dialog import LoginDialog
 
@@ -2191,6 +2215,9 @@ class PetWindow(QWidget):
             uid = self._auth.uid
 
         self._crud = FirebaseCRUD(auth=self._auth, project_id=self._config.get("firebase", {}).get("project_id", "")) if uid else None
+        self._rag_retriever.crud = self._crud
+        if uid:
+            self._rag_retriever.collection = f"users/{uid}/pets/{self._pet_id}/memories"
 
         if self._crud and self._crud.available and uid:
             self._firebase_mem = MemoryManager(crud=self._crud, uid=uid, pet_id=self._pet_id)
@@ -2203,9 +2230,11 @@ class PetWindow(QWidget):
             diary = self._firebase_mem.fetch_all_diary_entries()
             if diary:
                 self._diary_store.write(diary, len(diary))
+            self._refresh_rag_records()
             self._show_bubble(_LOGIN_SUCCESS)
         else:
             self._firebase_available = False
+            self._refresh_rag_records()
             self._show_bubble("Holy crap... my brain is offline! I'm trapped locally! Oh man!")
 
         self._fsm.transition_to(PetState.IDLE)
@@ -2307,7 +2336,7 @@ class PetWindow(QWidget):
         # Hard-cap bubble text to configured char limit (150 default)
         if len(dialogue) > BUBBLE_MAX_CHARS:
             dialogue = dialogue[:BUBBLE_MAX_CHARS - 3] + "..."
-        logger.info("_dispatch_structured: dialogue='%s'", dialogue)
+        logger.debug("Structured item dispatched (dialogue_chars=%d)", len(dialogue))
 
         # D2: Track consecutive parse failures for backoff
         try:
@@ -2532,6 +2561,7 @@ class PetWindow(QWidget):
             for entry in _seed_diary_entries:
                 self._diary_store.add_diary_entry(entry, int(time.time()))
             logger.info("Diary seeded (%d entries)", len(_seed_diary_entries))
+        self._refresh_rag_records()
     def _build_context_snapshot(self) -> dict:
         context = get_active_window_title() or "unknown"
         typing = self._typing_buffer.get_context() if self._typing_buffer else ""
@@ -2717,6 +2747,7 @@ class PetWindow(QWidget):
 
     def _on_mcp_fsm_action(self, action: str, target_x, target_y) -> None:
         """Slot for MCP FSM action requests from background thread."""
+        logger.debug("Action triggered: %s (target=%s,%s)", action, target_x, target_y)
         state_map = {
             "idle": PetState.IDLE,
             "wander": PetState.PERIMETER,
@@ -2744,8 +2775,10 @@ class PetWindow(QWidget):
         action_states = {"FRUSTRATED", "SMUG", "SHOCKED", "LAUGHING"}
 
         if state in fsm_states:
+            logger.debug("Animation state triggered: %s (duration_ms=%d)", state, duration_ms)
             self._fsm.transition_to(fsm_states[state])
         elif state in action_states:
+            logger.debug("Action triggered: %s (duration_ms=%d)", state, duration_ms)
             self._action_layer.trigger(state.lower(), duration_ms)
             self._animation_override_active = True
             QTimer.singleShot(duration_ms, self._clear_animation_override)
@@ -2755,6 +2788,8 @@ class PetWindow(QWidget):
 
     def _on_mcp_expression_action(self, name: str, duration_ms: int, params: dict) -> None:
         """Slot: MCP layer='expression' -> ActionLayer."""
+        logger.debug("Expression action triggered: %s (duration_ms=%s, params=%s)",
+                     name, duration_ms, params)
         self._action_layer.trigger(name, duration_ms or None, params)
 
     def _apply_action_positions(self) -> None:
@@ -2853,6 +2888,7 @@ class PetWindow(QWidget):
 
     def _add_diary_entry(self, text: str) -> None:
         self._diary_store.add_diary_entry(text, int(time.time()))
+        self._refresh_rag_records()
         self._write_coalescer.mark_dirty("diary")
         logger.info("[DATA] add_diary_entry -> diary now %d entries", len(self._diary_store.get_entries()))
 
@@ -3066,6 +3102,7 @@ class PetWindow(QWidget):
             else:
                 val_str = str(value)
             self._memory.remember(key, val_str)
+        self._refresh_rag_records()
         if "intel_archive" in applied:
             current = self._memory.recall("intel_archive")
             if current:
@@ -3109,4 +3146,3 @@ class PetWindow(QWidget):
         except Exception as e:
             logger.warning("Opencode API session close failed (ignored): %s", e)
         self._opencode_session_id = None
-

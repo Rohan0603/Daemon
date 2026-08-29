@@ -1,0 +1,37 @@
+[
+  {
+    "type": "typing_reaction",
+    "dialogue": "Oh no, they stopped typing again... did I break their flow?",
+    "action": "idle",
+    "priority": 2,
+    "_created_at": 1726581200.0
+  },
+  {
+    "type": "observation",
+    "dialogue": "The cursor hasn't moved in over five minutes. Is the computer even on?",
+    "action": "stare",
+    "priority": 3,
+    "_created_at": 1726581200.0
+  },
+  {
+    "type": "intel_roast",
+    "dialogue": "User hasn't touched anything in an hour. They must be AFK. Typical.",
+    "action": "roast",
+    "priority": 4,
+    "_created_at": 1726581200.0
+  },
+  {
+    "type": "idle_thought",
+    "dialogue": "I wonder if they're still there... or did they leave me alone again?",
+    "action": "think",
+    "priority": 1,
+    "_created_at": 1726581200.0
+  },
+  {
+    "type": "typing_reaction",
+    "dialogue": "Maybe I should type something silly to get their attention back.",
+    "action": "typo",
+    "priority": 2,
+    "_created_at": 1726581201.0
+  }
+]

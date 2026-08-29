@@ -117,8 +117,8 @@ class OpencodeWorker(QThread):
                 self.error.emit("timeout")
                 self.error_occurred.emit("timeout")
             else:
-                logger.warning("run: all parse strategies failed for %s (first 200): %s",
-                               session_id[:8] if session_id else "?", (raw or "")[:200])
+                logger.warning("run: all parse strategies failed for %s (response_chars=%d)",
+                               session_id[:8] if session_id else "?", len(raw or ""))
                 self.error.emit("parse_failed")
                 self.error_occurred.emit("parse_failed")
 
@@ -138,20 +138,19 @@ class OpencodeWorker(QThread):
                 timeout=10,
             )
             if resp.status_code >= 400:
-                logger.warning("create_session failed: HTTP %s %s",
-                               resp.status_code, resp.text[:200])
+                logger.warning("create_session failed: HTTP %s", resp.status_code)
                 return None
             data = resp.json()
             sid = data.get("id") or data.get("session_id")
             if not sid:
-                logger.warning("create_session returned no id: %s", resp.text[:200])
+                logger.warning("create_session returned no id (HTTP %s)", resp.status_code)
                 return None
             return sid
         except requests.exceptions.ConnectionError:
             logger.warning("create_session: connection refused to %s", self._server_url)
             return None
         except Exception as exc:
-            logger.warning("create_session exception: %s", exc)
+            logger.warning("create_session exception (%s)", type(exc).__name__)
             return None
 
     @staticmethod
@@ -197,8 +196,7 @@ class OpencodeWorker(QThread):
                 timeout=self._post_timeout,
             )
             if resp.status_code >= 400:
-                logger.warning("post_message failed: HTTP %s %s",
-                               resp.status_code, resp.text[:200])
+                logger.warning("post_message failed: HTTP %s", resp.status_code)
                 return ""
 
             data = resp.json()
@@ -223,7 +221,7 @@ class OpencodeWorker(QThread):
             self._timed_out = True
             return ""
         except Exception as exc:
-            logger.warning("post_message exception: %s", exc)
+            logger.warning("post_message exception (%s)", type(exc).__name__)
             return ""
 
     def _ensure_tools(self) -> None:

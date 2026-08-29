@@ -127,7 +127,7 @@ def mcp_submit(event: str, data: dict = None) -> None:
 class MCPServerThread(QThread):
     """QThread wrapper for FastMCP SSE server."""
     def __init__(self, memory=None, diary_store=None, history=None, config=None,
-                 fsm_bridge=None, action_layer=None, features=None):
+                 fsm_bridge=None, action_layer=None, features=None, rag_retriever=None):
         super().__init__()
         self._memory = memory
         self._diary_store = diary_store
@@ -136,6 +136,7 @@ class MCPServerThread(QThread):
         self._fsm_bridge = fsm_bridge
         self._action_layer = action_layer
         self._features = features or {}
+        self._rag_retriever = rag_retriever
         self._server = None
         self._uvicorn_server = None
         self._stop_event = False
@@ -504,16 +505,20 @@ def _handle_browser_navigation(server_thread, url: str) -> dict:
     return _browser_navigation(url)
 def _handle_set_log_level(server_thread, level: str) -> dict:
     """Handle set_log_level tool call."""
-    level_str = level.upper()
     import logging as _logging
+    from src.logging_setup import set_global_log_level
+    if not isinstance(level, str):
+        return {"content": [{"type": "text", "text": "Invalid level: expected a string"}]}
+    level_str = level.upper()
     level_map = {"DEBUG": _logging.DEBUG, "INFO": _logging.INFO, "WARNING": _logging.WARNING,
                  "ERROR": _logging.ERROR, "CRITICAL": _logging.CRITICAL}
     level_val = level_map.get(level_str)
     if level_val is None:
         return {"content": [{"type": "text", "text": f"Invalid level: {level_str}"}]}
 
+    set_global_log_level(level_str)
     _logging.getLogger("src").setLevel(level_val)
-    logger.info("Daemon 'src' namespace logger level set to %s by MCP tool", level_str)
+    logger.info("Global logger level set to %s by MCP tool", level_str)
     return {"content": [{"type": "text", "text": f"Log level set to {level_str}"}]}
 def _handle_get_screen_time(server_thread) -> dict:
     """Handle get_screen_time tool call."""

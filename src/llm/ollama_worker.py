@@ -109,9 +109,8 @@ class OllamaWorker(QThread):
     def run(self) -> None:
         if self._abort:
             return
-        prompt_preview = self._prompt[:200].replace("\n", "\\n")
-        logger.debug("run: model=%s autonomous=%s prompt_preview='%s'",
-                      self._ollama_model, self._is_autonomous, prompt_preview)
+        logger.debug("run: model=%s autonomous=%s prompt_chars=%d",
+                     self._ollama_model, self._is_autonomous, len(self._prompt))
         self._retried = False
         messages = [
             {"role": "system", "content": self._skill_md},
@@ -121,12 +120,10 @@ class OllamaWorker(QThread):
             result = self._chat_completion(messages)
             if result:
                 self._last_raw_response = result
-                logger.debug("run: raw_response length=%d preview='%s'",
-                              len(result), result[:300].replace("\n", "\\n"))
+                logger.debug("run: raw_response length=%d", len(result))
                 items = self._parse_response(result)
                 if items and self._filter_garbage_items(items):
-                    logger.debug("run: parsed %d items, first dialogue='%s'",
-                                  len(items), items[0].get("dialogue", "")[:100])
+                    logger.debug("run: parsed %d items", len(items))
                     self._extract_brain_update(items)
                     self.response_ready.emit(items)
                     return
@@ -147,16 +144,15 @@ class OllamaWorker(QThread):
                     if result:
                         items = self._parse_response(result)
                         if items and self._filter_garbage_items(items):
-                            logger.debug("run: retry parsed %d items, first dialogue='%s'",
-                                          len(items), items[0].get("dialogue", "")[:100])
+                            logger.debug("run: retry parsed %d items", len(items))
                             self._extract_brain_update(items)
                             self.response_ready.emit(items)
                             return
                     logger.warning("run: retry also produced garbage")
             self._emit_error("parse_failed" if not self._timed_out else "timeout")
         except Exception as exc:
-            logger.warning("OllamaWorker.run exception: %s", exc)
-            self._emit_error(str(exc))
+            logger.warning("OllamaWorker.run exception (%s)", type(exc).__name__)
+            self._emit_error(type(exc).__name__)
 
     MAX_TOOL_ITERATIONS = 10
 
@@ -215,13 +211,13 @@ class OllamaWorker(QThread):
 
             if resp.status_code >= 400:
                 error_text = resp.text[:200].lower()
-                logger.debug("_chat_completion: HTTP %d response='%s'", resp.status_code, resp.text[:200])
+                logger.debug("_chat_completion: HTTP %d response_chars=%d", resp.status_code, len(resp.text))
                 if "does not support tools" in error_text and not self._tools_disabled:
                     logger.warning("Model does not support tools; retrying without tools")
                     _NO_TOOLS_MODELS.add(self._ollama_model)
                     self._tools_disabled = True
                     continue
-                logger.warning("Ollama API error: HTTP %s %s", resp.status_code, resp.text[:200])
+                logger.warning("Ollama API error: HTTP %s", resp.status_code)
                 return None
             data = resp.json()
             msg = data.get("message", {})
@@ -426,7 +422,7 @@ class OllamaWorker(QThread):
         # Strategy 5: free-form fallback
         truncated = raw[:400].strip()
         if truncated:
-            logger.debug("_parse_response: strategy 5 (free-form fallback) dialogue='%s'", truncated[:100])
+            logger.debug("_parse_response: strategy 5 (free-form fallback, chars=%d)", len(truncated))
             return [self._normalize_item({"dialogue": truncated, "action": "idle", "type": "observation",
                      "priority": 3, "thought": ""})]
         logger.debug("_parse_response: all strategies failed")

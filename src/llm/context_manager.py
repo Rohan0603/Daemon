@@ -88,16 +88,18 @@ class ContextManager:
 
     def _get_memory_block(self) -> str:
         facts = self._memory.get_all() if getattr(self, "_memory", None) else {}
-        if not facts:
-            return ""
-        items = [f"{k}: {v[0] if isinstance(v, list) else v}" for k, v in list(facts.items())[:5]]
-        block = "Memory: " + " | ".join(items)
+        block = ""
+        if facts:
+            items = [f"{k}: {v[0] if isinstance(v, list) else v}" for k, v in list(facts.items())[:5]]
+            block = "Memory: " + " | ".join(items)
         if self._rag_retriever is not None:
             related = self._rag_retriever.retrieve("current context", limit=3)
+            logger.debug("Context RAG block built: results=%d", len(related))
             if related:
-                block += "\nRelated semantic memory: " + " | ".join(
+                semantic = "Related semantic memory: " + " | ".join(
                     str(item.get("content", "")) for item in related
                 )
+                block = f"{block}\n{semantic}".strip()
         return block
 
     def _build_persona_tokens(self) -> str:

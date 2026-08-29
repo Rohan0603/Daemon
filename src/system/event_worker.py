@@ -27,6 +27,7 @@ class EventStreamWorker(QThread):
 
     def run(self):
         backoff = 3
+        was_offline = False
         while self._running:
             try:
                 self._response = requests.get(f"{self.server_url}/event", stream=True, timeout=60)
@@ -39,6 +40,9 @@ class EventStreamWorker(QThread):
                     self._running = False
                     break
                 self._response.raise_for_status()
+                if was_offline:
+                    logger.info("EventStreamWorker connection recovered")
+                    was_offline = False
                 backoff = 3
                 self._consecutive_failures = 0
                 for line in self._response.iter_lines():
@@ -59,7 +63,14 @@ class EventStreamWorker(QThread):
                         logger.info("EventStreamWorker disabled")
                         self._running = False
                         break
-                    logger.error("EventStreamWorker network error: %s", e)
+                    was_offline = True
+                    if self._consecutive_failures == 1 or self._consecutive_failures in (3, 5, 8):
+                        logger.warning(
+                            "EventStreamWorker offline (failure %d/%d); retrying in %ds",
+                            self._consecutive_failures,
+                            self.MAX_CONSECUTIVE_FAILURES,
+                            backoff,
+                        )
                     time.sleep(backoff)
                     backoff = min(backoff * 2, 15)
             finally:

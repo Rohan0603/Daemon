@@ -40,6 +40,12 @@ class FirebaseCRUD:
         database = quote(self._database_id, safe="")
         return f"https://firestore.googleapis.com/v1/projects/{project}/databases/{database}/documents"
 
+    @property
+    def _database_url(self) -> str:
+        project = quote(self._project_id, safe="")
+        database = quote(self._database_id, safe="")
+        return f"https://firestore.googleapis.com/v1/projects/{project}/databases/{database}"
+
     def _token(self) -> str | None:
         return self._auth.get_valid_token() if self._auth else None
 
@@ -51,7 +57,11 @@ class FirebaseCRUD:
         headers = dict(kwargs.pop("headers", {}))
         headers["Authorization"] = f"Bearer {token}"
         headers.setdefault("Content-Type", "application/json")
-        url = f"{self._documents_url}/{path}" if path else self._documents_url
+        url = (
+            path
+            if path.startswith("https://")
+            else f"{self._documents_url}/{path}" if path else self._documents_url
+        )
         response = self._session.request(method, url, headers=headers, timeout=15, **kwargs)
         self._last_status = response.status_code
         auth = self._auth
@@ -176,7 +186,9 @@ class FirebaseCRUD:
                         "fields": self._encode_fields(data),
                     }
                 })
-            response = self._request("POST", ":commit", json={"writes": writes})
+            response = self._request(
+                "POST", f"{self._database_url}:commit", json={"writes": writes}
+            )
             if response is None:
                 return False
             response.raise_for_status()

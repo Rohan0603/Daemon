@@ -7,6 +7,7 @@ import math
 import os
 import queue
 import struct
+import subprocess
 import tempfile
 import threading
 import wave
@@ -84,12 +85,14 @@ class TTSWorker(QThread):
 
     def enqueue(self, text: str) -> None:
         if not self._enabled.is_set():
+            logger.debug("TTS enqueue skipped: disabled")
             return
         stripped = text.strip()
         if not stripped:
             return
         self._cancel.clear()
         self._queue.put(stripped)
+        logger.debug("TTS queued (chars=%d, queue=%d)", len(stripped), self._queue.qsize())
 
     def set_enabled(self, state: bool) -> None:
         if state:
@@ -173,7 +176,7 @@ class TTSWorker(QThread):
     ) -> tuple[bytes, int, int, int] | None:
         if not _PYDUB_AVAILABLE:
             if isinstance(audio_source, io.BytesIO):
-                return None
+                return self._decode_mp3_with_ffmpeg(audio_source)
             return self._apply_pitch_filter_wave(audio_source)
         try:
             from pydub import AudioSegment
@@ -192,6 +195,41 @@ class TTSWorker(QThread):
             logger.debug("pydub pitch shift failed: %s", e)
             if isinstance(audio_source, str):
                 return self._apply_pitch_filter_wave(audio_source)
+            return self._decode_mp3_with_ffmpeg(audio_source)
+
+    def _decode_mp3_with_ffmpeg(
+        self, audio_source: io.BytesIO
+    ) -> tuple[bytes, int, int, int] | None:
+        """Decode edge-tts MP3 without pydub's removed Python 3.14 audioop module."""
+        try:
+            audio_source.seek(0)
+            completed = subprocess.run(
+                [
+                    "ffmpeg",
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-i",
+                    "pipe:0",
+                    "-f",
+                    "wav",
+                    "pipe:1",
+                ],
+                input=audio_source.read(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            )
+            with wave.open(io.BytesIO(completed.stdout), "rb") as wav_file:
+                orig_rate = wav_file.getframerate()
+                nch = wav_file.getnchannels()
+                sw = wav_file.getsampwidth()
+                frames = wav_file.readframes(wav_file.getnframes())
+            if not frames:
+                raise RuntimeError("ffmpeg returned empty WAV audio")
+            return frames, orig_rate, nch, sw
+        except (OSError, subprocess.SubprocessError, wave.Error, RuntimeError) as e:
+            logger.warning("FFmpeg MP3 decode failed: %s", e)
             return None
 
     def _apply_pitch_filter_wave(self, audio_path: str) -> tuple[bytes, int, int, int] | None:
@@ -239,6 +277,7 @@ class TTSWorker(QThread):
 
     def run(self) -> None:
         self._shutdown.clear()
+        logger.info("TTS worker started")
 
         while not self._shutdown.is_set():
             try:
@@ -247,6 +286,7 @@ class TTSWorker(QThread):
                 continue
 
             self.speaking_started.emit()
+            logger.debug("TTS processing utterance (chars=%d)", len(text))
 
             try:
                 self._process_utterance(text)
@@ -259,6 +299,7 @@ class TTSWorker(QThread):
         temp_files: list[str] = []
         audio_source = self._generate_voice(text)
         if audio_source is None:
+            logger.warning("TTS generated no audio")
             return
 
         if self._cancel.is_set():
@@ -287,6 +328,7 @@ class TTSWorker(QThread):
                 pass
 
         if result is None:
+            logger.warning("TTS audio conversion failed")
             for p in temp_files:
                 try:
                     os.remove(p)
@@ -313,7 +355,9 @@ class TTSWorker(QThread):
                 w.setsampwidth(sw)
                 w.setframerate(play_rate)
                 w.writeframes(raw)
-            self._play_via_winsound(fallback_path, play_rate)
+            if not self._play_via_winsound(fallback_path, play_rate):
+                raise RuntimeError("winsound did not play audio")
+            logger.debug("TTS playback completed")
         except Exception as e:
             logger.warning("winsound playback failed: %s", e)
             try:

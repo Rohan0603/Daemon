@@ -9,13 +9,11 @@
     "server_url": "https://opencode.ai/zen/v1",
     "zen_api_key": "sk-Kl6KqXvG4vlSylT1TmvcWh5ge5GIBgXFGV1n1glADmjpqUraLZJxxm3BOO0TudY6",
     "timeout_sec": 180,
-    "api_key": "",
+    "api_key": "sk-Kl6KqXvG4vlSylT1TmvcWh5ge5GIBgXFGV1n1glADmjpqUraLZJxxm3BOO0TudY6",
     "ollama_url": "http://127.0.0.1:11434",
     "ollama_model": "hf.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M",
     "modelfile_path": "data/Modelfile",
-    "engine": "opencode",
-    "local_llm_url": "http://127.0.0.1:11434",
-    "opencode_backup_url": "http://127.0.0.1:4096"
+    "engine": "opencode"
   },
   "pet": {
     "id": "kenny",
@@ -25,7 +23,7 @@
     "scale": 1.0,
     "opacity": 0.85,
     "speed_multiplier": 1.0,
-    "chattiness": 1.0
+    "chattiness": 3.0
   },
   "tts": {
     "enabled": true,
@@ -36,12 +34,20 @@
   },
   "consent": {
     "allow_intrusive_animations": true,
-    "allow_audio_disruptions": false,
-    "allow_browser_redirection": false,
-    "allow_clipboard_hijacking": false,
-    "allow_mouse_interference": false,
-    "allow_window_management": false,
-    "allow_keyboard_injection": false
+    "allow_audio_disruptions": true,
+    "allow_browser_redirection": true,
+    "allow_clipboard_hijacking": true,
+    "allow_mouse_interference": true,
+    "allow_window_management": true,
+    "allow_keyboard_injection": true
+  },
+  "features": {
+    "pet_interaction": true,
+    "activity_tracking": true,
+    "autonomous_behavior": true,
+    "memory_sync": true,
+    "code_intelligence": true,
+    "desktop_interaction": true
   },
   "window": {
     "monitor": false
@@ -54,6 +60,11 @@
   "mcp": {
     "host": "127.0.0.1",
     "port": 4097
+  },
+  "ide_bridge": {
+    "host": "127.0.0.1",
+    "port": 4098,
+    "token": ""
   },
   "behavior": {
     "apm_hyper_threshold": 150,
@@ -114,7 +125,8 @@
   "logging": {
     "level": "INFO",
     "dir": "logs",
-    "retention_days": 7
+    "retention_days": 7,
+    "settings_path": "data/log_settings.json"
   },
   "storage": {
     "brain_path": "data/daemon_brain_{pet_id}.json",
@@ -242,6 +254,5 @@
       "twitch",
       "discord"
     ]
-  },
-  "some_key": "config_value"
+  }
 }

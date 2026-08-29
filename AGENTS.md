@@ -458,7 +458,7 @@ Also serves HTTP endpoints: `/health`, `/metrics`, `/log`.
 | `/metrics` | GET | Prometheus `generate_latest()` text format (JSON fallback) |
 | `/log` | POST | External log ingestion — `{service, level, message, extra?}` |
 
-**Consent Matrix (3 Tiers in Settings → Boundaries):**
+**Consent Matrix (3 Tiers in Settings → Capabilities):**
 - Tier 1 (Low Risk): allow_intrusive_animations (default: True)
 - Tier 2 (Medium Risk): allow_audio_disruptions, allow_browser_redirection (default: False)
 - Tier 3 (High Risk): allow_clipboard_hijacking, allow_mouse_interference, allow_window_management, allow_keyboard_injection (default: False)
@@ -554,7 +554,7 @@ Single unified `ThoughtPool` with 4 item types:
 | `write_coalescer.py` | `WriteCoalescer(QObject)` | 8s QTimer batched flush for 5 dirty flags |
 | `persistence.py` | `save_state`, `load_state` | Atomic JSON state to data/.daemon_state.json |
 | `tts_worker.py` | `TTSWorker(QThread)` | edge_tts/pyttsx3 → pydub pitch shift → winsound playback |
-| `settings_dialog.py` | `SettingsDialog(QDialog)` | 5 tabs: Mode, Appearance, Voice, Boundaries (consent), Connections. Provider switch (opencode↔Ollama) offloads all Ollama HTTP probes to a background thread; model validation is debounced; "Restart Ollama" re-probes |
+| `settings_dialog.py` | `SettingsDialog(QDialog)` | 5 tabs: Mode, Appearance, Voice, Capabilities (merged feature toggles + consent tiers), Connections. Provider switch (opencode↔Ollama) offloads all Ollama HTTP probes to a background thread; model validation is debounced; "Restart Ollama" re-probes |
 | `mode_manager.py` | `ModeManager`, `PetMode` | Single source of truth for DESKTOP_PET vs CODING_ASSISTANT mode; persisted to data/.daemon_mode.json |
 | `llm/ollama_manager.py` | `OllamaManager(QObject)` | Manages `ollama serve` lifecycle via QProcess + health timer; warms the model on a daemon thread (non-blocking) |
 | `llm/ollama_worker.py` | `OllamaWorker(QThread)` | Stateless Ollama HTTP bridge; maps MCP tools to Ollama native `tools`; falls back to opencode on parse failure |
@@ -830,7 +830,7 @@ FSMActionBridge relays MCP handler thread → main Qt thread. No mutexes needed.
 pip install PyQt6 pynput pytest requests pyttsx3 comtypes Pillow firebase-admin
 py -m pytest tests/ -v
 py daemon.py
-py daemon.py --debug       # headless FSM simulation, no display needed
+py daemon.py --debug       # run the application with DEBUG logging
 py daemon.py --verbose     # enable DEBUG diagnostic logging
 py daemon.py --no-opencode # disable opencode integration
 py daemon.py --no-auth     # skip Firebase auth login gate

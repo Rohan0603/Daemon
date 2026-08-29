@@ -2,7 +2,7 @@ import logging
 import logging.handlers
 import os
 import pytest
-from src.logging_setup import setup_logging
+from src.logging_setup import set_global_log_level, setup_logging
 
 
 @pytest.fixture(autouse=True)
@@ -26,6 +26,32 @@ def test_setup_logging_sets_root_level_debug(tmp_path):
 def test_setup_logging_sets_root_level_info(tmp_path):
     setup_logging(debug=False, log_dir=str(tmp_path))
     assert logging.getLogger().level == logging.INFO
+
+
+def test_debug_mode_overrides_configured_global_level(tmp_path):
+    settings = tmp_path / "log_settings.json"
+    settings.write_text('{"level": "WARNING"}', encoding="utf-8")
+    setup_logging(debug=True, log_dir=str(tmp_path / "logs"), settings_path=str(settings))
+    assert logging.getLogger().level == logging.DEBUG
+    assert all(handler.level == logging.DEBUG for handler in logging.getLogger().handlers)
+
+
+def test_set_global_log_level_updates_existing_handlers(tmp_path):
+    setup_logging(log_dir=str(tmp_path))
+    assert set_global_log_level("DEBUG") == logging.DEBUG
+    assert logging.getLogger().level == logging.DEBUG
+    assert all(handler.level == logging.DEBUG for handler in logging.getLogger().handlers)
+
+
+def test_setup_logging_reads_log_settings_file(tmp_path):
+    settings = tmp_path / "log_settings.json"
+    settings.write_text(
+        '{"level": "WARNING", "levels": {"rag.test": "DEBUG"}}',
+        encoding="utf-8",
+    )
+    setup_logging(log_dir=str(tmp_path / "logs"), settings_path=str(settings))
+    assert logging.getLogger().level == logging.WARNING
+    assert logging.getLogger("rag.test").level == logging.DEBUG
 
 
 def test_setup_logging_applies_module_overrides(tmp_path):
@@ -81,3 +107,17 @@ def test_cleanup_removes_old_logs(tmp_path):
     _cleanup_old_logs(str(tmp_path), days=7)
     assert not os.path.exists(old)
     assert os.path.exists(new)
+
+
+def test_setup_logging_redacts_messages_without_breaking_plain_output(tmp_path):
+    setup_logging(debug=True, log_dir=str(tmp_path))
+    logging.getLogger("quality").warning("api_key=%s", "do-not-write")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    contents = ""
+    for name in os.listdir(tmp_path):
+        if name.startswith("daemon_") and name.endswith(".log"):
+            with open(tmp_path / name, encoding="utf-8") as log_file:
+                contents += log_file.read()
+    assert "[REDACTED]" in contents or "******" in contents
+    assert "do-not-write" not in contents

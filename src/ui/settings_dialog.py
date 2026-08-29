@@ -49,8 +49,6 @@ class SettingsDialog(QDialog):
                  llm_model_id: str = "",
                  llm_api_key: str = "",
                  llm_server_url: str = "http://127.0.0.1:4096",
-                 local_llm_url: str = "http://127.0.0.1:11434",
-                 opencode_backup_url: str = "http://127.0.0.1:4096",
                  firebase_project_id: str = "",
                  parent=None):
         super().__init__(parent)
@@ -286,18 +284,6 @@ class SettingsDialog(QDialog):
 
         tab4_layout.addWidget(llm_group)
 
-        pipeline_group = QGroupBox("Pipeline URLs")
-        pipeline_layout = QVBoxLayout(pipeline_group)
-        self._local_llm_url_edit = QLineEdit(local_llm_url)
-        self._local_llm_url_edit.setPlaceholderText("http://127.0.0.1:11434")
-        self._opencode_backup_url_edit = QLineEdit(opencode_backup_url)
-        self._opencode_backup_url_edit.setPlaceholderText("http://127.0.0.1:4096")
-        pipeline_layout.addWidget(QLabel("Local LLM URL:"))
-        pipeline_layout.addWidget(self._local_llm_url_edit)
-        pipeline_layout.addWidget(QLabel("OpenCode Backup URL:"))
-        pipeline_layout.addWidget(self._opencode_backup_url_edit)
-        tab4_layout.addWidget(pipeline_group)
-
         fb_group = QGroupBox("Firebase Configuration")
         fb_layout = QVBoxLayout(fb_group)
         self._fb_project_id = QLineEdit(firebase_project_id)
@@ -504,7 +490,5 @@ class SettingsDialog(QDialog):
             "OPENCODE_API_MODEL_ID": self._llm_model_id.text(),
             "OPENCODE_API_KEY": self._llm_api_key.text(),
             "OPENCODE_SERVER_URL": self._llm_server_url.text(),
-            "LOCAL_LLM_URL": self._local_llm_url_edit.text(),
-            "OPENCODE_BACKUP_URL": self._opencode_backup_url_edit.text(),
             "FIREBASE_PROJECT_ID": self._fb_project_id.text(),
         }

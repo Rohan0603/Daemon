@@ -122,7 +122,8 @@
   "logging": {
     "level": "INFO",
     "dir": "logs",
-    "retention_days": 7
+    "retention_days": 7,
+    "settings_path": "data/log_settings.json"
   },
   "storage": {
     "brain_path": "data/daemon_brain_{pet_id}.json",

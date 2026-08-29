@@ -6,6 +6,25 @@ A mischievous, always-on-top Windows desktop pet built with PyQt6. Lives on your
 
 - **IDE Coding Assistant Mode** — automatically detects when you're in VS Code, PyCharm, IntelliJ, or other IDEs; switches to a teal-tinted body, blinking terminal cursor, and `code_assist`-type autonomous prompts for coding-focused interaction.
 
+## Installation
+
+Daemon runs on Windows. Install FFmpeg before installing Python dependencies because
+the TTS pipeline uses it to decode and process generated audio:
+
+```
+
+Daemon uses FFmpeg directly for edge-tts MP3 decoding on Python 3.14, where
+the optional pydub audioop dependency is unavailable.powershell
+winget install Gyan.FFmpeg.Shared --accept-source-agreements --accept-package-agreements
+```
+
+Close and reopen PowerShell after installation, then verify it is available:
+
+```powershell
+ffmpeg -version
+py -m pip install -r requirements.txt
+```
+
 ## Run the Fine-Tuning Notebook on Kaggle
 
 `daemon.ipynb` is configured for Kaggle GPU execution through the Kaggle CLI. The
@@ -393,7 +412,7 @@ Settings panel (right-click tray → Settings) provides live-preview sliders for
 | Action | Result |
 |--------|--------|
 | `py daemon.py` | Run normally |
-| `py daemon.py --debug` | Headless FSM simulation (100 ticks) |
+| `py daemon.py --debug` | Run the application with global DEBUG logging |
 | `py daemon.py --verbose` | DEBUG-level logging to console + file |
 | `py daemon.py --no-opencode` | Disable all LLM integration |
 | `py seed_brain.py` | View current Firestore brain + diff from defaults |

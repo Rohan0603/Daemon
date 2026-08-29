@@ -3,7 +3,7 @@ from typing import Optional, Callable
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QLineEdit,
-    QPushButton, QLabel, QWidget,
+    QPushButton, QLabel, QWidget, QCheckBox,
 )
 from PyQt6.QtCore import Qt
 
@@ -42,6 +42,10 @@ class LoginDialog(QDialog):
         self._password_input.setPlaceholderText("Password")
         self._password_input.setEchoMode(QLineEdit.EchoMode.Password)
         layout.addWidget(self._password_input)
+
+        self._remember_me = QCheckBox("Remember me on this computer")
+        self._remember_me.setChecked(True)
+        layout.addWidget(self._remember_me)
 
         self._error_label = QLabel()
         self._error_label.setStyleSheet("color: red; font-size: 12px;")
@@ -112,6 +116,10 @@ class LoginDialog(QDialog):
 
     def get_credentials(self) -> tuple[str, str]:
         return (self._email_input.text().strip(), self._password_input.text())
+
+    @property
+    def remember_me(self) -> bool:
+        return self._remember_me.isChecked()
 
     def show_error(self, message: str) -> None:
         if not message:

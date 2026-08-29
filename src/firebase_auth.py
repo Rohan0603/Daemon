@@ -106,7 +106,9 @@ class FirebaseAuth:
     def refresh_token(self) -> Optional[str]:
         return self._refresh_token
 
-    def _auth_request(self, endpoint: str, email: str, password: str) -> Optional[str]:
+    def _auth_request(
+        self, endpoint: str, email: str, password: str, remember_me: bool = True
+    ) -> Optional[str]:
         try:
             resp = requests.post(
                 f"{IDENTITY_TOOLKIT_URL}:{endpoint}?key={self._api_key}",
@@ -119,7 +121,7 @@ class FirebaseAuth:
             return None
 
         if resp.status_code != 200:
-            logger.warning("[FirebaseAuth] %s failed: %s", endpoint, resp.text)
+            logger.warning("[FirebaseAuth] %s failed: HTTP %s", endpoint, resp.status_code)
             self._publish_auth_failure(f"http_{resp.status_code}")
             return None
 
@@ -130,14 +132,20 @@ class FirebaseAuth:
             return None
 
         self._set_tokens(data)
-        self.save()
+        if remember_me:
+            self.save()
+        else:
+            try:
+                self._token_path.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("[FirebaseAuth] failed to remove non-persistent token file")
         return self._uid
 
-    def sign_in(self, email: str, password: str) -> Optional[str]:
-        return self._auth_request("signInWithPassword", email, password)
+    def sign_in(self, email: str, password: str, remember_me: bool = True) -> Optional[str]:
+        return self._auth_request("signInWithPassword", email, password, remember_me)
 
-    def sign_up(self, email: str, password: str) -> Optional[str]:
-        return self._auth_request("signUp", email, password)
+    def sign_up(self, email: str, password: str, remember_me: bool = True) -> Optional[str]:
+        return self._auth_request("signUp", email, password, remember_me)
 
     def refresh(self) -> bool:
         if not self._refresh_token:
@@ -153,8 +161,7 @@ class FirebaseAuth:
             return False
 
         if resp.status_code != 200:
-            logger.warning("[FirebaseAuth] refresh failed: %s", resp.text)
-            self.clear()
+            logger.warning("[FirebaseAuth] refresh failed: HTTP %s", resp.status_code)
             return False
 
         data = resp.json()

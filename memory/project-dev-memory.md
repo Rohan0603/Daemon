@@ -11,6 +11,33 @@
 **Stack:** Python 3.14, PyQt6, pynput, ctypes, requests, comtypes, Pillow, structlog, prometheus-client
 **Test count:** 914 passed, 1 skipped (37.41s)
 
+## 2026-08-29 — Python 3.14 TTS and Firestore Batch Fixes
+
+- Root cause of silent result speech: pydub imports fail on Python 3.14 because `audioop`/`pyaudioop` is unavailable, so edge-tts MP3 conversion returned no audio.
+- Added FFmpeg pipe-based MP3-to-WAV decoding fallback, with explicit TTS queue, worker, conversion, and playback diagnostics.
+- Added regression coverage for FFmpeg decoding; TTS suite: 20 passed.
+- Fixed Firestore diary batch writes to call the database-level `:commit` endpoint instead of incorrectly appending `:commit` to the documents collection URL, which caused HTTP 400 responses.
+- Focused Firebase/memory/TTS suite: 71 passed in 3.23s.
+
+## 2026-08-29 — Config Persistence and Trigger Diagnostics
+
+- Fixed Settings persistence: saving UI values now starts from the full loaded config and merges edits, instead of writing a partial config that discarded unrelated settings.
+- Synchronized the runtime config cache after disk writes so asynchronous config updates cannot overwrite newer values.
+- Removed unused Pipeline URLs settings and constants; Ollama and OpenCode primary URLs remain under their active LLM settings.
+- Added DEBUG logs for LLM actions, MCP/FSM actions, expression animations, emotion evaluations/transitions, and emotion decay.
+- Fixed startup recovery settings save to preserve the full config and no longer request removed Firebase API-key UI data.
+- Targeted config/settings/window suite: 48 passed in 3.08s.
+
+## 2026-08-29 — TTS Result Playback Fallback
+
+- Fixed `TTSWorker` to treat a false `winsound.PlaySound` result as playback failure, allowing the optional `simpleaudio` fallback to run instead of silently dropping result speech.
+- Added PyInstaller hidden imports for dynamic `edge_tts`, `pyttsx3` SAPI5, and `pydub` imports so packaged builds retain TTS backends.
+- Added regression coverage in `tests/test_tts_worker.py`; focused TTS suite: 19 passed in 0.78s.
+- Documented Windows installation prerequisite `winget install Gyan.FFmpeg.Shared --accept-source-agreements --accept-package-agreements` and `ffmpeg -version` verification in `README.md`.
+- Made FFmpeg WinGet discovery independent of installed versioned folder names, preventing pydub TTS decoding failures after installation.
+- Added checked-by-default Login dialog "Remember me" control; saved sessions now restore automatically, while transient refresh failure no longer deletes valid saved credentials. Unchecked sign-in remains session-only.
+- Auth/TTS/login/daemon regression suite: 55 passed in 2.21s.
+
 ## 2026-08-29 — Copilot Startup Defaults Verified
 
 - Confirmed global and project instructions explicitly default Caveman Full, Ponytail engineering workflow, and Graphify codebase workflow.
@@ -468,3 +495,40 @@ Update `AGENTS.md` and this file (or an archive entry) after each task.
 - Existing logging stack: stdlib logging with rotating files, optional structlog NDJSON, correlation IDs, runtime module overrides, Prometheus metrics, and OpenTelemetry hooks.
 - Remaining quality gaps: 359 logger calls are concentrated in `src/ui/pet_window.py`; routine UI lifecycle/debug details are emitted at INFO, user/LLM text and config state are logged without a documented redaction policy, expected provider connectivity failures are ERROR-level and repetitive, correlation context is not explicitly scoped/reset per operation, and structured logging is not the single canonical configuration path.
 - Planned work: define severity/event taxonomy; centralize structured context and redaction; demote or remove noisy UI/poll/retry logs; rate-limit repeated expected failures while preserving transition/recovery logs; normalize exception fields and correlation/request metadata; align config and handler levels; add focused capture/redaction/rate-limit/regression tests; validate with representative startup, provider-offline, user-query, MCP, and shutdown runs plus log-volume/no-sensitive-content checks.
+- Implemented first slice: token-scoped correlation context, recursive sensitive-field/message redaction with truncation, bounded repeated-event suppression, and handler integration; removed raw prompt/dialogue/response/error/config payloads from key UI and LLM logs; classified EventStreamWorker offline retries with bounded milestones and recovery logging.
+- Verification: focused logging/worker suite 70 passed, 1 skipped; full suite 936 passed, 3 failed, 1 skipped in 39.29s. Remaining failures are pre-existing Firebase vector CRUD constructor compatibility tests (`creds_path`), unrelated to logging. Graphify updated after code changes.
+
+## 2026-08-29 - Logging Quality Core
+
+- Added token-scoped correlation context, recursive sensitive-value redaction/truncation, bounded repeated-event filtering, and safe message filtering in `src/log_context.py`.
+- Integrated safe filters into plain and structlog-compatible handlers in `src/logging_setup.py` without changing existing formats.
+- Added focused context, redaction, suppression, and setup compatibility tests.
+- Verification: 18 focused logging tests passed in 0.44s.
+
+## 2026-08-29 - RAG Runtime Wiring
+
+- Instantiated one offline-capable `RAGRetriever` in `PetWindow`, seeded from local memory and diary records.
+- Attached the retriever to `MCPServerThread`, passed it into `ContextManager`, refreshed records after Firebase diary/brain sync and local memory/diary updates, and scoped cloud vector queries to the authenticated pet.
+- Added local fallback when remote vector retrieval fails; semantic context now works even when structured memory facts are empty.
+- Added focused retrieval and prompt regression tests: 7 RAG/MCP tests passed.
+- Full suite: 938 passed, 3 failed, 1 skipped in 37.58s. Remaining failures are pre-existing `FirebaseCRUD(creds_path=...)` compatibility tests in `tests/test_firebase_vector_crud.py`.
+- Graphify updated successfully.
+
+## 2026-08-29 - RAG Diagnostics and Log Settings
+
+- Added RAG debug/info telemetry for index refresh, query start, backend selection, result count, fallback, and duration.
+- Added editable `data/log_settings.json` with root level plus per-module levels; startup loads it through `logging_setup`, while CLI `--verbose` still forces DEBUG.
+- Config template and packaged-path resolution now preserve the log settings location.
+- Verification: logging/RAG tests 17 passed; focused RAG/PetWindow integration tests 27 passed; compile and diff checks passed.
+- Full suite: 943 passed, 4 failed, 1 skipped in 37.6s. Three existing Firebase vector constructor compatibility failures remain; Ollama clipboard-signal test also fails independently.
+- Graphify updated successfully.
+
+## 2026-08-29 - Global Debug Logging Control
+
+- `--debug` now enables process-wide DEBUG logging for the normal application; the obsolete headless FSM simulation was removed. `--verbose` remains a compatible DEBUG-only alias.
+- Added `set_global_log_level()` to update root logger and existing handlers together, preventing runtime level changes from being blocked by stale console handler levels.
+- MCP `set_log_level` now changes global logger/handler levels with input validation instead of only changing the `src` namespace.
+- Added focused diagnostics for FSM transitions, brain-schema update decisions, and rejected write-sandbox paths. Existing instrumentation covers startup, UI, autonomy, LLM, MCP, persistence, RAG, and worker lifecycles.
+- Updated README CLI documentation and added regression tests for debug-overrides-config and runtime handler updates.
+- Verification: focused suite 86 passed; full suite 941 passed, 4 failed, 1 skipped in 30.89s. Remaining failures are pre-existing Firebase vector CRUD constructor compatibility tests and the Ollama clipboard-signal test.
+- Graphify updated successfully to 4,944 nodes and 8,170 edges.

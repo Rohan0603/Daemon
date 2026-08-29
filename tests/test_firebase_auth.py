@@ -53,6 +53,20 @@ def test_sign_up_success(auth: FirebaseAuth) -> None:
     assert result == "uid2"
 
 
+def test_sign_in_without_remember_me_does_not_persist(auth: FirebaseAuth) -> None:
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "idToken": "id2", "refreshToken": "rt2",
+        "localId": "uid2", "email": "new@b.com", "expiresIn": "3600",
+    }
+    with patch("requests.post", return_value=mock_resp):
+        result = auth.sign_in("new@b.com", "pass456", remember_me=False)
+    assert result == "uid2"
+    assert not auth._token_path.exists()
+    assert auth.uid == "uid2"
+
+
 def test_sign_up_existing_email(auth: FirebaseAuth) -> None:
     mock_resp = MagicMock()
     mock_resp.status_code = 400

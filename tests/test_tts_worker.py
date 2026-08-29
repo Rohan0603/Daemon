@@ -111,6 +111,22 @@ class TestTTSWorker:
             assert len(raw) > 0
             assert play_rate > 0
 
+    def test_apply_pitch_filter_decodes_mp3_with_ffmpeg_when_pydub_unavailable(self):
+        worker = TTSWorker()
+        wav_bytes = _make_wav_bytes(nframes=100)
+        completed = MagicMock(stdout=wav_bytes)
+        source = io.BytesIO(b"mp3")
+
+        with patch("src.system.tts_worker._PYDUB_AVAILABLE", False), \
+            patch("src.system.tts_worker.subprocess.run", return_value=completed) as run:
+            result = worker._apply_pitch_filter(source)
+
+        assert result is not None
+        raw, rate, nch, sw = result
+        assert len(raw) > 0
+        assert (rate, nch, sw) == (22050, 1, 2)
+        assert run.call_args.kwargs["check"] is True
+
     def test_pyttsx3_engine_reused_across_calls(self):
         worker = TTSWorker(rate=220)
         engine = MagicMock()
@@ -166,6 +182,27 @@ class TestTTSWorker:
 
         worker._process_utterance("hello")
         assert len(pitch_called) == 0
+
+    def test_process_utterance_uses_fallback_when_winsound_returns_false(self):
+        worker = TTSWorker()
+        played = []
+        worker._generate_voice = lambda text: "input.wav"
+        worker._apply_pitch_filter = lambda source: (b"\x00\x00", 22050, 1, 2)
+        worker._play_via_winsound = lambda path, rate: False
+
+        class FakePlayObject:
+            def is_playing(self):
+                return False
+
+        with patch.dict("sys.modules", {"simpleaudio": MagicMock(
+                play_buffer=lambda raw, nch, sw, rate: played.append(
+                    (raw, nch, sw, rate)
+                ) or FakePlayObject()
+        )}):
+            worker._process_utterance("hello")
+
+        assert played == [(b"\x00\x00", 1, 2, 22050)]
+        worker.stop()
 
     def test_asyncio_loop_reused_across_calls(self):
         worker = TTSWorker(pitch=1.20)
