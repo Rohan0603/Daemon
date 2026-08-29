@@ -8,7 +8,6 @@ Provides:
 """
 from __future__ import annotations
 import logging
-import os
 import sys
 import time
 from contextlib import contextmanager
@@ -24,7 +23,6 @@ except ImportError:
 
 try:
     from prometheus_client import Counter, Gauge, Histogram, generate_latest, CollectorRegistry, CONTENT_TYPE_LATEST
-    from prometheus_client.core import REGISTRY
     _PROMETHEUS_AVAILABLE = True
 except ImportError:
     _PROMETHEUS_AVAILABLE = False
@@ -96,13 +94,6 @@ def setup_structured_logging(
         stream=sys.stdout,
         level=level,
     )
-
-
-def get_structured_logger(name: str) -> Any:
-    """Get a structlog logger instance."""
-    if _STRUCTLOG_AVAILABLE:
-        return structlog.get_logger(name)
-    return logging.getLogger(name)
 
 
 # =============================================================================

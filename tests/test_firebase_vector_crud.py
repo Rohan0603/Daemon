@@ -1,48 +1,60 @@
-from unittest.mock import Mock
+from unittest.mock import MagicMock
 
 import pytest
 
 from src.firebase_crud import FirebaseCRUD
 
 
-def test_find_nearest_vector_uses_native_query():
-    crud = FirebaseCRUD(creds_path="unused")
-    snapshot = Mock(id="memory-1")
-    snapshot.to_dict.return_value = {"text": "python"}
-    query = Mock()
-    query.stream.return_value = [snapshot]
-    collection = Mock()
-    collection.find_nearest.return_value = query
-    crud._client = Mock()
-    crud._available = True
-    crud._client.collection.return_value = collection
+@pytest.fixture
+def crud():
+    auth = MagicMock()
+    auth.get_valid_token.return_value = "test-token"
+    return FirebaseCRUD(auth=auth, project_id="test-project")
 
+
+def test_find_nearest_vector_uses_native_query(crud, monkeypatch):
+    response = MagicMock(status_code=200)
+    response.json.return_value = [{
+        "document": {
+            "name": "projects/test-project/databases/(default)/documents/memories/memory-1",
+            "fields": {"text": {"stringValue": "python"}},
+        }
+    }]
+    request = MagicMock(return_value=response)
+    monkeypatch.setattr(crud._session, "request", request)
     results = crud.find_nearest_vector("memories", [1.0, 0.0], limit=2)
 
     assert results == [{"text": "python", "id": "memory-1"}]
-    kwargs = collection.find_nearest.call_args.kwargs
-    assert kwargs["vector_field"] == "embedding"
-    assert kwargs["limit"] == 2
-    assert kwargs["distance_measure"] == "COSINE"
+    query = request.call_args.kwargs["json"]["structuredQuery"]
+    assert query["findNearest"]["vectorField"] == {"fieldPath": "embedding"}
+    assert query["findNearest"]["limit"] == 2
+    assert query["findNearest"]["distanceMeasure"] == "COSINE"
+    assert query["findNearest"]["queryVector"]["mapValue"]["fields"]["value"] == {
+        "arrayValue": {"values": [{"doubleValue": 1.0}, {"doubleValue": 0.0}]}
+    }
 
 
-def test_find_nearest_vector_supports_category_prefilter():
-    crud = FirebaseCRUD(creds_path="unused")
-    crud._client = Mock()
-    crud._available = True
-    collection = crud._client.collection.return_value
-    filtered = collection.where.return_value
-    filtered.find_nearest.return_value.stream.return_value = []
+def test_find_nearest_vector_supports_category_prefilter(crud, monkeypatch):
+    response = MagicMock(status_code=200)
+    response.json.return_value = []
+    request = MagicMock(return_value=response)
+    monkeypatch.setattr(crud._session, "request", request)
 
     crud.find_nearest_vector(
         "memories", [0.2, 0.8], category_field="type", category_value="diary"
     )
 
-    collection.where.assert_called_once_with("type", "==", "diary")
+    query = request.call_args.kwargs["json"]["structuredQuery"]
+    assert query["where"] == {
+        "fieldFilter": {
+            "field": {"fieldPath": "type"},
+            "op": "EQUAL",
+            "value": {"stringValue": "diary"},
+        }
+    }
 
 
-def test_find_nearest_vector_validates_inputs():
-    crud = FirebaseCRUD(creds_path="unused")
+def test_find_nearest_vector_validates_inputs(crud):
     with pytest.raises(ValueError):
         crud.find_nearest_vector("memories", [], limit=5)
     with pytest.raises(ValueError):

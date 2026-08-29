@@ -1,6 +1,6 @@
 # src/context_menu.py
 import logging
-from PyQt6.QtWidgets import QMenu, QApplication
+from PyQt6.QtWidgets import QMenu
 from PyQt6.QtCore import pyqtSignal, QObject
 
 logger = logging.getLogger(__name__)

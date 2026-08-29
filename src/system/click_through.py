@@ -2,7 +2,6 @@
 import ctypes
 import ctypes.wintypes
 import logging
-import time
 from typing import Callable
 from PyQt6.QtCore import QTimer, QRect
 from PyQt6.QtGui import QCursor

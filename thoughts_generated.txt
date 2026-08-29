@@ -1,5 +1,0 @@
-typing_reaction: Whoa, slow down there, champ. The keyboard has a family of agents to feed, not just one impatient cursor!
-observation: APM at 78 — you're mousing around the agent tools like a kid in a candy store. Productive!
-intel_roast: Zero APM in the agent screen? Planning a silent deployment or just admiring the pretty dashboard icons?
-idle_thought: I wonder if the FSM is secretly waiting for the agent screen to lull into a waltz state. Probably not.
-typing_reaction: Tap tap tap. That's the sound of fresh meat actually being productive with these agent workflows.

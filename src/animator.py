@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Optional
 from PyQt6.QtCore import QPointF, Qt
-from PyQt6.QtGui import QPainter, QColor, QPen
+from PyQt6.QtGui import QPainter, QColor
 from src.constants import PARTICLE_MAX_COUNT
 
 logger = logging.getLogger(__name__)

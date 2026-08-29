@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from utils.security import is_safe_write_path, DATA_DIR, PROJECT_ROOT
+from scripts.generate_ast_map import generate_codebase_map
 
 
 def test_write_sandbox_enforced():
@@ -19,11 +20,11 @@ def test_write_sandbox_enforced():
     assert is_safe_write_path(os.path.join(DATA_DIR, "blackmail", "evidence.png")) is True
 
 
-def test_ast_map_exists_and_valid():
-    map_path = os.path.join(os.path.dirname(__file__), "..", "data", "codebase_map.json")
-    assert os.path.exists(map_path), "codebase_map.json not found - run daemon.py first"
+def test_ast_map_exists_and_valid(tmp_path):
+    map_path = tmp_path / "codebase_map.json"
+    generate_codebase_map(os.path.join(PROJECT_ROOT, "src"), str(map_path))
 
-    with open(map_path) as f:
+    with open(map_path, encoding="utf-8") as f:
         map_data = json.load(f)
 
     assert "classes" in map_data

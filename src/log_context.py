@@ -135,15 +135,6 @@ class SafeLogFilter(logging.Filter):
 RateLimitFilter = RepeatedEventFilter
 
 
-class CorrelationIdFilter(logging.Filter):
-    """Logging filter that adds correlation_id to every log record."""
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        cid = get_correlation_id()
-        record.correlation_id = cid if cid else "-"
-        return True
-
-
 class CorrelationIdDefault(logging.Formatter):
     """Formatter that injects correlation_id from contextvar into log records."""
 

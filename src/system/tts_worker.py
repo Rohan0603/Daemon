@@ -6,7 +6,6 @@ import logging
 import math
 import os
 import queue
-import struct
 import subprocess
 import tempfile
 import threading

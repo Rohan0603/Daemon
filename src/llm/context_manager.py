@@ -3,7 +3,7 @@
 """ContextManager — builds minimal trigger prompts and XML-structured blocks."""
 from __future__ import annotations
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
 

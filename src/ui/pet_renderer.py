@@ -2,9 +2,8 @@
 from __future__ import annotations
 import math
 from dataclasses import dataclass, field
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from PyQt6.QtCore import QRect
     from src.animator import Emotion, EmotionAnimator
 from PyQt6.QtCore import QRect, QPoint, Qt
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QFontMetrics

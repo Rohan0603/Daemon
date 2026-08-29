@@ -5,16 +5,15 @@ from PyQt6.QtWidgets import (
     QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
     QCheckBox, QComboBox, QDialogButtonBox,
     QGroupBox, QTabWidget, QWidget, QLineEdit,
-    QPushButton, QApplication,
+    QPushButton,
 )
-from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer
 import requests
 from src.constants import (
     SETTINGS_SCALE_MIN, SETTINGS_SCALE_MAX,
     SETTINGS_OPACITY_MIN, SETTINGS_OPACITY_MAX,
     SETTINGS_SPEED_MIN, SETTINGS_SPEED_MAX,
-    CHATTINESS_DEFAULT, CHATTINESS_MIN, CHATTINESS_MAX,
+    CHATTINESS_MIN, CHATTINESS_MAX,
 )
 
 

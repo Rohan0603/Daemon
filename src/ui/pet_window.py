@@ -19,23 +19,17 @@ from PyQt6.QtGui import QPainter, QPixmap, QIcon, QColor
 from src.constants import (
     FSM_TICK_MS, PET_WIDTH, PET_HEIGHT, GROUND_PADDING_PX,
     GRAVITY_ACCELERATION, WANDER_SPEED_PX, APM_HYPER_THRESHOLD,
-    SPEECH_BUBBLE_DURATION_MS,
     INPUT_WIDTH, INPUT_HEIGHT, INPUT_Y_OFFSET,
     BOREDOM_TIMEOUT_SEC,
-    AUTONOMOUS_QUERY_INTERVAL_SEC, ACTIVE_CHAT_INTERVAL_SEC, JOKE_INTERVAL_SEC,
+    AUTONOMOUS_QUERY_INTERVAL_SEC,
     BRAIN_PATH, RESPONSE_CACHE_PATH,
     THOUGHTS_LOG_PATH,
-    DEBUG,
     SILENCE_THRESHOLD, ENGAGED_THRESHOLD, BASE_INTERVAL_SEC,
     MAX_BACKOFF_SEC, BACKOFF_MULTIPLIER,
     BUBBLE_QUEUE_MAX_SIZE, BUBBLE_MAX_CHARS,
-    SHORT_BUBBLE_DURATION_MS, SHORT_BUBBLE_CHAR_LIMIT,
     SQUASH_STRETCH_DURATION_MS, PERIMETER_FALL_CHANCE,
     RISKY_KEYWORDS,
-    EMOTION_TICK_SEC, RAPID_WINDOW_SWITCH_THRESHOLD,
-    TASK_MANAGER_KEYWORDS, PROCRASTINATION_DOMAINS,
     APM_PANIC_THRESHOLD_LOW, APM_PANIC_THRESHOLD_HIGH, APM_PANIC_COOLDOWN_SEC,
-    APM_STATE_CHANGE_COOLDOWN,
     FIRESTORE_SYNC_INTERVAL_SEC,
     BUBBLE_MS_PER_CHAR, BUBBLE_MIN_DURATION_MS, BUBBLE_MAX_DURATION_MS,
     TYPEWRITER_TICK_MS, TYPEWRITER_CHARS_PER_TICK,
@@ -70,7 +64,7 @@ from src.system import (
 
 from src.fsm_bridge import FSMActionBridge
 from src.mcp_server import MCPServer
-from src.animator import EmotionAnimator, Emotion
+from src.animator import EmotionAnimator
 from src.events import get_event_bus, EventType, Event
 from src.autonomy import AutonomousResponseManager, BehaviorController
 
@@ -2187,7 +2181,6 @@ class PetWindow(QWidget):
         self._context_menu.set_pinned(self._pinned)
 
     def _on_boot_check_auth(self) -> None:
-        from src.firebase_auth import FirebaseAuth
         from src.firebase_crud import FirebaseCRUD
 
         uid = None

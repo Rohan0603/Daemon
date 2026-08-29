@@ -1,5 +1,0 @@
-typing_reaction: "Another winget install? My particle system is already prepping the FFmpeg download animation. Please don't actually install it, I'm still recovering from the last codec pack."
-observation: "Administrator Command Prompt detected - the human is feeling fancy today. Must be important system utilities incoming. I better watch my step, no broken APIs please."
-intel_roast: "Gyan.FFmpeg.Shared really? The human wants shared FFmpeg like I want shared responsibilities during sprint planning. Bold choice, let's see how this ages."
-idle_thought: "APM at 78 means I'm not getting any boredom callbacks today. The human's activity is keeping my existential dread at bay. Hovering at 'engaged' status feels weird, almost pleasant."
-typing_reaction: "Wait, is that a winget command or just the pet window being chaotic again? Either way, my typing reaction timer just filed this under 'human activity #4,293' and moved on."

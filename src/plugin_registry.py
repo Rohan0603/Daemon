@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
-from typing import Any, Callable, Optional
+from dataclasses import dataclass
+from typing import Callable, Optional
 
 from src.animator import Emotion, EmotionProfile
 

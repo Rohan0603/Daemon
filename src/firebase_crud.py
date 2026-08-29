@@ -256,7 +256,7 @@ class FirebaseCRUD:
         category_field: str | None = None,
         category_value: str | None = None,
     ) -> list[dict]:
-        """Run Firestore native kNN search with optional category pre-filter."""
+        """Run a Firestore REST kNN query with an optional category filter."""
         if not vector:
             raise ValueError("vector must not be empty")
         if not 1 <= limit <= 100:
@@ -267,25 +267,57 @@ class FirebaseCRUD:
             raise ValueError("category_field and category_value must be provided together")
 
         def _do():
-            ref = self._client.collection(collection)
+            parts = collection.strip("/").split("/")
+            parent = "/".join(parts[:-1])
+            collection_id = parts[-1]
+            structured_query: dict[str, object] = {
+                "from": [{"collectionId": collection_id}],
+                "findNearest": {
+                    "vectorField": {"fieldPath": vector_field},
+                    "queryVector": {
+                        "mapValue": {
+                            "fields": {
+                                "__type__": {"stringValue": "__vector__"},
+                                "value": {
+                                    "arrayValue": {
+                                        "values": [
+                                            {"doubleValue": float(value)}
+                                            for value in vector
+                                        ]
+                                    }
+                                },
+                            }
+                        }
+                    },
+                    "distanceMeasure": distance_measure,
+                    "limit": limit,
+                    "distanceResultField": "vector_distance",
+                },
+            }
             if category_field is not None:
-                ref = ref.where(category_field, "==", category_value)
-            try:
-                from google.cloud.firestore_v1.vector import Vector
-                query_vector = Vector(list(vector))
-            except ImportError:
-                query_vector = list(vector)
-            query = ref.find_nearest(
-                vector_field=vector_field,
-                query_vector=query_vector,
-                distance_measure=distance_measure,
-                limit=limit,
-                distance_result_field="vector_distance",
+                structured_query["where"] = {
+                    "fieldFilter": {
+                        "field": {"fieldPath": category_field},
+                        "op": "EQUAL",
+                        "value": self._encode_value(category_value),
+                    }
+                }
+            query_path = f"{parent}:runQuery" if parent else ":runQuery"
+            response = self._request(
+                "POST",
+                query_path,
+                json={"structuredQuery": structured_query},
             )
+            if response is None:
+                return []
+            response.raise_for_status()
             results = []
-            for snapshot in query.stream():
-                item = snapshot.to_dict() or {}
-                item.setdefault("id", snapshot.id)
+            for row in response.json():
+                document = row.get("document")
+                if not document:
+                    continue
+                item = self._decode_fields(document.get("fields", {}))
+                item.setdefault("id", document.get("name", "").rsplit("/", 1)[-1])
                 results.append(item)
             return results
 

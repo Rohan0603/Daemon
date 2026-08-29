@@ -11,6 +11,19 @@
 **Stack:** Python 3.14, PyQt6, pynput, ctypes, requests, comtypes, Pillow, structlog, prometheus-client
 **Test count:** 914 passed, 1 skipped (37.41s)
 
+## 2026-08-29 — Evidence-Based Repository Cleanup
+
+- Created `task-deep-codebase-cleanup` from local `master`; no commit created.
+- Removed committed pytest transcripts, generated thought samples, Kaggle download logs, Hugging Face cache blobs, and generated Unsloth trainer cache files.
+- Consolidated `.gitignore` coverage for Python/tool caches, virtual environments, PyInstaller/package output, coverage reports, runtime scratch files, recurring test/thought/Kaggle output, and backups.
+- Fixed the `data/brain_schema.json` exception by changing the parent rule from `data/` to `/data/*`; the old directory rule prevented Git from re-including the schema.
+- Removed 199 reproducible ignored cache/crash files (about 2.86 MiB) while preserving runtime user data and Graphify outputs.
+- Removed orphaned `src/llm/code_analysis.py`, unused `src/physics.py`, stale `SKILL.md.backup`, three uncalled compatibility-era helpers, and stale imports; repository-wide AST/reference scans found no runtime or test consumers. Preserved `memory_manager.apply_brain_update` after focused tests proved it is a compatibility re-export.
+- Targeted package/config tests: 21 passed; compatibility/import tests: 47 passed. Python compile check and `git diff --check` passed.
+- Replaced the leftover Admin-SDK vector query with authenticated Firestore REST `runQuery` and made the codebase-awareness E2E test generate its map in a temporary directory instead of depending on ignored runtime state.
+- Final full suite: 948 passed, 1 skipped, 1 warning in 40.43s.
+- Graphify updated successfully after cleanup.
+
 ## 2026-08-29 — Python 3.14 TTS and Firestore Batch Fixes
 
 - Root cause of silent result speech: pydub imports fail on Python 3.14 because `audioop`/`pyaudioop` is unavailable, so edge-tts MP3 conversion returned no audio.

@@ -1,7 +1,6 @@
 from pathlib import Path
 import os
 import sys
-from typing import Final
 
 if getattr(sys, 'frozen', False):
     _local_app_data = os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local'

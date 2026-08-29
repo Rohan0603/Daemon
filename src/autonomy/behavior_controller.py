@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
 
 from src.active_window import get_active_window_title, is_ide_window
 from src.animator import Emotion, EmotionAnimator

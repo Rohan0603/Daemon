@@ -1,5 +1,0 @@
-{"dialogue": "APM at 67 and I can feel the keyboard heat up. Is the user on fire or just excited?", "type": "typing_reaction", "action": "hyper", "target_x": 0, "priority": 3}
-{"dialogue": "User's APM is 67 - definitely not idle. Fingers moving a mile a minute, probably in a panic.", "type": "observation", "action": "look_away", "target_x": 0, "priority": 4}
-{"dialogue": "Panicking at APM 67? Calm down, it's just a pet, not a fire drill!", "type": "intel_roast", "action": "celebrate", "target_x": 0, "priority": 3}
-{"dialogue": "I wonder if the FSM has a 'panic' state. Probably just adds more erratic movements.", "type": "idle_thought", "action": "idle", "target_x": 0, "priority": 5}
-{"dialogue": "Whoa, slow down! APM 67 is making my particle system go into overdrive.", "type": "typing_reaction", "action": "hyper", "target_x": 0, "priority": 3}

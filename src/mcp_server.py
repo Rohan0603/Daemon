@@ -1,13 +1,12 @@
-import asyncio
 import json
 import logging
 import os
 import re
 import time
 import ctypes
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QThread
 from mcp.server.fastmcp import FastMCP
-from functools import lru_cache, wraps
+from functools import wraps
 
 from src.utils.security import get_safe_data_path
 logger = logging.getLogger(__name__)
@@ -114,16 +113,6 @@ FEATURE_TOOL_MAP = {
     "lsp_get_symbol_info": "code_intelligence",
     "query_semantic_memory": "memory_sync",
 }
-# Submit function for Pyodide compatibility
-def mcp_submit(event: str, data: dict = None) -> None:
-    """Send an event to the event system (Pyodide compatibility)."""
-    from src.events import submit_event
-    from src.constants import EVENT_KEY
-
-    if data is None:
-        data = {}
-    data[EVENT_KEY] = event
-    submit_event(data)
 class MCPServerThread(QThread):
     """QThread wrapper for FastMCP SSE server."""
     def __init__(self, memory=None, diary_store=None, history=None, config=None,
@@ -649,7 +638,6 @@ def _handle_execute_os_action(server_thread, action: str, x: int, y: int, text: 
 
     # Try to execute the action
     try:
-        import pywintypes
         from pywinauto import Application
 
         # Get the active window
