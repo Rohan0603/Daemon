@@ -1,7 +1,13 @@
 from pathlib import Path
+import os
+import sys
 from typing import Final
 
-STORAGE_DIR = Path(__file__).parent.parent / 'data'
+if getattr(sys, 'frozen', False):
+    _local_app_data = os.environ.get('LOCALAPPDATA') or Path.home() / 'AppData' / 'Local'
+    STORAGE_DIR = Path(_local_app_data) / 'Daemon'
+else:
+    STORAGE_DIR = Path(__file__).parent.parent / 'data'
 STORAGE_DIR.mkdir(exist_ok=True)
 
 CONFIG_PATH = STORAGE_DIR / 'daemon_config.json'

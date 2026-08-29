@@ -28,7 +28,7 @@ def test_sign_in_success(auth: FirebaseAuth) -> None:
     assert auth.uid == "uid1"
     assert auth.email == "a@b.com"
     saved = json.loads(auth._token_path.read_text(encoding="utf-8"))
-    assert saved["uid"] == "uid1"
+    assert saved["format"] in {"dpapi-v1", "plain-v1"}
 
 
 def test_sign_in_wrong_password(auth: FirebaseAuth) -> None:
@@ -123,6 +123,22 @@ def test_clear(auth: FirebaseAuth) -> None:
     auth.clear()
     assert not auth.is_authenticated()
     assert not auth._token_path.exists()
+
+
+def test_sign_out_clears_auth(auth: FirebaseAuth) -> None:
+    auth._uid = "u1"
+    auth._id_token = "token"
+    auth.sign_out()
+    assert not auth.is_authenticated()
+
+
+def test_load_does_not_write_uid_to_config(auth: FirebaseAuth, monkeypatch) -> None:
+    saved = {"uid": "u1", "email": "a@b.com", "idToken": "tid", "refreshToken": "trt", "expires_at": 99999}
+    auth._token_path.write_text(json.dumps(saved), encoding="utf-8")
+    save_config = MagicMock()
+    monkeypatch.setattr("src.firebase_auth.save_config", save_config, raising=False)
+    assert auth.load()
+    save_config.assert_not_called()
 
 
 def test_network_error_returns_none(auth: FirebaseAuth) -> None:

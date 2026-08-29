@@ -243,12 +243,10 @@ class MemoryManager:
         pending = entries[synced:]
         if not pending:
             return synced
-        # Use Firestore batched write (1 API call instead of N)
-        batch = self.crud.client.batch()
-        for text in pending:
-            doc_ref = self.crud.client.collection(self._diary_collection).document()
-            batch.set(doc_ref, {"text": text, "timestamp": int(time.time())})
-        batch.commit()
+        data = [{"text": text, "timestamp": int(time.time())} for text in pending]
+        if not self.crud.batch_add(self._diary_collection, data):
+            logger.warning("[MemoryManager] failed to push diary batch")
+            return synced
         new_synced = len(entries)
         diary_store.write(entries, new_synced)
         logger.info("[MemoryManager] pushed %d diary entries in 1 batch", len(pending))

@@ -246,6 +246,9 @@ def test_firestore_sync_timer_started_after_auth(safe_pet_window):
         mock_mm_instance.load_current_brain.return_value = {}
         mock_mm_instance.fetch_all_diary_entries.return_value = []
         mock_mm.return_value = mock_mm_instance
+        safe_pet_window._auth = MagicMock()
+        safe_pet_window._auth.uid = "test-uid"
+        safe_pet_window._auth.get_valid_token.return_value = "test-token"
 
         safe_pet_window._firebase_available = False
         assert not safe_pet_window._firestore_sync_timer.isActive()

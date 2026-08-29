@@ -4,6 +4,14 @@
 
 ---
 
+## Agentic Development Defaults
+
+- Start every new agent session in **Caveman Full** without waiting for user instruction.
+- Use **Ponytail** as first-priority workflow when available in the current agent environment.
+- These defaults apply to development tasks unless the user explicitly changes the mode or workflow.
+
+---
+
 ## START HERE — Project Dev Memory
 
 **Before doing anything**, read `memory/project-dev-memory.md`. It has:

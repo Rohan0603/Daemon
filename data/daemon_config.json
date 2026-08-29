@@ -1,19 +1,19 @@
 {
   "user": {
-    "uid": "G3tW3uHg02YHdH5X8cOlFMpRkcu1",
+    "uid": "uid1",
     "display_name": ""
   },
   "llm": {
-    "model_id": "opencode/deepseek-v4-flash-free",
+    "model_id": "opencode/nemotron-3.5-lightning-free",
     "provider": "opencode-zen",
     "server_url": "https://opencode.ai/zen/v1",
-    "zen_api_key": "YOUR_ZEN_API_KEY_HERE",
+    "zen_api_key": "sk-Kl6KqXvG4vlSylT1TmvcWh5ge5GIBgXFGV1n1glADmjpqUraLZJxxm3BOO0TudY6",
     "timeout_sec": 180,
     "api_key": "",
     "ollama_url": "http://127.0.0.1:11434",
     "ollama_model": "hf.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M",
     "modelfile_path": "data/Modelfile",
-    "engine": "ollama",
+    "engine": "opencode",
     "local_llm_url": "http://127.0.0.1:11434",
     "opencode_backup_url": "http://127.0.0.1:4096"
   },
@@ -242,5 +242,6 @@
       "twitch",
       "discord"
     ]
-  }
+  },
+  "some_key": "config_value"
 }

@@ -67,9 +67,8 @@ def test_empty_fields_shows_error(dialog: LoginDialog) -> None:
     assert "enter both" in dialog._error_label.text()
 
 
-def test_persona_signin_error(qtbot):
+def test_persona_signin_error(qapp):
     dlg = LoginDialog()
-    qtbot.add_widget(dlg)
     dlg._mode = "signin"
     handler = MagicMock(return_value=None)
     dlg._on_sign_in = handler

@@ -144,20 +144,23 @@ class TestBehaviorControllerEmotionEvaluation(unittest.TestCase):
 
     def test_default_mirth(self):
         controller = _make_controller()
-        emotion = controller._evaluate_emotion()
+        with patch("src.autonomy.behavior_controller.get_active_window_title", return_value=""):
+            emotion = controller._evaluate_emotion()
         self.assertEqual(emotion, Emotion.MIRTH)
 
     def test_devotion_high_apm(self):
         controller = _make_controller()
         controller.set_apm(80)
-        emotion = controller._evaluate_emotion()
+        with patch("src.autonomy.behavior_controller.get_active_window_title", return_value=""):
+            emotion = controller._evaluate_emotion()
         self.assertEqual(emotion, Emotion.DEVOTION)
 
     def test_pathos_stale_idle(self):
         controller = _make_controller()
         controller.set_idle_seconds(180)
         controller.set_apm(0)
-        emotion = controller._evaluate_emotion()
+        with patch("src.autonomy.behavior_controller.get_active_window_title", return_value=""):
+            emotion = controller._evaluate_emotion()
         self.assertEqual(emotion, Emotion.PATHOS)
 
     def test_transquility_code_window(self):
@@ -171,13 +174,15 @@ class TestBehaviorControllerEmotionEvaluation(unittest.TestCase):
     def test_anger_on_risky_match(self):
         controller = _make_controller()
         controller.set_risky_match("drop table")
-        emotion = controller._evaluate_emotion()
+        with patch("src.autonomy.behavior_controller.get_active_window_title", return_value=""):
+            emotion = controller._evaluate_emotion()
         self.assertEqual(emotion, Emotion.ANGER)
 
     def test_wonder_rapid_switches(self):
         controller = _make_controller()
         controller._window_switch_count = 5  # Above threshold (3)
-        emotion = controller._evaluate_emotion()
+        with patch("src.autonomy.behavior_controller.get_active_window_title", return_value=""):
+            emotion = controller._evaluate_emotion()
         self.assertEqual(emotion, Emotion.WONDER)
 
 

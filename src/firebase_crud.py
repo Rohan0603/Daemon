@@ -1,10 +1,10 @@
 from __future__ import annotations
 import logging
 import time
+import uuid
+from urllib.parse import quote
 
-import firebase_admin
-from firebase_admin import credentials, firestore
-from src.constants import FIREBASE_CREDENTIALS_PATH
+import requests
 from src.config import load_config
 
 logger = logging.getLogger(__name__)
@@ -14,44 +14,109 @@ class FirebaseCRUD:
     _RETRY_ATTEMPTS = 3
     _RETRY_BASE_DELAY = 0.5
 
-    def __init__(self, creds_path: str | None = None):
-        if creds_path is None:
+    def __init__(self, auth=None, project_id: str | None = None, database_id: str = "(default)"):
+        if project_id is None:
             cfg = load_config()
-            creds_path = cfg.get("firebase", {}).get("credentials_path", str(FIREBASE_CREDENTIALS_PATH))
-        self._creds_path = creds_path
-        self._client: firestore.Client | None = None
-        self._available: bool = True
+            project_id = cfg.get("firebase", {}).get("project_id", "")
+        self._auth = auth
+        self._project_id = project_id or ""
+        self._database_id = database_id
+        self._session = requests.Session()
+        self._available = bool(self._project_id and self._auth)
+        self._last_status: int | None = None
 
     @property
     def available(self) -> bool:
         return self._available
 
     @property
-    def client(self) -> firestore.Client | None:
-        return self._client
+    def client(self):
+        return None
 
-    def _ensure_client(self) -> None:
-        if self._client is not None:
-            return
-        try:
-            cred = credentials.Certificate(self._creds_path)
-            try:
-                firebase_admin.get_app()
-            except ValueError:
-                firebase_admin.initialize_app(cred)
-            self._client = firestore.client()
-        except FileNotFoundError:
-            logger.warning("Firebase credentials not found at %s", self._creds_path)
-            self._available = False
-        except Exception as e:
-            logger.warning("Firebase init failed: %s", e)
-            self._available = False
+    @property
+    def _documents_url(self) -> str:
+        project = quote(self._project_id, safe="")
+        database = quote(self._database_id, safe="")
+        return f"https://firestore.googleapis.com/v1/projects/{project}/databases/{database}/documents"
+
+    def _token(self) -> str | None:
+        return self._auth.get_valid_token() if self._auth else None
+
+    def _request(self, method: str, path: str = "", **kwargs):
+        token = self._token()
+        if not token:
+            self._last_status = 401
+            return None
+        headers = dict(kwargs.pop("headers", {}))
+        headers["Authorization"] = f"Bearer {token}"
+        headers.setdefault("Content-Type", "application/json")
+        url = f"{self._documents_url}/{path}" if path else self._documents_url
+        response = self._session.request(method, url, headers=headers, timeout=15, **kwargs)
+        self._last_status = response.status_code
+        auth = self._auth
+        if response.status_code == 401 and auth is not None and hasattr(auth, "refresh") and auth.refresh():
+            refreshed = self._token()
+            if refreshed:
+                headers["Authorization"] = f"Bearer {refreshed}"
+                response = self._session.request(method, url, headers=headers, timeout=15, **kwargs)
+                self._last_status = response.status_code
+        return response
+
+    @staticmethod
+    def _encode_value(value):
+        if value is None:
+            return {"nullValue": None}
+        if isinstance(value, bool):
+            return {"booleanValue": value}
+        if isinstance(value, int):
+            return {"integerValue": str(value)}
+        if isinstance(value, float):
+            return {"doubleValue": value}
+        if isinstance(value, str):
+            return {"stringValue": value}
+        if isinstance(value, list):
+            return {"arrayValue": {"values": [FirebaseCRUD._encode_value(item) for item in value]}}
+        if isinstance(value, dict):
+            return {"mapValue": {"fields": FirebaseCRUD._encode_fields(value)}}
+        raise TypeError(f"Unsupported Firestore value: {type(value).__name__}")
+
+    @staticmethod
+    def _encode_fields(data: dict) -> dict:
+        return {key: FirebaseCRUD._encode_value(value) for key, value in data.items()}
+
+    @staticmethod
+    def _decode_value(value: dict):
+        if "nullValue" in value:
+            return None
+        if "booleanValue" in value:
+            return value["booleanValue"]
+        if "integerValue" in value:
+            return int(value["integerValue"])
+        if "doubleValue" in value:
+            return value["doubleValue"]
+        if "stringValue" in value:
+            return value["stringValue"]
+        if "arrayValue" in value:
+            return [FirebaseCRUD._decode_value(item) for item in value["arrayValue"].get("values", [])]
+        if "mapValue" in value:
+            return FirebaseCRUD._decode_fields(value["mapValue"].get("fields", {}))
+        return None
+
+    @staticmethod
+    def _decode_fields(fields: dict) -> dict:
+        return {key: FirebaseCRUD._decode_value(value) for key, value in fields.items()}
+
+    @staticmethod
+    def _document_path(collection: str, doc_id: str | None = None) -> str:
+        parts = [quote(part, safe="") for part in collection.strip("/").split("/") if part]
+        if doc_id is not None:
+            parts.append(quote(doc_id, safe=""))
+        return "/".join(parts)
 
     def _with_retry(self, fn, *args, **kwargs):
         last_error = None
         for attempt in range(1, self._RETRY_ATTEMPTS + 1):
             try:
-                self._ensure_client()
                 if not self._available:
                     return None
                 return fn(*args, **kwargs)
@@ -68,26 +133,61 @@ class FirebaseCRUD:
 
     def get(self, collection: str, doc_id: str) -> dict | None:
         def _do():
-            doc = self._client.collection(collection).document(doc_id).get()
-            return doc.to_dict() if doc.exists else None
+            response = self._request("GET", self._document_path(collection, doc_id))
+            if response is None or response.status_code == 404:
+                return None
+            response.raise_for_status()
+            return self._decode_fields(response.json().get("fields", {}))
         return self._with_retry(_do)
 
     def set(self, collection: str, doc_id: str, data: dict, merge: bool = True) -> bool:
         def _do():
-            self._client.collection(collection).document(doc_id).set(data, merge=merge)
+            path = self._document_path(collection, doc_id)
+            params = [("updateMask.fieldPaths", key) for key in data] if merge else None
+            response = self._request(
+                "PATCH", path, params=params,
+                json={"name": f"{self._documents_url}/{path}", "fields": self._encode_fields(data)},
+            )
+            if response is None:
+                return False
+            response.raise_for_status()
             return True
         result = self._with_retry(_do)
         return bool(result)
 
     def add(self, collection: str, data: dict) -> str | None:
         def _do():
-            _ref, result = self._client.collection(collection).add(data)
-            return result.id
+            response = self._request("POST", self._document_path(collection), json={"fields": self._encode_fields(data)})
+            if response is None:
+                return None
+            response.raise_for_status()
+            return response.json().get("name", "").rsplit("/", 1)[-1] or None
         return self._with_retry(_do)
+
+    def batch_add(self, collection: str, items: list[dict]) -> bool:
+        def _do():
+            writes = []
+            for data in items:
+                path = self._document_path(collection, uuid.uuid4().hex)
+                writes.append({
+                    "update": {
+                        "name": f"{self._documents_url}/{path}",
+                        "fields": self._encode_fields(data),
+                    }
+                })
+            response = self._request("POST", ":commit", json={"writes": writes})
+            if response is None:
+                return False
+            response.raise_for_status()
+            return True
+        return bool(self._with_retry(_do))
 
     def delete(self, collection: str, doc_id: str) -> bool:
         def _do():
-            self._client.collection(collection).document(doc_id).delete()
+            response = self._request("DELETE", self._document_path(collection, doc_id))
+            if response is None:
+                return False
+            response.raise_for_status()
             return True
         result = self._with_retry(_do)
         return bool(result)
@@ -100,13 +200,24 @@ class FirebaseCRUD:
         ascending: bool = True,
     ) -> list[dict]:
         def _do():
-            ref = self._client.collection(collection)
+            parts = collection.strip("/").split("/")
+            parent = "/".join(parts[:-1])
+            collection_id = parts[-1]
+            structured_query: dict[str, object] = {"from": [{"collectionId": collection_id}]}
             if order_by:
-                direction = firestore.Query.ASCENDING if ascending else firestore.Query.DESCENDING
-                ref = ref.order_by(order_by, direction=direction)
+                structured_query["orderBy"] = [{
+                    "field": {"fieldPath": order_by},
+                    "direction": "ASCENDING" if ascending else "DESCENDING",
+                }]
             if limit:
-                ref = ref.limit(limit)
-            return [doc.to_dict() for doc in ref.stream()]
+                structured_query["limit"] = limit
+            query_path = f"{parent}:runQuery" if parent else ":runQuery"
+            response = self._request("POST", query_path, json={"structuredQuery": structured_query})
+            if response is None:
+                return []
+            response.raise_for_status()
+            rows = response.json()
+            return [self._decode_fields(row.get("document", {}).get("fields", {})) for row in rows if row.get("document")]
         result = self._with_retry(_do)
         return result or []
 

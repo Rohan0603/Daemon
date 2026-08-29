@@ -9,7 +9,7 @@ def test_constructor():
     assert bridge._last_action is None
 
 
-def test_emit_request_sends_action(qtbot):
+def test_emit_request_sends_action(qapp):
     bridge = FSMActionBridge()
     received = []
 
@@ -22,7 +22,7 @@ def test_emit_request_sends_action(qtbot):
     assert received[0] == ("shake", None, None)
 
 
-def test_emit_request_with_coords(qtbot):
+def test_emit_request_with_coords(qapp):
     bridge = FSMActionBridge()
     received = []
 
@@ -35,7 +35,7 @@ def test_emit_request_with_coords(qtbot):
     assert received[0] == ("chase", 500, 300)
 
 
-def test_emit_request_from_background_thread(qtbot):
+def test_emit_request_from_background_thread(qapp):
     """Signal must be delivered on main thread via QueuedConnection."""
     bridge = FSMActionBridge()
     main_thread_id = int(QThread.currentThread().currentThreadId())
@@ -56,7 +56,7 @@ def test_noop_when_bridge_not_connected():
     bridge.emit_request("idle")  # should not raise
 
 
-def test_emit_toast(qtbot):
+def test_emit_toast(qapp):
     bridge = FSMActionBridge()
     received = []
 
@@ -69,7 +69,7 @@ def test_emit_toast(qtbot):
     assert received[0] == ("System Alert", "Your APM is 0")
 
 
-def test_emit_action_triggered(qtbot):
+def test_emit_action_triggered(qapp):
     bridge = FSMActionBridge()
     received = []
 

@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QSlider,
     QCheckBox, QComboBox, QDialogButtonBox,
     QGroupBox, QTabWidget, QWidget, QLineEdit,
-    QPushButton,
+    QPushButton, QApplication,
 )
 from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal, pyqtSlot, QTimer
@@ -45,7 +45,6 @@ class SettingsDialog(QDialog):
                  llm_server_url: str = "http://127.0.0.1:4096",
                  local_llm_url: str = "http://127.0.0.1:11434",
                  opencode_backup_url: str = "http://127.0.0.1:4096",
-                 firebase_api_key: str = "",
                  firebase_project_id: str = "",
                  parent=None):
         super().__init__(parent)
@@ -275,13 +274,9 @@ class SettingsDialog(QDialog):
 
         fb_group = QGroupBox("Firebase Configuration")
         fb_layout = QVBoxLayout(fb_group)
-        self._fb_api_key = QLineEdit(firebase_api_key)
-        self._fb_api_key.setEchoMode(QLineEdit.EchoMode.PasswordEchoOnEdit)
         self._fb_project_id = QLineEdit(firebase_project_id)
-        
-        fb_layout.addWidget(QLabel("API Key:"))
-        fb_layout.addWidget(self._fb_api_key)
-        fb_layout.addWidget(QLabel("Project ID:"))
+        self._fb_project_id.setReadOnly(True)
+        fb_layout.addWidget(QLabel("Project ID (managed by the release):"))
         fb_layout.addWidget(self._fb_project_id)
         tab4_layout.addWidget(fb_group)
         
@@ -484,6 +479,5 @@ class SettingsDialog(QDialog):
             "OPENCODE_SERVER_URL": self._llm_server_url.text(),
             "LOCAL_LLM_URL": self._local_llm_url_edit.text(),
             "OPENCODE_BACKUP_URL": self._opencode_backup_url_edit.text(),
-            "FIREBASE_API_KEY": self._fb_api_key.text(),
             "FIREBASE_PROJECT_ID": self._fb_project_id.text(),
         }

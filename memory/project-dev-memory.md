@@ -6,10 +6,58 @@
 
 ## Project Snapshot
 
-**Last updated:** 2026-07-11
+**Last updated:** 2026-08-29
 **Branch:** `master` | **Latest commit:** `58cddec` (MCP connection fix)
 **Stack:** Python 3.14, PyQt6, pynput, ctypes, requests, comtypes, Pillow, structlog, prometheus-client
-**Test count:** 853 passed, 1 skipped (40.08s)
+**Test count:** 914 passed, 1 skipped (37.41s)
+
+## 2026-08-29 — Agentic Development Defaults
+
+- Added project-wide `AGENTS.md` defaults: start sessions in Caveman Full and prioritize Ponytail when available.
+- Global Copilot equivalent remains configured in the user-level `caveman.instructions.md` file.
+
+## 2026-08-29 — Graphify Copilot Registration
+
+- Confirmed `graphifyy` CLI already installed at version `0.9.48`.
+- Registered graphify specifically for Copilot with `graphify install --platform copilot`.
+- Removed Claude files recreated by the default `graphify install`; global Claude paths remain absent.
+
+## 2026-08-29 — Firebase Settings Credential UX
+
+- Kept Firebase visible in Settings → Connections as release-managed configuration.
+- Removed Firebase API-key input and API-key output from `src/ui/settings_dialog.py`.
+- Kept Firebase Project ID visible as read-only metadata; OpenCode remains only user-entered cloud credential.
+- Preserved bundled Firebase configuration when saving unrelated Settings so user saves cannot erase the release API key.
+- Added regression coverage for read-only Project ID and absent Firebase API-key output.
+- Isolated behavior emotion tests from host active-window state and removed stale required-API-key assertion for local-only config.
+- Full suite: 914 passed, 1 skipped, 1 warning in 37.41s. Graphify updated.
+
+## 2026-08-29 — Firebase Client Security Slice
+
+- Replaced desktop Firestore Admin SDK/service-account access in `src/firebase_crud.py` with authenticated Firestore REST requests using `FirebaseAuth.get_valid_token()` bearer tokens.
+- Added typed Firestore value encoding/decoding, merge writes, REST queries, REST batch diary writes, transient retry, and one token-refresh retry after HTTP 401.
+- Removed synthetic `uid = "default"` cloud initialization; `PetWindow` now creates cloud sync only for a real authenticated UID, while `--no-auth` remains local-only.
+- Packaging no longer includes repository `data/`; build inputs now use existing safe assets and the template no longer requires a service-account path.
+- Packaged builds resolve writable storage under `%LOCALAPPDATA%\\Daemon`; source-mode test paths remain unchanged.
+- Focused Firebase/config/boot regression suite: 99 passed in 4.99s. Static diagnostics clear. Graphify updated.
+- Next work: protected refresh-token storage/account switching, Firebase Emulator rules tests, package archive inspection, and full clean-build smoke test.
+
+## 2026-08-29 — Auth Token Protection
+
+- Added Windows DPAPI protection for new Firebase auth token files in `src/firebase_auth.py`; legacy plaintext files remain readable for migration.
+- Removed Firebase UID writes from mutable config and added explicit `FirebaseAuth.sign_out()` backed by token/file clearing.
+- Frozen-build relative storage paths now resolve into `%LOCALAPPDATA%\\Daemon` during config loading.
+- Combined Firebase/config/auth/memory/boot gate: 100 passed in 4.69s. Static diagnostics clear. Graphify updated.
+
+## 2026-08-29 — Account Lifecycle and Release Validation
+
+- Added `Sign out of Firebase` to the actual UI context menu and connected `PetWindow` cleanup: stop Firestore sync, detach cloud memory/CRUD, clear protected auth tokens, and mark next launch for login.
+- Added regression coverage proving auth loading does not mutate config identity; focused auth/PetWindow tests: 38 passed. Settings dialog import regression fixed; settings tests: 7 passed.
+- Added `docs/firebase-distribution.md` covering Email/Password setup, Firestore rules deployment, API-key restrictions, token/storage behavior, account switching, and package release checklist.
+- Clean PyInstaller build succeeded with `build.ps1`; package inspection found public config template only and no repository `data/`, auth token, developer config, or service-account JSON.
+- `graphify update .` succeeded.
+- Full suite currently has pre-existing failures/errors: 868 passed, 3 failed, 1 skipped, 6 errors in 53.57s. Failures are behavior-controller, config autocreation, FSM bridge, and login-dialog tests; suite misses the under-50-second gate. Firebase-focused tests remain green.
+- Remaining release proof: run Firebase Emulator Suite rules tests against staging rules, perform packaged first-launch/restart/second-account smoke test with real staging accounts, and resolve unrelated full-suite failures before release.
 
 ## 2026-08-23 — Kaggle Notebook Compute
 
@@ -195,6 +243,17 @@
 
 ## What To Do Next
 
+### 2026-08-23 — Unsloth Recipe Parity Repair
+
+- Rebuilt `daemon.ipynb` as a clean 10-cell executable Kaggle pipeline: CUDA/compute-capability guard, compatible dependencies, recipe discovery, model/LoRA setup, dataset loading for Parquet/JSONL, live response validation, chat-template formatting, `SFTTrainer`, desktop and code-assist inference checks, Q4_K_M GGUF export, and generated Ollama `Modelfile`.
+- Removed stale stored notebook outputs. Notebook has zero embedded execution outputs and all code cells parse after removing IPython magics.
+- Updated `daemon_kenny_unsloth_training_recipe.json` to recipe v2: full non-preview 1000-row run, JSONL+Parquet output, teacher API-key environment wiring, Daemon MCP SSE/tool configs, 31 live actions, current Windows context samplers, mode/APM/idle/typing/screen/browser/memory/context-hash fields, desktop array and code-assist object schemas, and typed writable brain updates with locked-field metadata.
+- Import compatibility fix: recipe sampler types must be `category`; APM and idle values are independent numeric strings consumed as integers by notebook formatting.
+- Static validation passed: recipe JSON/schema valid; 31 action parity; 24 writable brain fields; desktop and code-assist sample outputs validate.
+- Focused runtime tests passed: 94 tests in 9.93s. Actual Unsloth training/export still requires Kaggle GPU execution.
+- Verified Zen health-check fix (2026-08-24): direct Zen requests require bare model ID `nemotron-3.5-lightning-free`; `opencode/nemotron-3.5-lightning-free` is only valid in OpenCode's own config and returns `401` through Zen's direct endpoint, which Unsloth misleadingly reports as an expired API key. Recipe keeps `api_key_env: OPENCODE_ZEN_API_KEY`; credentials stay in the runner secret manager.
+- Switched Unsloth teacher to OpenCode Zen MiMo V2.5 Free (2026-08-24): verified catalog ID `mimo-v2.5-free`; restored `api_key_env: OPENCODE_ZEN_API_KEY` after a live key was accidentally placed in the recipe.
+
 ### 🚀 Immediate Top Priority: Multi-Layer Interaction Architecture (Desktop & Code)
 
 *Design Spec:* `docs/superpowers/specs/2026-08-22-multi-layer-interaction-architecture-design.md`  
@@ -280,6 +339,12 @@ Update `AGENTS.md` and this file (or an archive entry) after each task.
 3. **Tool reinforcement** — `.opencode/skills/kenny/SKILL.md`: Added "User Physical Commands (MANDATORY)" section instructing the model to call `change_visual_state`/`trigger_pet_animation` for physical commands instead of only narrating.
 
 **Verification:** `py -m pytest tests/ -v` — 842 passed, 3 failed (pre-existing diary compaction), 1 skipped in 51.03s.
+
+## 2026-08-29 — Claude Cleanup
+
+- Removed project Claude configuration and synced skills (`.claude/` and root `CLAUDE.md`).
+- Uninstalled global `@anthropic-ai/claude-code` and removed global Claude state, including the `ponytail` plugin.
+- Verified project/global Claude paths and launcher are absent.
 
 **Files changed:** `.opencode/opencode.json`, `.opencode/skills/kenny/SKILL.md`, `daemon.py`
 

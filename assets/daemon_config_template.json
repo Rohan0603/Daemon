@@ -45,8 +45,7 @@
   },
   "firebase": {
     "api_key": "",
-    "project_id": "daemon-87f81",
-    "credentials_path": "data/firebase-credentials.json"
+    "project_id": "daemon-87f81"
   },
   "mcp": {
     "host": "127.0.0.1",

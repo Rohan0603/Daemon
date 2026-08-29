@@ -48,8 +48,9 @@ def test_load_config_with_override(tmp_path):
     }
     config_file.write_text(json.dumps(custom_data), encoding="utf-8")
 
-    with patch("src.config._CONFIG_PATH", config_file):
-        cfg = load_config()
+    with patch.dict(os.environ, {"FIREBASE_API_KEY": "test-fb-key"}, clear=True):
+        with patch("src.config._CONFIG_PATH", config_file):
+            cfg = load_config()
         assert cfg["llm"]["model_id"] == "custom-model"
         assert cfg["llm"]["server_url"] == "http://custom-url:4096"
         assert cfg["pet"]["scale"] == 1.5
@@ -128,15 +129,12 @@ def test_validate_config_raises_on_missing_fields():
     msg = str(exc_info.value)
     assert "llm.model_id" in msg
     assert "llm.api_key" in msg
-    assert "firebase.api_key" in msg
 
-def test_validate_config_raises_on_missing_credentials_file():
+def test_validate_config_does_not_require_service_account_file():
     valid_cfg = _get_minimal_valid_cfg()
     valid_cfg["firebase"]["credentials_path"] = "missing.json"
-    with pytest.raises(MissingConfigurationError) as exc_info:
-        with patch("os.path.exists", return_value=False):
-            validate_config(valid_cfg)
-    assert "firebase.credentials_path file not found" in str(exc_info.value)
+    with patch("os.path.exists", return_value=False), patch("os.access", return_value=True):
+        validate_config(valid_cfg)
 
 
 # ── Session store ─────────────────────────────────────────────────────────────

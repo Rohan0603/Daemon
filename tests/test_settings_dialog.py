@@ -65,6 +65,14 @@ class TestSettingsDialog:
         assert values["allow_window_management"] is False
         assert values["allow_keyboard_injection"] is False
 
+    def test_firebase_configuration_is_release_managed(self, app):
+        dialog = SettingsDialog(firebase_project_id="staging-project")
+        values = dialog.get_values()
+        assert dialog._fb_project_id.isReadOnly()
+        assert dialog._fb_project_id.text() == "staging-project"
+        assert "FIREBASE_API_KEY" not in values
+        assert values["FIREBASE_PROJECT_ID"] == "staging-project"
+
     def test_consent_toggle_changes_get_values(self, app):
         dialog = SettingsDialog()
         dialog._cb_intrusive_animations.setChecked(False)

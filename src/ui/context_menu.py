@@ -17,6 +17,7 @@ class _Signals(QObject):
     sleep_toggle = pyqtSignal(bool)
     mute_toggle = pyqtSignal(bool)
     wipe_memory = pyqtSignal()
+    sign_out = pyqtSignal()
 
 
 class PetContextMenu(QMenu):
@@ -46,6 +47,8 @@ class PetContextMenu(QMenu):
         brain_ops.addSeparator()
         brain_ops.addAction("⚡ Defibrillate (Restart)", self.signals.restart_brain.emit)
         brain_ops.addAction("⚠️ Lobotomy (Wipe All Data)", self.signals.wipe_memory.emit)
+
+        self.addAction("Sign out of Firebase", self.signals.sign_out.emit)
         
         self.addSeparator()
         

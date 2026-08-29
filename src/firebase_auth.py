@@ -2,6 +2,9 @@ from __future__ import annotations
 import json
 import logging
 import time
+import base64
+import ctypes
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -16,6 +19,48 @@ logger = logging.getLogger(__name__)
 IDENTITY_TOOLKIT_URL = "https://identitytoolkit.googleapis.com/v1/accounts"
 SECURE_TOKEN_URL = "https://securetoken.googleapis.com/v1/token"
 TOKEN_REFRESH_MARGIN_SEC = 60
+
+
+def _protect(data: str) -> dict:
+    if os.name != "nt":
+        return {"format": "plain-v1", "payload": data}
+    try:
+        class Blob(ctypes.Structure):
+            _fields_ = [("cbData", ctypes.c_uint32), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
+
+        raw = data.encode("utf-8")
+        source = (ctypes.c_ubyte * len(raw)).from_buffer_copy(raw)
+        input_blob = Blob(len(raw), source)
+        output_blob = Blob()
+        if not ctypes.windll.crypt32.CryptProtectData(ctypes.byref(input_blob), None, None, None, None, 0, ctypes.byref(output_blob)):
+            raise OSError("CryptProtectData failed")
+        try:
+            protected = ctypes.string_at(output_blob.pbData, output_blob.cbData)
+        finally:
+            ctypes.windll.kernel32.LocalFree(output_blob.pbData)
+        return {"format": "dpapi-v1", "payload": base64.b64encode(protected).decode("ascii")}
+    except (AttributeError, OSError):
+        logger.warning("Windows token protection unavailable; using development fallback")
+        return {"format": "plain-v1", "payload": data}
+
+
+def _unprotect(data: dict) -> str:
+    if data.get("format") != "dpapi-v1":
+        return data.get("payload", json.dumps(data)) if data.get("format") == "plain-v1" else json.dumps(data)
+    if os.name != "nt":
+        raise OSError("DPAPI token cannot be decrypted on this platform")
+    class Blob(ctypes.Structure):
+        _fields_ = [("cbData", ctypes.c_uint32), ("pbData", ctypes.POINTER(ctypes.c_ubyte))]
+    protected = base64.b64decode(data["payload"])
+    source = (ctypes.c_ubyte * len(protected)).from_buffer_copy(protected)
+    input_blob = Blob(len(protected), source)
+    output_blob = Blob()
+    if not ctypes.windll.crypt32.CryptUnprotectData(ctypes.byref(input_blob), None, None, None, None, 0, ctypes.byref(output_blob)):
+        raise OSError("CryptUnprotectData failed")
+    try:
+        return ctypes.string_at(output_blob.pbData, output_blob.cbData).decode("utf-8")
+    finally:
+        ctypes.windll.kernel32.LocalFree(output_blob.pbData)
 
 
 class FirebaseAuth:
@@ -138,13 +183,15 @@ class FirebaseAuth:
         }
         try:
             self._token_path.parent.mkdir(parents=True, exist_ok=True)
-            self._token_path.write_text(json.dumps(data), encoding="utf-8")
+            payload = _protect(json.dumps(data))
+            self._token_path.write_text(json.dumps(payload), encoding="utf-8")
         except OSError as e:
             logger.warning("[FirebaseAuth] failed to save token: %s", e)
 
     def load(self) -> bool:
         try:
-            data = json.loads(self._token_path.read_text(encoding="utf-8"))
+            stored = json.loads(self._token_path.read_text(encoding="utf-8"))
+            data = json.loads(_unprotect(stored))
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             return False
 
@@ -153,16 +200,6 @@ class FirebaseAuth:
         self._id_token = data.get("idToken")
         self._refresh_token = data.get("refreshToken")
         self._expires_at = data.get("expires_at", 0.0)
-        
-        if self._uid:
-            from src.config import load_config, save_config
-            cfg = load_config()
-            if "user" not in cfg:
-                cfg["user"] = {}
-            if cfg["user"].get("uid") != self._uid:
-                cfg["user"]["uid"] = self._uid
-                save_config(cfg)
-                
         return self._uid is not None
 
     def is_authenticated(self) -> bool:
@@ -185,6 +222,9 @@ class FirebaseAuth:
                 data={}
             ))
 
+    def sign_out(self) -> None:
+        self.clear()
+
     def _set_tokens(self, data: dict) -> None:
         self._uid = data.get("localId")
         self._email = data.get("email")
@@ -192,14 +232,6 @@ class FirebaseAuth:
         self._refresh_token = data.get("refreshToken")
         expires_in = int(data.get("expiresIn", 3600))
         self._expires_at = time.time() + expires_in
-        
-        from src.config import load_config, save_config
-        cfg = load_config()
-        if "user" not in cfg:
-            cfg["user"] = {}
-        if cfg["user"].get("uid") != self._uid:
-            cfg["user"]["uid"] = self._uid
-            save_config(cfg)
         if self._event_bus:
             self._event_bus.publish(Event(
                 type=EventType.AUTH_SUCCESS,

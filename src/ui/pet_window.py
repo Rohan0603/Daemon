@@ -218,6 +218,7 @@ class PetWindow(QWidget):
         self._context_menu.signals.sleep_toggle.connect(self._on_sleep_toggle)
         self._context_menu.signals.mute_toggle.connect(self._on_mute_toggle)
         self._context_menu.signals.wipe_memory.connect(self._on_wipe_memory)
+        self._context_menu.signals.sign_out.connect(self._on_sign_out)
 
         self._apm_worker = APMWorker()
         self._apm_worker.apm_updated.connect(self._on_apm_updated)
@@ -1172,7 +1173,6 @@ class PetWindow(QWidget):
             llm_server_url=self._config.get("llm", {}).get("server_url") or "http://127.0.0.1:4096",
             local_llm_url=self._config.get("llm", {}).get("local_llm_url", "http://127.0.0.1:11434"),
             opencode_backup_url=self._config.get("llm", {}).get("opencode_backup_url", "http://127.0.0.1:4096"),
-            firebase_api_key=self._config.get("firebase", {}).get("api_key", ""),
             firebase_project_id=self._config.get("firebase", {}).get("project_id", ""),
             **self._saved_consent,
             parent=self,
@@ -1210,6 +1210,7 @@ class PetWindow(QWidget):
         
         # Convert the flat UI dictionary back into the nested config structure
         nested_cfg = unflatten_config(values)
+        nested_cfg["firebase"] = dict(self._config.get("firebase", {}))
         save_config(nested_cfg)
         self._config = nested_cfg
         if self._mcp_server:
@@ -2124,6 +2125,17 @@ class PetWindow(QWidget):
         self._fsm.transition_to(PetState.IDLE)
         self._show_bubble("whoa... what... where am I? who are you?")
 
+    def _on_sign_out(self) -> None:
+        if self._auth:
+            self._auth.sign_out()
+        if self._firestore_sync_timer.isActive():
+            self._firestore_sync_timer.stop()
+        self._firebase_mem = None
+        self._crud = None
+        self._firebase_available = False
+        self._fresh_login = True
+        self._show_bubble("Firebase account signed out. Cloud memory is offline until next launch.")
+
     def _on_pin_toggle(self) -> None:
         self._pinned = not self._pinned
         self._context_menu.set_pinned(self._pinned)
@@ -2132,10 +2144,9 @@ class PetWindow(QWidget):
         from src.firebase_auth import FirebaseAuth
         from src.firebase_crud import FirebaseCRUD
 
-        self._crud = FirebaseCRUD()
-        uid = "default"
+        uid = None
 
-        if self._fresh_login and self._crud.available:
+        if self._fresh_login:
             self._fsm.transition_to(PetState.DEVASTATED)
             self._clear_bubble_queue()
             self._show_bubble(_LOGIN_PROMPT)
@@ -2149,12 +2160,17 @@ class PetWindow(QWidget):
 
             dialog = LoginDialog(on_sign_in=on_sign_in, on_sign_up=on_sign_up, parent=self)
             if dialog.exec() == QDialog.DialogCode.Accepted:
-                uid = self._auth.uid or "default"
+                uid = self._auth.uid
             else:
                 self._force_quit_app()
                 return
 
-        if self._crud.available:
+        if self._auth and self._auth.uid:
+            uid = self._auth.uid
+
+        self._crud = FirebaseCRUD(auth=self._auth, project_id=self._config.get("firebase", {}).get("project_id", "")) if uid else None
+
+        if self._crud and self._crud.available and uid:
             self._firebase_mem = MemoryManager(crud=self._crud, uid=uid, pet_id=self._pet_id)
             self._firebase_available = True
             self._firestore_sync_timer.start()

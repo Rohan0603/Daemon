@@ -7,6 +7,7 @@ import logging
 import copy
 import os
 import shutil
+import sys
 import threading
 from pathlib import Path
 from dotenv import load_dotenv
@@ -20,7 +21,11 @@ class MissingConfigurationError(Exception):
     """Raised when critical configuration values or files are missing."""
     pass
 
-STORAGE_DIR = Path(__file__).parent.parent / "data"
+if getattr(sys, "frozen", False):
+    _local_app_data = os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
+    STORAGE_DIR = Path(_local_app_data) / "Daemon"
+else:
+    STORAGE_DIR = Path(__file__).parent.parent / "data"
 CONFIG_PATH = STORAGE_DIR / "daemon_config.json"
 
 FLAT_TO_NESTED = {
@@ -341,8 +346,6 @@ def validate_config(cfg: dict) -> None:
             missing.append("llm.api_key or llm.zen_api_key")
         if not cfg.get("llm", {}).get("server_url"):
             missing.append("llm.server_url")
-    if not cfg.get("firebase", {}).get("api_key"):
-        missing.append("firebase.api_key")
     if not cfg.get("firebase", {}).get("project_id"):
         missing.append("firebase.project_id")
 
@@ -350,17 +353,23 @@ def validate_config(cfg: dict) -> None:
         raise MissingConfigurationError(f"Missing mandatory configuration fields: {', '.join(missing)}")
 
     # 3. Environmental Checks
-    cred_path = cfg.get("firebase", {}).get("credentials_path")
-    if cred_path:
-        project_root = Path(__file__).parent.parent
-        resolved_path = project_root / cred_path if not os.path.isabs(cred_path) else Path(cred_path)
-        if not resolved_path.exists():
-            raise MissingConfigurationError(f"firebase.credentials_path file not found at {resolved_path}")
-
     # Write access check for data dir
     data_dir = Path(__file__).parent.parent / "data"
     if data_dir.exists() and not os.access(data_dir, os.W_OK):
         raise MissingConfigurationError(f"No write permissions for data directory: {data_dir}")
+
+
+def _resolve_packaged_paths(cfg: dict) -> None:
+    if not getattr(sys, "frozen", False):
+        return
+    storage = cfg.get("storage", {})
+    for key, value in list(storage.items()):
+        if not isinstance(value, str) or not value:
+            continue
+        path = Path(value)
+        if not path.is_absolute():
+            name = path.name if path.parts and path.parts[0].lower() == "data" else str(path)
+            storage[key] = str(STORAGE_DIR / name)
 
 
 def load_config() -> dict:
@@ -420,6 +429,8 @@ def load_config() -> dict:
 
     # Apply environment variable overrides (highest priority)
     cfg = _apply_env_overrides(cfg)
+
+    _resolve_packaged_paths(cfg)
 
     # Validate the final merged configuration
     validate_config(cfg)

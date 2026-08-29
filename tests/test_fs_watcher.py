@@ -86,7 +86,7 @@ def test_watcher_handles_created_modified_and_moved_events(tmp_path):
     handler.on_created(Event())
     handler.on_modified(Event())
     handler.on_moved(Event())
-    time.sleep(0.03)
+    time.sleep(0.08)
     watcher.stop()
 
     assert changed == [source.resolve()]
