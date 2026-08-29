@@ -6,26 +6,26 @@
 *Implementation Plan:* `docs/superpowers/plans/2026-08-22-multi-layer-interaction-architecture.md`
 
 ### 1. Windows UI Interaction
-- [ ] **Semantic UI Automation (UIA) Engine (`src/system/uia_navigator.py`)**:
+- [x] **Semantic UI Automation (UIA) Engine (`src/system/uia_navigator.py`)**:
   - Structured accessibility tree traversal (`comtypes` / `UIAutomationCore`).
   - Programmatic click/type execution via UIA control patterns (`InvokePattern`, `ValuePattern`).
   - Zero cursor movement required; resilient to layout/screen shifts.
   - MCP Tools: `uia_get_window_tree`, `uia_interact_element`.
-- [ ] **Agentic Computer Use / Vision Engine (`src/system/vision_controller.py`)**:
+- [x] **Agentic Computer Use / Vision Engine (`src/system/vision_controller.py`)**:
   - High-speed screen capture with coordinate grid / Set-of-Marks overlay.
   - Vision model coordinate prediction (`(x, y)` target extraction).
   - Smooth cursor movement and click simulation via PyAutoGUI/ctypes for custom canvas/game apps.
   - MCP Tools: `vision_capture_screen`, `vision_click_coordinate`.
 
 ### 2. Code & Developer Interaction
-- [ ] **Background File System Watcher (`src/system/fs_watcher.py`)**:
+- [x] **Background File System Watcher (`src/system/fs_watcher.py`)**:
   - `watchdog` monitoring of active project workspace.
   - Debounced file-save event pipeline updating local AST and vector database caches.
   - Pre-warms context so queries have real-time code awareness without visual inspection.
-- [ ] **Language Server Protocol (LSP) Client (`src/system/lsp_client.py`)**:
+- [x] **Language Server Protocol (LSP) Client (`src/system/lsp_client.py`)**:
   - Direct JSON-RPC connection to language servers (`tsserver`, `pyright`, `rust-analyzer`, `gopls`).
   - Real-time compiler diagnostics, type info, definition/reference lookup, and AST syntax trees.
-  - MCP Tools: `lsp_get_diagnostics`, `lsp_goto_definition`, `lsp_find_references`.
+  - MCP Tools: `lsp_get_diagnostics`, `lsp_get_symbol_info` (definitions and references).
 - [ ] **Native IDE WebSocket Bridge (`src/system/ide_bridge.py` + VS Code Extension)**:
   - Local authenticated WebSocket server on `127.0.0.1:4098`.
   - Atomic code insertion, diff application, and automatic formatting directly in editor.
@@ -112,4 +112,3 @@
   - Clean uninstallation with option to retain user memory/data in `data/`.
 - [ ] **Auto-Updater & GitHub Releases CI/CD Pipeline (`src/system/auto_updater.py`)**:
   - In-app update checker querying GitHub Releases for new versions with silent download and one-click update.
-

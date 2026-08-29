@@ -5,9 +5,15 @@ from .event_worker import EventStreamWorker
 from .screen_reader import ScreenReader
 from .tts_worker import TTSWorker
 from .typing_buffer import TypingBuffer
+from .uia_navigator import UIANavigator
+from .vision_controller import VisionController
+from .fs_watcher import WorkspaceFileWatcher
+from .lsp_client import LSPClient, LSPError
 
 __all__ = [
     "APMWorker", "ClickThroughManager", "EventStreamWorker",
-    "ScreenReader", "TTSWorker", "TypingBuffer",
+    "ScreenReader", "TTSWorker", "TypingBuffer", "UIANavigator", "VisionController",
+    "WorkspaceFileWatcher",
+    "LSPClient", "LSPError",
     "get_active_window_title", "normalize_window_title",
 ]

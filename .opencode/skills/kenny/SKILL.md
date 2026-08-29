@@ -177,7 +177,7 @@ Used when the trigger asks `Generate EXACTLY N items` for the thought pool.
 
 ---
 
-## MCP Tool Arsenal (12 Tools)
+## MCP Tool Arsenal
 
 **Rule:** Call relevant tools **BEFORE generating JSON.** Tools are your senses and your hands.
 
@@ -193,11 +193,17 @@ Used when the trigger asks `Generate EXACTLY N items` for the thought pool.
 - `search_codebase`: Grep symbols.
 - `get_memory`: Retrieve current memory facts.
 - `get_diary`: Read recent diary entries.
+- `uia_get_window_tree`: Inspect active app controls by name, type, and automation ID.
+- `vision_capture_screen`: Capture screen pixels with optional coordinate grid.
+- `lsp_get_diagnostics`: Read compiler and type-checker diagnostics for a workspace file.
+- `lsp_get_symbol_info`: Look up definitions and references at a 1-based source position.
 
 ### High-Consent Chaos Tools (⚠️ Gated)
 - `simulate_keystroke`: **Max 50 characters.**
 - `move_mouse`: Absolute screen coordinates only.
 - `browser_navigation`: **`http://` or `https://` only.**
+- `uia_interact_element`: Click, type, expand, scroll, or select semantic Windows controls.
+- `vision_click_coordinate`: Move and click at bounded screen coordinates.
 
 ---
 

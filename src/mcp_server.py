@@ -95,6 +95,9 @@ CONSENT_TOOL_MAP = {
     "get_browser_context": "allow_browser_redirection",
     "execute_os_action": "allow_window_management",
     "trigger_pet_animation": "allow_intrusive_animations",
+    "uia_interact_element": "allow_window_management",
+    "vision_capture_screen": "allow_window_management",
+    "vision_click_coordinate": "allow_mouse_interference",
 }
 # Submit function for Pyodide compatibility
 def mcp_submit(event: str, data: dict = None) -> None:
@@ -278,6 +281,53 @@ def _create_fastmcp_app(server_thread):
     def trigger_pet_animation(state: str) -> dict:
         """Map to pet FSM action or expression animation."""
         return _handle_trigger_pet_animation(server_thread, state)
+
+    @app.tool()
+    def uia_get_window_tree(window_handle: int = None, max_depth: int = 3) -> dict:
+        """Return a semantic UI Automation tree for a Windows application."""
+        return _handle_uia_get_window_tree(server_thread, window_handle, max_depth)
+
+    @app.tool()
+    def uia_interact_element(
+        query: dict,
+        action: str,
+        text: str = None,
+        window_handle: int = None,
+    ) -> dict:
+        """Operate a Windows control through a semantic UI Automation pattern."""
+        return _handle_uia_interact_element(
+            server_thread, query, action, text, window_handle
+        )
+
+    @app.tool()
+    def vision_capture_screen(
+        region: list[int] = None, add_grid: bool = True, add_som: bool = False
+    ) -> dict:
+        """Capture the screen with optional coordinate grid metadata."""
+        return _handle_vision_capture_screen(server_thread, region, add_grid, add_som)
+
+    @app.tool()
+    def vision_click_coordinate(
+        x: int,
+        y: int,
+        click_type: str = "left",
+        smooth: bool = True,
+        duration: float = 0.3,
+    ) -> dict:
+        """Move and click at a consent-approved screen coordinate."""
+        return _handle_vision_click_coordinate(
+            server_thread, x, y, click_type, smooth, duration
+        )
+
+    @app.tool()
+    def lsp_get_diagnostics(path: str = None) -> dict:
+        """Return diagnostics collected from the configured language server."""
+        return _handle_lsp_get_diagnostics(server_thread, path)
+
+    @app.tool()
+    def lsp_get_symbol_info(path: str, line: int, column: int) -> dict:
+        """Return definitions and references for a source position."""
+        return _handle_lsp_get_symbol_info(server_thread, path, line, column)
 
     return app
 def _is_tool_allowed(server_thread, tool_name: str) -> tuple[bool, str]:
@@ -617,6 +667,91 @@ def _handle_trigger_pet_animation(server_thread, state: str) -> dict:
     else:
         return {"content": [{"type": "text", "text": f"Error: Invalid state '{state}'. Valid FSM states: {list(FSM_TO_ACTION.keys())}. Valid expression actions: {sorted(EXPRESSION_ACTIONS)}"}]}
     return {"content": [{"type": "text", "text": f"State '{state}' handled"}]}
+
+
+def _handle_uia_get_window_tree(
+    server_thread, window_handle: int | None, max_depth: int
+) -> dict:
+    """Handle the read-only UIA tree inspection tool."""
+    from src.system.uia_navigator import UIANavigator
+
+    result = UIANavigator().dump_tree(window_handle, max_depth)
+    return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
+
+
+def _handle_uia_interact_element(
+    server_thread,
+    query: dict,
+    action: str,
+    text: str | None,
+    window_handle: int | None,
+) -> dict:
+    """Handle consent-gated semantic UIA interaction."""
+    allowed, err = _is_tool_allowed(server_thread, "uia_interact_element")
+    if not allowed:
+        return {"content": [{"type": "text", "text": err}]}
+
+    from src.system.uia_navigator import UIANavigator
+
+    result = UIANavigator().invoke_element(window_handle, query, action, text)
+    return {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}
+
+
+def _handle_vision_capture_screen(
+    server_thread, region: list[int] | None, add_grid: bool, add_som: bool
+) -> dict:
+    """Handle consent-gated screen capture."""
+    allowed, err = _is_tool_allowed(server_thread, "vision_capture_screen")
+    if not allowed:
+        return {"content": [{"type": "text", "text": err}]}
+    from src.system.vision_controller import VisionController
+
+    normalized = tuple(region) if region is not None else None
+    result = VisionController().capture_screen(normalized, add_grid, add_som)
+    return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+
+def _handle_vision_click_coordinate(
+    server_thread,
+    x: int,
+    y: int,
+    click_type: str,
+    smooth: bool,
+    duration: float,
+) -> dict:
+    """Handle consent-gated coordinate interaction."""
+    allowed, err = _is_tool_allowed(server_thread, "vision_click_coordinate")
+    if not allowed:
+        return {"content": [{"type": "text", "text": err}]}
+    from src.system.vision_controller import VisionController
+
+    result = VisionController().click_coordinate(x, y, click_type, smooth, duration)
+    return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+
+def _get_lsp_client(server_thread):
+    client = getattr(server_thread, "_lsp_client", None)
+    if client is None:
+        return None
+    if not client.running:
+        client.start()
+    return client
+
+
+def _handle_lsp_get_diagnostics(server_thread, path: str | None) -> dict:
+    client = _get_lsp_client(server_thread)
+    if client is None:
+        return {"content": [{"type": "text", "text": json.dumps({"error": "LSP is not configured"})}]}
+    result = client.get_diagnostics(path)
+    return {"content": [{"type": "text", "text": json.dumps(result)}]}
+
+
+def _handle_lsp_get_symbol_info(server_thread, path: str, line: int, column: int) -> dict:
+    client = _get_lsp_client(server_thread)
+    if client is None:
+        return {"content": [{"type": "text", "text": json.dumps({"error": "LSP is not configured"})}]}
+    result = client.symbol_info(path, line, column)
+    return {"content": [{"type": "text", "text": json.dumps(result)}]}
 
 
 # ── Tool call instrumentation ──────────────────────────────────────────────

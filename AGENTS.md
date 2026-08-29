@@ -46,6 +46,7 @@ Canonical package layout with strict boundary guards (enforced by `tests/test_pa
 ```
 src/
 ├── system/       # OS-level: active_window, apm, click_through, screen_reader, tts, typing
+│   └── fs_watcher, lsp_client, uia_navigator, vision_controller
 ├── llm/          # LLM integration: context_manager, opencode_worker, sessions
 ├── autonomy/     # Autonomous behavior: behavior_controller, response_manager, response_pool, reactions
 ├── ui/           # Visual layer: pet_window, pet_renderer, context_menu, dialogs
@@ -406,7 +407,7 @@ All 9 emotions are now declared as `EmotionProfile` dataclasses in `EMOTION_PROF
 
 ---
 
-## MCP Server (23 Tools on port 4097)
+## MCP Server (29 Tools on port 4097)
 
 In-process JSON-RPC 2.0 HTTP server. SSE init at GET /sse, messages at POST /message.
 Also serves HTTP endpoints: `/health`, `/metrics`, `/log`.
@@ -436,6 +437,10 @@ Also serves HTTP endpoints: `/health`, `/metrics`, `/log`.
 | 21 | `get_browser_context` | allow_browser_redirection | — |
 | 22 | `execute_os_action` | allow_window_management | action, x, y, text, use_clipboard |
 | 23 | `trigger_pet_animation` | allow_intrusive_animations | state |
+| 24 | `uia_get_window_tree` | — (always allowed) | window_handle, max_depth |
+| 25 | `uia_interact_element` | allow_window_management | query, action, text, window_handle |
+| 26 | `vision_capture_screen` | allow_window_management | region, add_grid, add_som |
+| 27 | `vision_click_coordinate` | allow_mouse_interference | x, y, click_type, smooth, duration |
 
 **HTTP Endpoints:**
 | Endpoint | Method | Description |

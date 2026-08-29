@@ -29,6 +29,7 @@ pywinauto>=0.4.11        # mcp_server.py execute_os_action window control
 # --- Firebase Admin SDK (service account for Firestore) ---
 firebase-admin>=6.0.0
 Pillow>=10.0.0           # ImageGrab.grab() for capture_blackmail_evidence
+watchdog>=4.0.0          # Debounced workspace file watching
 
 # --- Text-to-Speech ---
 edge-tts>=6.1.0
