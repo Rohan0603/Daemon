@@ -11,6 +11,16 @@
 **Stack:** Python 3.14, PyQt6, pynput, ctypes, requests, comtypes, Pillow, structlog, prometheus-client
 **Test count:** 914 passed, 1 skipped (37.41s)
 
+## 2026-08-29 — Copilot Startup Defaults Verified
+
+- Confirmed global and project instructions explicitly default Caveman Full, Ponytail engineering workflow, and Graphify codebase workflow.
+- Confirmed `graphify-out/graph.json` exists, so Graphify startup rule is active for this repository.
+
+## 2026-08-29 — Ponytail Instructions
+
+- Added Ponytail lazy senior developer rules to global Copilot instructions and project `.github/copilot-instructions.md`.
+- Rules emphasize YAGNI, reuse, root-cause fixes, minimal diffs, trust-boundary validation, and one focused runnable check for non-trivial logic.
+
 ## 2026-08-29 — Agentic Development Defaults
 
 - Added project-wide `AGENTS.md` defaults: start sessions in Caveman Full and prioritize Ponytail when available.
@@ -452,3 +462,9 @@ Update `AGENTS.md` and this file (or an archive entry) after each task.
 - Added deterministic fake-process tests for framing, handshake, notifications, diagnostics, location queries, validation, delegation, and tool registration.
 - Verification: 6 focused LSP/MCP tests passed in 1.36s. Full-suite baseline remains affected by existing configuration/environment failures documented earlier.
 - Next implementation priority: Phase 5 native IDE WebSocket bridge.
+
+## 2026-08-29 - Logging Optimization Plan (assessment only)
+
+- Existing logging stack: stdlib logging with rotating files, optional structlog NDJSON, correlation IDs, runtime module overrides, Prometheus metrics, and OpenTelemetry hooks.
+- Remaining quality gaps: 359 logger calls are concentrated in `src/ui/pet_window.py`; routine UI lifecycle/debug details are emitted at INFO, user/LLM text and config state are logged without a documented redaction policy, expected provider connectivity failures are ERROR-level and repetitive, correlation context is not explicitly scoped/reset per operation, and structured logging is not the single canonical configuration path.
+- Planned work: define severity/event taxonomy; centralize structured context and redaction; demote or remove noisy UI/poll/retry logs; rate-limit repeated expected failures while preserving transition/recovery logs; normalize exception fields and correlation/request metadata; align config and handler levels; add focused capture/redaction/rate-limit/regression tests; validate with representative startup, provider-offline, user-query, MCP, and shutdown runs plus log-volume/no-sensitive-content checks.
