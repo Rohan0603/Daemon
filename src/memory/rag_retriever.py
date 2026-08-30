@@ -83,3 +83,23 @@ class RAGRetriever:
             len(results), (time.monotonic() - started) * 1000,
         )
         return results
+
+    def retrieve_local(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Retrieve only from the local index.
+
+        Interactive fast paths must never turn a cache miss into a network
+        request.  Keep this separate from ``retrieve`` because the latter
+        intentionally prefers Firestore when it is available.
+        """
+        if not 1 <= limit <= 100:
+            raise ValueError("limit must be between 1 and 100")
+        vector = self.engine.embed(query)
+        scored = []
+        for record in self._records:
+            score = self.engine.cosine_similarity(vector, record["embedding"])
+            if score >= self.min_score:
+                item = {key: value for key, value in record.items() if key != "embedding"}
+                item["score"] = score
+                scored.append(item)
+        scored.sort(key=lambda item: item["score"], reverse=True)
+        return scored[:limit]

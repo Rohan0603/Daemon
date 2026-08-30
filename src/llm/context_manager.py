@@ -3,7 +3,13 @@
 """ContextManager — builds minimal trigger prompts and XML-structured blocks."""
 from __future__ import annotations
 import logging
+import time
 from typing import TYPE_CHECKING
+
+from src.mcp_server import VALID_ACTIONS, FSM_ACTIONS, EXPRESSION_ACTIONS
+from src.animator import Emotion
+
+VISUAL_STATES = frozenset(e.value for e in Emotion)
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +99,13 @@ class ContextManager:
             items = [f"{k}: {v[0] if isinstance(v, list) else v}" for k, v in list(facts.items())[:5]]
             block = "Memory: " + " | ".join(items)
         if self._rag_retriever is not None:
+            rag_started = time.monotonic()
             related = self._rag_retriever.retrieve("current context", limit=3)
+            try:
+                from src.observability import record_stage_duration
+                record_stage_duration("rag", time.monotonic() - rag_started)
+            except Exception:
+                logger.debug("Context RAG metrics unavailable", exc_info=True)
             logger.debug("Context RAG block built: results=%d", len(related))
             if related:
                 semantic = "Related semantic memory: " + " | ".join(
@@ -148,11 +160,17 @@ class ContextManager:
         if screen_text:
             lines.append(f"Screen:\n{screen_text}")
         lines.append("")
+        fsm_list = ", ".join(sorted(FSM_ACTIONS))
+        expr_list = ", ".join(sorted(EXPRESSION_ACTIONS))
+        vs_list = ", ".join(sorted(VISUAL_STATES))
         lines.append(
             "Respond as Kenny (the desktop pet personality from your system prompt). "
             "Output ONLY a JSON array: "
             '[{"dialogue": "...", "thought": "...", "type": "typing_reaction|observation|intel_roast|idle_thought", '
+            f'"action": "<one of: {fsm_list} or {expr_list}>", '
+            f'"visual_state": "<one of: {vs_list}>", '
             '"priority": 1-5}]'
+            " — include action and/or visual_state (at least one required)."
         )
         self._cached_prompt = "\n".join(lines)
         self._cache_key = key
@@ -184,12 +202,18 @@ class ContextManager:
         if screen_text:
             lines.append(f"Screen:\n{screen_text}")
         lines.append("")
+        fsm_list = ", ".join(sorted(FSM_ACTIONS))
+        expr_list = ", ".join(sorted(EXPRESSION_ACTIONS))
+        vs_list = ", ".join(sorted(VISUAL_STATES))
         lines.append(
             "[This is an internal monologue — you are NOT responding to the user.] "
             "Think as Kenny (the desktop pet personality from your system prompt). "
             "Output ONLY a JSON array: "
             '[{"dialogue": "...", "thought": "...", "type": "typing_reaction|observation|intel_roast|idle_thought", '
+            f'"action": "<one of: {fsm_list} or {expr_list}>", '
+            f'"visual_state": "<one of: {vs_list}>", '
             '"priority": 1-5}]'
+            " — include action and/or visual_state (at least one required)."
         )
         self._cached_prompt = "\n".join(lines)
         self._cache_key = key

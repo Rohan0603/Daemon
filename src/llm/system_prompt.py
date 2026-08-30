@@ -80,9 +80,9 @@ def build_system_prompt(
 def build_tool_directive(schema: Iterable[dict] | None) -> str:
     """Generate the 'you have tools' directive from the live MCP schema.
 
-    Replaces the previously hardcoded action list. Tool names (and therefore
-    the change_visual_state actions) come from the server, never from a string
-    literal in this module.
+    Actions are now included in the response JSON (action/visual_state fields)
+    and dispatched directly by the code. MCP tools are for system operations
+    like clipboard, notifications, screenshots, etc.
     """
     schema = list(schema or [])
     names: list[str] = []
@@ -94,10 +94,9 @@ def build_tool_directive(schema: Iterable[dict] | None) -> str:
     if not names:
         return ""
     lines = [
-        "TOOLS: You have MCP tools and SHOULD use them.",
-        'Call change_visual_state on EVERY response to animate (layer="expression" for physical moves, layer="fsm" for behaviour states).',
-        "If the user gives a physical command, call the tool FIRST, then speak.",
+        "TOOLS: You have MCP tools for system operations (clipboard, notifications, screenshots, etc.).",
+        "Include 'action' and/or 'visual_state' in your response JSON to control animations.",
         "Available tools: " + ", ".join(names) + ".",
-        "Always CALL the tool, do not just describe the action in dialogue.",
+        "Use tools when needed for system operations, but animate via response JSON fields.",
     ]
     return "\n".join(lines)

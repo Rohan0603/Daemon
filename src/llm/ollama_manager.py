@@ -12,6 +12,8 @@ OLLAMA_HEALTH_URL = "http://127.0.0.1:11434/api/tags"
 OLLAMA_MAX_RETRIES = 10
 OLLAMA_RETRY_INTERVAL_MS = 2000
 OLLAMA_KILL_WAIT_MS = 5000
+OLLAMA_KEEP_ALIVE = "10m"
+OLLAMA_WARM_TIMEOUT_SEC = 30
 
 
 class OllamaManager(QObject):
@@ -31,14 +33,13 @@ class OllamaManager(QObject):
         self._health_timer: QTimer | None = None
         self._retries = 0
         self._warming = False
+        self._ready = False
 
     def start(self) -> None:
         self.status_changed.emit("starting")
         if self._is_ollama_running():
             logger.info("Ollama already running on %s", self._ollama_url)
-            self._ensure_model()
-            self.status_changed.emit("ready")
-            self.ready.emit()
+            self._mark_ready()
             self._warm_model_async()
             return
         ollama_path = self._find_ollama()
@@ -57,6 +58,7 @@ class OllamaManager(QObject):
                 self._process.kill()
                 self._process.waitForFinished(2000)
         self._process = None
+        self._ready = False
         self.status_changed.emit("stopped")
 
     def _find_ollama(self) -> str | None:
@@ -72,10 +74,24 @@ class OllamaManager(QObject):
 
     def _is_ollama_running(self) -> bool:
         try:
-            resp = requests.get(OLLAMA_HEALTH_URL, timeout=3)
-            return resp.status_code == 200
+            resp = requests.get(f"{self._ollama_url}/api/tags", timeout=3)
+            if resp.status_code != 200:
+                return False
+            # /api/tags is the readiness probe.  Empty model lists are valid
+            # while Ollama is starting or before the user pulls a model.
+            data = resp.json()
+            return isinstance(data, dict) and isinstance(data.get("models", []), list)
         except requests.RequestException:
             return False
+        except (ValueError, TypeError):
+            return False
+
+    def _mark_ready(self) -> None:
+        if self._ready:
+            return
+        self._ready = True
+        self.status_changed.emit("ready")
+        self.ready.emit()
 
     def _ensure_model(self) -> None:
         # We no longer automatically create daemon-local or run custom modelfiles
@@ -87,18 +103,38 @@ class OllamaManager(QObject):
                 "model": self._model_name,
                 "messages": [{"role": "user", "content": "ping"}],
                 "stream": False,
-                "keep_alive": "10m",
+                "keep_alive": OLLAMA_KEEP_ALIVE,
                 "options": {"num_predict": 1},
             }
             resp = requests.post(
                 f"{self._ollama_url}/api/chat",
                 json=payload,
-                timeout=120,
+                timeout=OLLAMA_WARM_TIMEOUT_SEC,
             )
             if resp.status_code == 200:
                 logger.info("Model %s warmed up in memory", self._model_name)
+                return
+            error = self._classify_error(resp.status_code, resp.text)
+            logger.warning("Ollama warm-up failed (%s)", error)
+            self.error_occurred.emit(error)
+        except requests.exceptions.Timeout:
+            logger.warning("Ollama warm-up timed out")
+            self.error_occurred.emit("ollama_timeout")
         except requests.RequestException as exc:
             logger.debug("Model warm-up skipped (non-critical): %s", exc)
+
+    @staticmethod
+    def _classify_error(status_code: int, text: str) -> str:
+        detail = (text or "").lower()
+        if "out of memory" in detail or "oom" in detail or "cuda" in detail and "memory" in detail:
+            return "ollama_oom"
+        if "load" in detail or "model" in detail and ("failed" in detail or "not found" in detail):
+            return "ollama_load_failed"
+        if status_code in (408, 504):
+            return "ollama_timeout"
+        if status_code in (502, 503):
+            return "ollama_unavailable"
+        return "ollama_error"
 
     def _warm_model_async(self) -> None:
         """Warm the model off the caller's thread so the UI never blocks."""
@@ -136,8 +172,7 @@ class OllamaManager(QObject):
     def _check_health(self) -> None:
         if self._is_ollama_running():
             self._stop_health_timer()
-            self.status_changed.emit("ready")
-            self.ready.emit()
+            self._mark_ready()
             self._warm_model_async()
             return
         self._retries += 1
@@ -148,6 +183,7 @@ class OllamaManager(QObject):
 
     def _on_process_finished(self, exit_code: int, exit_status) -> None:
         logger.warning("ollama serve exited with code %d", exit_code)
+        self._ready = False
         self.status_changed.emit("stopped")
         if exit_code != 0:
             self._retry_or_error()

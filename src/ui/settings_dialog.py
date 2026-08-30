@@ -49,6 +49,7 @@ class SettingsDialog(QDialog):
                  llm_api_key: str = "",
                  llm_server_url: str = "http://127.0.0.1:4096",
                  firebase_project_id: str = "",
+                 firebase_auth_backend_url: str = "",
                  parent=None):
         super().__init__(parent)
         self.setWindowTitle("Daemon Settings")
@@ -235,7 +236,7 @@ class SettingsDialog(QDialog):
         self._llm_server_url = QLineEdit(llm_server_url)
         oc_layout.addWidget(QLabel("Model ID:"))
         oc_layout.addWidget(self._llm_model_id)
-        oc_layout.addWidget(QLabel("API Key:"))
+        oc_layout.addWidget(QLabel("API Key (stored securely in Windows Credential Manager):"))
         oc_layout.addWidget(self._llm_api_key)
         oc_layout.addWidget(QLabel("Server URL:"))
         oc_layout.addWidget(self._llm_server_url)
@@ -287,8 +288,16 @@ class SettingsDialog(QDialog):
         fb_layout = QVBoxLayout(fb_group)
         self._fb_project_id = QLineEdit(firebase_project_id)
         self._fb_project_id.setReadOnly(True)
+        self._fb_auth_backend_url = QLineEdit(firebase_auth_backend_url)
+        self._fb_backend_status = QLabel(
+            "Backend configured" if firebase_auth_backend_url.strip() else "Backend not configured; cloud sync stays local/offline"
+        )
+        self._fb_auth_backend_url.textChanged.connect(self._on_firebase_backend_url_changed)
         fb_layout.addWidget(QLabel("Project ID (managed by the release):"))
         fb_layout.addWidget(self._fb_project_id)
+        fb_layout.addWidget(QLabel("Auth backend URL (Firebase keys remain server-side):"))
+        fb_layout.addWidget(self._fb_auth_backend_url)
+        fb_layout.addWidget(self._fb_backend_status)
         tab4_layout.addWidget(fb_group)
         
         tab4_layout.addStretch()
@@ -301,6 +310,12 @@ class SettingsDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
+
+    def _on_firebase_backend_url_changed(self, value: str) -> None:
+        self._fb_backend_status.setText(
+            "Backend configured" if value.strip() else "Backend not configured; cloud sync stays local/offline"
+        )
+        self.value_changed.emit()
 
     def _on_provider_changed(self, index: int) -> None:
         is_ollama = self._provider_combo.currentData() == "ollama"
@@ -490,4 +505,5 @@ class SettingsDialog(QDialog):
             "OPENCODE_API_KEY": self._llm_api_key.text(),
             "OPENCODE_SERVER_URL": self._llm_server_url.text(),
             "FIREBASE_PROJECT_ID": self._fb_project_id.text(),
+            "FIREBASE_AUTH_BACKEND_URL": self._fb_auth_backend_url.text().strip(),
         }

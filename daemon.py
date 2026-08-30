@@ -9,6 +9,7 @@ import traceback
 import socket
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QTimer
 from src.constants import STORAGE_DIR, DEBUG, MAX_RESPONSE_CHARS
 from src.config import DEFAULT_SERVER_URL
 
@@ -181,42 +182,14 @@ def main() -> None:
     from src.config import load_config, flatten_config
     import src.constants as constants
 
-    cfg = load_config()
+    cfg = load_config(validate=False)
     from src.config import validate_config, MissingConfigurationError
+    config_needs_setup = False
     try:
         validate_config(cfg)
     except MissingConfigurationError as e:
-        logger.error(f"Configuration Validation Failed: {e}")
-        # Need to spawn Settings UI here
-        app = QApplication.instance() or QApplication(sys.argv)
-        from src.ui.settings_dialog import SettingsDialog
-        dialog = SettingsDialog(
-            llm_model_id=cfg.get("llm", {}).get("model_id") or "gemini-2.5-flash",
-            llm_api_key=cfg.get("llm", {}).get("api_key", ""),
-            llm_server_url=cfg.get("llm", {}).get("server_url") or "http://127.0.0.1:4096",
-            firebase_project_id=cfg.get("firebase", {}).get("project_id", "")
-        )
-        result = dialog.exec()
-        if result == dialog.DialogCode.Accepted:
-            from src.config import save_config
-            vals = dialog.get_values()
-            cfg.setdefault("llm", {}).update({
-                "model_id": vals["OPENCODE_API_MODEL_ID"],
-                "api_key": vals["OPENCODE_API_KEY"],
-                "server_url": vals["OPENCODE_SERVER_URL"],
-            })
-            cfg.setdefault("firebase", {})["project_id"] = vals["FIREBASE_PROJECT_ID"]
-            save_config(cfg)
-            # User saved, reload config and re-validate
-            cfg = load_config()
-            try:
-                validate_config(cfg)
-            except MissingConfigurationError as e2:
-                logger.fatal(f"Configuration still invalid after setup: {e2}")
-                sys.exit(1)
-        else:
-            logger.fatal("Setup cancelled by user. Exiting.")
-            sys.exit(1)
+        config_needs_setup = True
+        logger.warning("Configuration incomplete; pet will start and open Connectivity settings: %s", e)
     flat_cfg = flatten_config(cfg)
     storage_keys = {"MEMORY_PATH", "HISTORY_PATH", "DIARY_PATH", "STATE_PATH",
                     "AUTH_TOKEN_PATH", "RESPONSE_CACHE_PATH", "THOUGHTS_LOG_PATH",
@@ -265,6 +238,12 @@ def main() -> None:
 
 
     logger.info("=== DAEMON STARTUP (PID %d) ===", os.getpid())
+    logger.info(
+        "Observability links: Grafana=http://127.0.0.1:3000 | "
+        "Prometheus=http://127.0.0.1:9090 | "
+        "Metrics=http://127.0.0.1:4097/metrics | "
+        "Alerts=http://127.0.0.1:9090/alerts"
+    )
     model_id = cfg.get("llm", {}).get("model_id", "Unknown")
     logger.info("Using LLM Model ID: %s", model_id)
     logger.info("Crash instrumentation active: crash_dump.log = %s", _CRASH_LOG)
@@ -326,7 +305,7 @@ def main() -> None:
     engine = cfg.get("llm", {}).get("engine", "opencode")
     opencode_server_url = DEFAULT_SERVER_URL
     opencode_api_key = cfg.get("llm", {}).get("api_key", "")
-    if not args.no_opencode:
+    if not args.no_opencode and not config_needs_setup:
         # opencode serve is intentionally spawned AFTER the in-process MCP
         # server (port 4097) is up (see readiness gate below), so opencode
         # discovers the daemon_fsm MCP server on first boot. Spawning it here
@@ -373,6 +352,8 @@ def main() -> None:
         plugin_registry=plugin_registry,
     )
     _boot_marks["petwindow"] = time.monotonic()
+    if config_needs_setup:
+        QTimer.singleShot(0, window._open_settings)
 
     # ── MCP readiness gate ────────────────────────────────────────────────
     # Wait for the in-process MCP server (port 4097) to start listening, then

@@ -6,6 +6,7 @@ actions (e.g. "jump") and included invalid ones (e.g. "perimeter").
 from unittest.mock import MagicMock
 
 from src.llm.ollama_worker import OllamaWorker
+from src.llm.mcp_client import MCPExecutionBudget, MCPExecutionBudgetError
 
 
 def test_fallback_tools_include_jump_and_only_valid_actions():
@@ -40,3 +41,15 @@ def test_execute_tool_uses_mcp_client_when_available():
     out = worker._execute_tool("change_visual_state", {"action": "jump"})
     fake.call_tool.assert_called_once_with("change_visual_state", {"action": "jump"})
     assert "ok" in out
+
+
+def test_execute_tool_enforces_request_budget():
+    worker = OllamaWorker(prompt="x", pet_id="kenny")
+    worker._mcp = MagicMock()
+    budget = MCPExecutionBudget(max_tool_calls=0)
+    try:
+        worker._execute_tool("change_visual_state", {"action": "jump"}, budget=budget)
+    except MCPExecutionBudgetError as exc:
+        assert "tool-call budget" in str(exc)
+    else:
+        raise AssertionError("over-budget MCP call must fail explicitly")

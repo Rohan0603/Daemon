@@ -33,3 +33,22 @@ class TestOllamaManager:
     def test_stop_cleans_up(self):
         mgr = OllamaManager()
         mgr.stop()
+
+    @patch("src.llm.ollama_manager.requests.get")
+    def test_readiness_uses_configured_server_and_validates_tags(self, mock_get):
+        response = MagicMock(status_code=200)
+        response.json.return_value = {"models": []}
+        mock_get.return_value = response
+        mgr = OllamaManager(ollama_url="http://localhost:9999/")
+        assert mgr._is_ollama_running() is True
+        mock_get.assert_called_once_with("http://localhost:9999/api/tags", timeout=3)
+
+    @patch("src.llm.ollama_manager.requests.post")
+    def test_warm_model_classifies_oom(self, mock_post):
+        response = MagicMock(status_code=500, text="CUDA out of memory")
+        mock_post.return_value = response
+        errors = []
+        mgr = OllamaManager()
+        mgr.error_occurred.connect(errors.append)
+        mgr._warm_model()
+        assert errors == ["ollama_oom"]

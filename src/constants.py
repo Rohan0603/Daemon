@@ -64,16 +64,19 @@ STRUCTURED_SCHEMA = {'type': 'array', 'items': {'type': 'object',
     'properties': {'type': {'type': 'string', 'enum': ['typing_reaction',
     'observation', 'intel_roast', 'idle_thought', 'code_assist']}, 'thought': {'type':
     'string', 'maxLength': 200}, 'dialogue': {'type': 'string', 'maxLength':
-    150}, 'priority': {'type': 'integer', 'minimum': 1, 'maximum': 5},
-    'context_hash': {'type': 'string'}, 'brain_update': {'type': 'object',
+    150}, 'action': {'type': 'string'}, 'visual_state': {'type': 'string',
+    'enum': ['mirth', 'anger', 'fear', 'disgust', 'pathos', 'devotion',
+    'heroism', 'wonder', 'tranquility']}, 'priority': {'type': 'integer', 'minimum': 1,
+    'maximum': 5}, 'context_hash': {'type': 'string'}, 'brain_update': {'type': 'object',
     'description': 'Optional dict to update user memory facts.',
     'additionalProperties': {'type': 'array', 'items': {'type': 'string'}}}
-    }, 'required': ['thought', 'dialogue', 'type'], 'additionalProperties':
+    }, 'anyOf': [{'required': ['action']}, {'required': ['visual_state']}],
+    'required': ['thought', 'dialogue', 'type'], 'additionalProperties':
     False}, 'minItems': 1, 'maxItems': 5}
 
 def __getattr__(name):
     from src.config import load_config, flatten_config
-    cfg = load_config()
+    cfg = load_config(validate=False)
     flat = flatten_config(cfg)
     if name in flat:
         # Also set it on the module so we don't load_config() repeatedly for the same key

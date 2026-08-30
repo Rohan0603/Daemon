@@ -1,10 +1,14 @@
 # src/llm/ollama_worker.py
 from __future__ import annotations
-import json, logging, re, requests
+import json, logging, re, requests, time
+import threading
 from typing import Any
 from PyQt6.QtCore import QThread, pyqtSignal
 from src.config import config_get
 from src.llm.system_prompt import build_system_prompt, build_tool_directive
+from src.observability import RequestTiming, record_request_phase, record_llm_fallback
+from src.observability import record_request_cancellation
+from src.log_context import correlation_scope
 
 logger = logging.getLogger(__name__)
 
@@ -16,25 +20,6 @@ _NO_TOOLS_MODELS: set[str] = set()
 # mcp_server.py. The system prompt itself is never hardcoded; it comes from
 # src.llm.system_prompt (the same SKILL.md opencode serve loads natively).
 OLLAMA_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "change_visual_state",
-            "description": "Change the pet's visual state/animation. Actions: idle, shake, bounce, spin, look_away, celebrate, devastated, hyper, thinking, sleep, perimiter. target_x/target_y optional for move actions.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["idle", "shake", "bounce", "spin", "look_away", "celebrate", "devastated", "hyper", "thinking", "sleep", "perimeter"]
-                    },
-                    "target_x": {"type": "integer"},
-                    "target_y": {"type": "integer"}
-                },
-                "required": ["action"]
-            }
-        }
-    },
     {
         "type": "function",
         "function": {
@@ -78,18 +63,26 @@ class OllamaWorker(QThread):
         self._is_autonomous = is_autonomous
         self._pet_id = pet_id
         self._abort = False
+        self._cancel_event = threading.Event()
         self._last_raw_response = ""
         self._timed_out = False
+        self._last_error_code = ""
         self._server_url = config_get("llm.ollama_url") or "http://127.0.0.1:11434"
         self._ollama_model = config_get("llm.ollama_model") or "llama3.2-1b-q8:latest"
         timeout = int(config_get("llm.timeout_sec") or 180)
-        self._post_timeout = max(timeout, 60)
+        # Keep local fallback bounded even when config contains an accidental
+        # zero or an excessively large cloud-oriented timeout.
+        self._post_timeout = min(max(timeout, 5), 180)
         if is_autonomous:
-            self._post_timeout = max(self._post_timeout, 180)
+            self._post_timeout = min(max(self._post_timeout, 10), 180)
         self._skill_md = self._load_skill_md()
         self._tools_disabled = False
         self._mcp = None  # DaemonMCPClient, set lazily in _ensure_tools()
         self._tools = None  # LLM tool schema, built lazily
+        self._timing: RequestTiming | None = kwargs.pop("timing", None)
+        self._correlation_id = kwargs.pop("correlation_id", "") or (
+            self._timing.correlation_id if self._timing else ""
+        )
 
     def _load_skill_md(self) -> str:
         """Load the canonical Kenny system prompt (single source of truth).
@@ -105,6 +98,7 @@ class OllamaWorker(QThread):
 
     def abort(self) -> None:
         self._abort = True
+        self._cancel_event.set()
 
     def run(self) -> None:
         if self._abort:
@@ -112,6 +106,7 @@ class OllamaWorker(QThread):
         logger.debug("run: model=%s autonomous=%s prompt_chars=%d",
                      self._ollama_model, self._is_autonomous, len(self._prompt))
         self._retried = False
+        self._mark("queue")
         messages = [
             {"role": "system", "content": self._skill_md},
             {"role": "user", "content": self._prompt},
@@ -122,6 +117,7 @@ class OllamaWorker(QThread):
                 self._last_raw_response = result
                 logger.debug("run: raw_response length=%d", len(result))
                 items = self._parse_response(result)
+                self._mark("parse")
                 if items and self._filter_garbage_items(items):
                     logger.debug("run: parsed %d items", len(items))
                     self._extract_brain_update(items)
@@ -149,12 +145,29 @@ class OllamaWorker(QThread):
                             self.response_ready.emit(items)
                             return
                     logger.warning("run: retry also produced garbage")
-            self._emit_error("parse_failed" if not self._timed_out else "timeout")
+            reason = "timeout" if self._timed_out else (self._last_error_code or "parse_failed")
+            self._fallback(reason)
+            self._emit_error(reason)
         except Exception as exc:
             logger.warning("OllamaWorker.run exception (%s)", type(exc).__name__)
+            self._fallback(type(exc).__name__)
             self._emit_error(type(exc).__name__)
 
-    MAX_TOOL_ITERATIONS = 10
+    def _mark(self, phase: str, *, duration: float | None = None) -> None:
+        if not self._timing:
+            return
+        self._timing.marks[phase] = duration if duration is not None else (
+            time.monotonic() - self._timing.started_at
+        )
+        record_request_phase(
+            self._timing, phase, "autonomous" if self._is_autonomous else "user", "ollama",
+        )
+
+    def _fallback(self, reason: str) -> None:
+        record_llm_fallback("ollama", reason)
+
+    MAX_TOOL_ITERATIONS = 4
+    MAX_TOOL_CALLS_PER_ITERATION = 8
 
     def _chat_completion(self, messages: list) -> str | None:
         if self._abort:
@@ -163,6 +176,8 @@ class OllamaWorker(QThread):
             self._tools_disabled = True
 
         iteration = 0
+        from src.llm.mcp_client import MCPExecutionBudget, MCPExecutionBudgetError, MCPExecutionError
+        budget = MCPExecutionBudget(cancellation=self._cancel_event)
         while True:
             if self._abort:
                 logger.debug("_chat_completion: aborting")
@@ -198,6 +213,7 @@ class OllamaWorker(QThread):
                           self._ollama_model, tools_enabled, self._post_timeout,
                           len(messages), system_size, user_size, iteration)
 
+            provider_started = time.monotonic()
             try:
                 resp = requests.post(
                     f"{self._server_url}/api/chat",
@@ -205,21 +221,39 @@ class OllamaWorker(QThread):
                     timeout=self._post_timeout,
                 )
             except requests.exceptions.Timeout:
+                self._mark("provider", duration=time.monotonic() - provider_started)
                 logger.warning("Ollama request timed out after %ss (iter=%d)", self._post_timeout, iteration)
                 self._timed_out = True
                 return None
+            except requests.exceptions.ConnectionError:
+                self._mark("provider", duration=time.monotonic() - provider_started)
+                logger.warning("Ollama server unavailable (iter=%d)", iteration)
+                self._last_error_code = "unavailable"
+                return None
+            except requests.RequestException as exc:
+                self._mark("provider", duration=time.monotonic() - provider_started)
+                logger.warning("Ollama request failed: %s", exc)
+                self._last_error_code = "connection"
+                return None
+            self._mark("provider", duration=time.monotonic() - provider_started)
 
             if resp.status_code >= 400:
-                error_text = resp.text[:200].lower()
+                error_text = resp.text[:500].lower()
                 logger.debug("_chat_completion: HTTP %d response_chars=%d", resp.status_code, len(resp.text))
-                if "does not support tools" in error_text and not self._tools_disabled:
-                    logger.warning("Model does not support tools; retrying without tools")
+                if self._is_tool_capability_error(error_text) and not self._tools_disabled:
+                    logger.warning("Model does not support tools; retrying in degraded no-tool mode")
                     _NO_TOOLS_MODELS.add(self._ollama_model)
                     self._tools_disabled = True
                     continue
+                self._last_error_code = self._classify_http_error(resp.status_code, error_text)
                 logger.warning("Ollama API error: HTTP %s", resp.status_code)
                 return None
-            data = resp.json()
+            try:
+                data = resp.json()
+            except (ValueError, TypeError):
+                self._last_error_code = "parse_failed"
+                logger.warning("Ollama returned invalid JSON")
+                return None
             msg = data.get("message", {})
             tool_calls = msg.get("tool_calls", [])
             content = msg.get("content", "")
@@ -231,19 +265,50 @@ class OllamaWorker(QThread):
                 return content
 
             messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
-            for tc in tool_calls:
+            for tc in tool_calls[:self.MAX_TOOL_CALLS_PER_ITERATION]:
                 func = tc.get("function", {})
                 name = func.get("name", "")
                 args = func.get("arguments", {})
                 if isinstance(args, str):
-                    args = json.loads(args)
-                result = self._execute_tool(name, args)
+                    try:
+                        args = json.loads(args)
+                    except (ValueError, TypeError):
+                        args = {}
+                try:
+                    result = self._execute_tool(name, args, budget=budget)
+                except (MCPExecutionBudgetError, MCPExecutionError) as exc:
+                    logger.warning("_chat_completion: MCP tool loop stopped: %s", exc)
+                    if "cancelled" in str(exc).lower():
+                        record_request_cancellation("ollama")
+                    return json.dumps({"error": str(exc), "retry": False})
                 tool_msg = {"role": "tool", "content": result}
                 tc_id = tc.get("id")
                 if tc_id:
                     tool_msg["tool_call_id"] = tc_id
                 messages.append(tool_msg)
             logger.debug("_chat_completion: looping after %d tool calls (iter=%d)", len(tool_calls), iteration)
+
+    @staticmethod
+    def _is_tool_capability_error(text: str) -> bool:
+        return any(marker in text for marker in (
+            "does not support tools", "tool calling is not supported",
+            "unknown field 'tools'", "invalid tools", "tools are not supported",
+        ))
+
+    @staticmethod
+    def _classify_http_error(status_code: int, text: str) -> str:
+        if "out of memory" in text or "oom" in text or ("cuda" in text and "memory" in text):
+            return "oom"
+        if "load" in text or ("model" in text and ("failed" in text or "not found" in text)):
+            return "load_failed"
+        if status_code in (408, 504):
+            return "timeout"
+        if status_code in (502, 503):
+            return "unavailable"
+        # Keep legacy parse_failed signal for generic HTTP failures; callers
+        # already use explicit classifications for OOM, load, timeout, and
+        # unavailable responses.
+        return "parse_failed"
 
     def _ensure_tools(self) -> None:
         """Build the LLM tool schema, preferring the live MCP server catalog.
@@ -269,63 +334,47 @@ class OllamaWorker(QThread):
         self._tools = self._fallback_tools()
 
     def _fallback_tools(self) -> list[dict]:
-        """Generated tool schema when the MCP server is unreachable.
+        """Generated tool schema when the MCP server is unreachable."""
+        others = [t for t in OLLAMA_TOOLS]
+        return others
 
-        The change_visual_state enum is built from the MCP server's own
-        VALID_ACTIONS so 'jump' and every other real action are present and
-        no invalid actions leak in.
-        """
-        from src.mcp_server import VALID_ACTIONS
-        change_state = {
-            "type": "function",
-            "function": {
-                "name": "change_visual_state",
-                "description": (
-                    "Change the pet's visual state/animation. Use layer 'expression' "
-                    "for physical animations (jump, float, spin, ...) or 'fsm' for "
-                    "behaviour states (idle, hyper, celebrate, ...)."
-                ),
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "action": {"type": "string", "enum": sorted(VALID_ACTIONS)},
-                        "layer": {"type": "string", "enum": ["fsm", "expression"]},
-                        "duration_ms": {"type": "integer"},
-                        "target_x": {"type": "integer"},
-                        "target_y": {"type": "integer"},
-                    },
-                    "required": ["action"],
-                },
-            },
-        }
-        others = [t for t in OLLAMA_TOOLS if t["function"]["name"] != "change_visual_state"]
-        return [change_state, *others]
+    _FALLBACK_TOOL_NAMES = frozenset({"send_system_toast", "read_clipboard"})
 
-    _FALLBACK_TOOL_NAMES = frozenset({"change_visual_state", "send_system_toast", "read_clipboard"})
-
-    def _execute_tool(self, name: str, args: dict) -> str:
+    def _execute_tool(self, name: str, args: dict, *, budget=None) -> str:
         # Primary path: call the real MCP server so consent gating, validation
         # and FSM/expression routing all happen server-side (single source of
         # truth). The server performs the animation directly.
         if self._mcp is not None:
             try:
-                return self._mcp.call_tool(name, args)
+                from src.llm.mcp_client import MCPExecutionBudgetError, MCPExecutionError
+                if budget is not None:
+                    budget.check_tool(name, args)
+                if budget is None:
+                    return self._mcp.call_tool(name, args)
+                return self._mcp.call_tool(
+                    name, args, budget=budget, cancellation=self._cancel_event,
+                )
+            except (MCPExecutionBudgetError, MCPExecutionError):
+                raise
             except Exception as exc:  # pragma: no cover - depends on runtime MCP state
                 logger.warning("OllamaWorker MCP call_tool failed for '%s': %s", name, exc)
                 return json.dumps({"error": f"Tool '{name}' failed: {exc}. Do NOT retry — proceed without it."})
         # Legacy fallback: emit signals; pet_window performs the action.
-        if name == "change_visual_state":
+        if budget is not None:
+            budget.reserve(name, args)
+        if name == "send_system_toast":
             self.tool_call_requested.emit(name, args)
-            return json.dumps({"status": "ok", "action": args.get("action", "idle")})
-        elif name == "send_system_toast":
-            self.tool_call_requested.emit(name, args)
-            return json.dumps({"status": "ok"})
+            result = json.dumps({"status": "ok"})
         elif name == "read_clipboard":
             self.read_clipboard_requested.emit()
-            return json.dumps({"status": "ok", "note": "clipboard content dispatched to main thread"})
-        return json.dumps({
-            "error": f"Tool '{name}' is not available. Available tools: {', '.join(sorted(self._FALLBACK_TOOL_NAMES))}. Do NOT retry — proceed without it."
-        })
+            result = json.dumps({"status": "ok", "note": "clipboard content dispatched to main thread"})
+        else:
+            result = json.dumps({
+                "error": f"Tool '{name}' is not available. Available tools: {', '.join(sorted(self._FALLBACK_TOOL_NAMES))}. Do NOT retry — proceed without it."
+            })
+        if budget is not None:
+            budget.record_result(result)
+        return result
 
     def _emit_error(self, msg: str) -> None:
         self.error.emit(msg)

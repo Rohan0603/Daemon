@@ -4,6 +4,12 @@ from .context_manager import ContextManager
 from .opencode_worker import OpencodeWorker
 from .ollama_worker import OllamaWorker
 from .ollama_manager import OllamaManager
+from .opencode_session_manager import OpenCodeSessionManager, OpencodeSessionManager
+from .provider_gateway import (
+    Provider, ProviderRequest, ProviderResult, ProviderError,
+    Health, FallbackDecision, ProviderGateway,
+)
+from .interactive_fast_path import FastPathResult, InteractiveFastPath
 
 def extract_dialogue_stream(accumulated_text: str) -> str:
     """Extract dialogue text from accumulated LLM output stream."""
@@ -56,5 +62,16 @@ __all__ = [
     "OpencodeWorker",
     "OllamaWorker",
     "OllamaManager",
+    "OpenCodeSessionManager",
+    "OpencodeSessionManager",
+    "Provider",
+    "ProviderRequest",
+    "ProviderResult",
+    "ProviderError",
+    "Health",
+    "FallbackDecision",
+    "ProviderGateway",
+    "FastPathResult",
+    "InteractiveFastPath",
     "extract_dialogue_stream",
 ]

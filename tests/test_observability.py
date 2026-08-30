@@ -91,6 +91,51 @@ def test_get_metrics_output():
     assert b"not initialized" in output or b"Metrics not initialized" in output
 
 
+def test_reliability_metrics_cover_dashboard_signals():
+    registry = obs.CollectorRegistry()
+    obs.init_metrics(registry)
+    obs.record_llm_request("user", 0.1, True, 12)
+    obs.record_visible_latency(0.05, "user", "test")
+    obs.update_request_in_flight(2)
+    obs.update_request_queue_depth("load", 3)
+    obs.update_provider_health("test", False)
+    obs.record_cache_hit("refill")
+    obs.record_request_cancellation("user")
+    output = obs.get_metrics_output().decode()
+    for metric in (
+        "daemon_request_throughput_total",
+        "daemon_request_visible_latency_seconds",
+        "daemon_request_in_flight",
+        "daemon_request_queue_depth",
+        "daemon_provider_health",
+        "daemon_cache_hits_total",
+        "daemon_request_cancellations_total",
+    ):
+        assert metric in output
+
+
+def test_request_timing_records_typed_e2e_phases():
+    timing = obs.RequestTiming("cid-test")
+    timing.mark("queue")
+    timing.marks["provider"] = 0.25
+    assert timing.correlation_id == "cid-test"
+    assert timing.duration("provider") == 0.25
+    assert timing.duration("missing") == 0.0
+
+
+def test_e2e_metrics_expose_phase_and_fallback_labels():
+    if not obs._PROMETHEUS_AVAILABLE:
+        pytest.skip("prometheus-client unavailable")
+    metrics = obs.init_metrics()
+    timing = obs.RequestTiming("cid-test")
+    timing.marks["first_visible"] = 0.125
+    obs.record_request_phase(timing, "first_visible", "user", "opencode")
+    obs.record_llm_fallback("opencode", "parse_failed")
+    output = metrics.metrics_endpoint().decode()
+    assert 'daemon_e2e_phase_seconds_count{phase="first_visible",provider="opencode",request_type="user"}' in output
+    assert 'daemon_llm_fallback_total{provider="opencode",reason="parse_failed"}' in output
+
+
 # Test with mocked prometheus
 def test_metrics_class_with_prometheus():
     """Test DaemonMetrics class with mocked prometheus."""

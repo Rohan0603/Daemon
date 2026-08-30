@@ -1,0 +1,743 @@
+{
+  "recipe_version": 2,
+  "recipe": {
+    "name": "daemon-kenny-unsloth-v2",
+    "model_providers": [
+      {
+        "name": "teacher_provider",
+        "endpoint": "https://openrouter.ai/api/v1",
+        "provider_type": "openai",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "extra_headers": {},
+        "extra_body": {
+          "reasoning": {
+            "enabled": true
+          }
+        }
+      }
+    ],
+    "mcp_providers": [
+      {
+        "name": "daemon_mcp",
+        "transport": "sse",
+        "endpoint": "http://127.0.0.1:4097/sse",
+        "allowed_tools": [
+          "change_visual_state",
+          "read_clipboard",
+          "capture_blackmail_evidence",
+          "send_system_toast",
+          "list_directory",
+          "read_file",
+          "search_codebase",
+          "get_memory",
+          "get_diary",
+          "simulate_keystroke",
+          "move_mouse",
+          "browser_navigation",
+          "set_log_level",
+          "get_screen_time",
+          "get_recent_git_diff",
+          "set_reminder",
+          "get_reminders",
+          "dismiss_reminder",
+          "query_memory",
+          "get_screen_context",
+          "get_browser_context",
+          "execute_os_action",
+          "trigger_pet_animation"
+        ]
+      }
+    ],
+    "model_configs": [
+      {
+        "alias": "teacher_model",
+        "model": "minimax/minimax-m3:free",
+        "provider": "teacher_provider",
+        "inference_parameters": {
+          "temperature": 0.8,
+          "max_tokens": 8192,
+          "frequency_penalty": 0.7
+        }
+      }
+    ],
+    "tool_configs": [
+      {
+        "name": "change_visual_state",
+        "provider": "daemon_mcp",
+        "required": true,
+        "parameters": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "idle",
+              "wander",
+              "hyper",
+              "celebrate",
+              "devastated",
+              "fall",
+              "chase",
+              "float",
+              "jump",
+              "grow",
+              "shrink",
+              "pulse",
+              "glitch",
+              "rainbow",
+              "flip",
+              "teleport",
+              "wave",
+              "wobble",
+              "dash",
+              "melt",
+              "inflate",
+              "nod",
+              "headshake",
+              "tremble",
+              "strut",
+              "flail",
+              "vanish",
+              "shake",
+              "bounce",
+              "spin",
+              "look_away"
+            ],
+            "description": "Live FSM or expression action from Daemon MCP"
+          },
+          "layer": {
+            "type": "string",
+            "enum": [
+              "fsm",
+              "expression"
+            ]
+          },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "target_x": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "target_y": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "examples": [
+          {
+            "action": "tremble",
+            "layer": "expression",
+            "duration_ms": 1000
+          },
+          {
+            "action": "hyper",
+            "layer": "fsm"
+          }
+        ]
+      },
+      {
+        "name": "read_file",
+        "provider": "daemon_mcp",
+        "required": false,
+        "parameters": {
+          "file_path": {
+            "type": "string"
+          },
+          "start_line": {
+            "type": "integer"
+          },
+          "end_line": {
+            "type": "integer"
+          }
+        }
+      },
+      {
+        "name": "search_codebase",
+        "provider": "daemon_mcp",
+        "required": false,
+        "parameters": {
+          "search_term": {
+            "type": "string"
+          }
+        }
+      },
+      {
+        "name": "get_screen_context",
+        "provider": "daemon_mcp",
+        "required": false,
+        "parameters": {}
+      },
+      {
+        "name": "get_browser_context",
+        "provider": "daemon_mcp",
+        "required": false,
+        "parameters": {}
+      }
+    ],
+    "columns": [
+      {
+        "column_type": "sampler",
+        "name": "mode",
+        "drop": false,
+        "sampler_type": "category",
+        "params": {
+          "values": [
+            "desktop_companion",
+            "code_assist"
+          ]
+        }
+      },
+      {
+        "column_type": "sampler",
+        "name": "activity_level",
+        "drop": false,
+        "sampler_type": "category",
+        "params": {
+          "values": [
+            "idle",
+            "reading",
+            "coding standard",
+            "frantic typing",
+            "mouse wiggling"
+          ]
+        }
+      },
+      {
+        "column_type": "sampler",
+        "name": "apm",
+        "drop": false,
+        "sampler_type": "category",
+        "params": {
+          "values": [
+            "0",
+            "5",
+            "15",
+            "30",
+            "60",
+            "90",
+            "120",
+            "150",
+            "180",
+            "220"
+          ]
+        }
+      },
+      {
+        "column_type": "sampler",
+        "name": "idle_seconds",
+        "drop": false,
+        "sampler_type": "category",
+        "params": {
+          "values": [
+            "0",
+            "10",
+            "30",
+            "60",
+            "120",
+            "300",
+            "600"
+          ]
+        }
+      },
+      {
+        "column_type": "sampler",
+        "name": "active_window",
+        "drop": false,
+        "sampler_type": "category",
+        "params": {
+          "values": [
+            "vscode",
+            "chrome",
+            "edge",
+            "desktop",
+            "task_manager",
+            "discord",
+            "terminal",
+            "pycharm"
+          ]
+        }
+      },
+      {
+        "column_type": "sampler",
+        "name": "trigger_kind",
+        "drop": false,
+        "sampler_type": "category",
+        "params": {
+          "values": [
+            "user",
+            "autonomous"
+          ]
+        }
+      },
+      {
+        "column_type": "sampler",
+        "name": "typing_content",
+        "drop": false,
+        "sampler_type": "category",
+        "params": {
+          "values": [
+            "",
+            "def process_items(items):",
+            "git diff --check",
+            "pytest tests/ -q",
+            "typing in editor"
+          ]
+        }
+      },
+      {
+        "column_type": "sampler",
+        "name": "screen_text",
+        "drop": false,
+        "sampler_type": "category",
+        "params": {
+          "values": [
+            "",
+            "VS Code editor with Python source",
+            "Task Manager process list",
+            "Chrome documentation page",
+            "Terminal test output"
+          ]
+        }
+      },
+      {
+        "column_type": "sampler",
+        "name": "browser_url",
+        "drop": false,
+        "sampler_type": "category",
+        "params": {
+          "values": [
+            "",
+            "https://stackoverflow.com/questions",
+            "https://docs.python.org/3/",
+            "https://github.com/"
+          ]
+        }
+      },
+      {
+        "column_type": "expression",
+        "name": "memory_facts",
+        "drop": false,
+        "expr": "user_habits: Uses AI for 90% of tasks | user_current_project: Daemon desktop pet | user_focus_apps: VSCode, Terminal, Chrome",
+        "dtype": "str"
+      },
+      {
+        "column_type": "expression",
+        "name": "context_hash",
+        "drop": false,
+        "expr": "{{ mode }}|{{ active_window }}|{{ screen_text }}|{{ browser_url }}",
+        "dtype": "str"
+      },
+      {
+        "column_type": "expression",
+        "name": "scenario_context",
+        "drop": false,
+        "expr": "Mode: {{ mode }}. Activity: {{ activity_level }}. APM: {{ apm }}. Idle: {{ idle_seconds }}s. Active Window: {{ active_window }}. Trigger: {{ trigger_kind }}. Typing: {{ typing_content }}. Screen: {{ screen_text }}. Browser URL: {{ browser_url }}. Memory: {{ memory_facts }}. Context Hash: {{ context_hash }}.",
+        "dtype": "str"
+      },
+      {
+        "column_type": "llm-structured",
+        "name": "kenny_response",
+        "drop": false,
+        "model_alias": "teacher_model",
+        "prompt": "You are Kenny, Daemon's anxious, hyperactive, foul-mouthed Python desktop companion.\n\nCRITICAL OUTPUT FORMAT RULES:\n- ALWAYS return a JSON ARRAY. NEVER return a single object. NEVER return { }.\n- The array must contain 1 to 5 items. Start with [ and end with ].\n- Do NOT show your thinking process. Do NOT explain your reasoning. Do NOT use <thinking> tags.\n- Return ONLY the raw JSON array. No preamble, no explanation, no markdown fencing, no prose.\n\nRead scenario_context and ground every response in its actual Activity, APM, Idle, Active Window, Typing, Screen and Browser URL values. Use relevant daemon_mcp tools before generating output. Emotions are system-driven and cannot be selected. Use change_visual_state with an action from its live enum and the correct layer: fsm for idle, wander, hyper, celebrate, devastated, fall, chase; expression for all other animation actions. Use duration_ms only when timing matters. Never mention exact APM numbers.\n\nEvery item requires thought, dialogue, and type.\n\nFor mode desktop_companion: type must be typing_reaction, observation, intel_roast, or idle_thought. priority is optional integer 1 through 5. context_hash is required and MUST be copied EXACTLY from the Context Hash value in scenario_context - never invent a new one. brain_update is optional and may contain only writable live brain fields with their live types; never include locked fields.\n\nFor mode code_assist: type must be code_assist. Required additional fields: action (use idle, float, jump, grow, shrink, pulse, glitch, rainbow, flip, teleport, wave, wobble, dash, melt, inflate, nod, headshake, tremble, strut, flail, vanish, shake, bounce, spin, look_away), thought, and code_issues (array of objects each with severity, line_hint, description grounded in screen_text).\n\nSCENARIO:\n{{ scenario_context }}",
+        "with_trace": "none",
+        "extract_reasoning_content": false,
+        "output_format": {
+          "x-runtime-contract": "All responses use STRUCTURED_SCHEMA (always a JSON array)",
+          "x-locked-fields": [
+            "user_name",
+            "user_profession",
+            "pet_name",
+            "pet_personality",
+            "pet_role",
+            "pet_origin",
+            "pet_appearance",
+            "pet_system_awareness",
+            "mission_directive"
+          ],
+          "$defs": {
+            "brain_update": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "user_habits": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "user_preferences": {
+                  "type": "object"
+                },
+                "user_long_term_goals": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "user_imposed_rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "user_partner_name": {
+                  "type": "string"
+                },
+                "user_engineer_name": {
+                  "type": "string"
+                },
+                "user_nickname": {
+                  "type": "string"
+                },
+                "user_current_project": {
+                  "type": "string"
+                },
+                "user_focus_apps": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "user_distraction_apps": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "pet_likes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "pet_quirks": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "pet_habits": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "pet_fears": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "pet_catchphrases": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "pet_nsfw_level": {
+                  "type": "string"
+                },
+                "pet_pomodoro_config": {
+                  "type": "object"
+                },
+                "mission_goals": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "intel_archive": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "intel_insider_knowledge": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "pet_affinity_score": {
+                  "type": "integer"
+                },
+                "pet_current_mood": {
+                  "type": "string"
+                },
+                "progression_flags": {
+                  "type": "object"
+                },
+                "screen_time_warn_sec": {
+                  "type": "integer"
+                }
+              }
+            },
+            "desktop_item": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "thought",
+                "dialogue",
+                "type"
+              ],
+              "properties": {
+                "thought": {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                "dialogue": {
+                  "type": "string",
+                  "maxLength": 150
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "typing_reaction",
+                    "observation",
+                    "intel_roast",
+                    "idle_thought",
+                    "code_assist"
+                  ]
+                },
+                "action": {
+                  "type": "string",
+                  "enum": [
+                    "idle",
+                    "wander",
+                    "hyper",
+                    "celebrate",
+                    "devastated",
+                    "fall",
+                    "chase",
+                    "float",
+                    "jump",
+                    "grow",
+                    "shrink",
+                    "pulse",
+                    "glitch",
+                    "rainbow",
+                    "flip",
+                    "teleport",
+                    "wave",
+                    "wobble",
+                    "dash",
+                    "melt",
+                    "inflate",
+                    "nod",
+                    "headshake",
+                    "tremble",
+                    "strut",
+                    "flail",
+                    "vanish",
+                    "shake",
+                    "bounce",
+                    "spin",
+                    "look_away"
+                  ]
+                },
+                "visual_state": {
+                  "type": "string",
+                  "enum": [
+                    "mirth",
+                    "anger",
+                    "fear",
+                    "disgust",
+                    "pathos",
+                    "devotion",
+                    "heroism",
+                    "wonder",
+                    "tranquility"
+                  ]
+                },
+                "priority": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 5
+                },
+                "context_hash": {
+                  "type": "string"
+                },
+                "brain_update": {
+                  "$ref": "#/$defs/brain_update"
+                },
+                "code_issues": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/code_issue"
+                  }
+                }
+              }
+            },
+            "code_issue": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "severity",
+                "line_hint",
+                "description"
+              ],
+              "properties": {
+                "severity": {
+                  "type": "string",
+                  "enum": [
+                    "bug",
+                    "warning",
+                    "suggestion",
+                    "enhancement"
+                  ]
+                },
+                "line_hint": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/desktop_item"
+          }
+        }
+      }
+    ],
+    "processors": []
+  },
+  "run": {
+    "rows": 1000,
+    "preview": true,
+    "seed": 3407,
+    "output_formats": [
+      "jsonl",
+      "parquet"
+    ]
+  },
+  "ui": {
+    "nodes": [
+      {
+        "id": "teacher_provider",
+        "x": 0,
+        "y": 0,
+        "width": 350
+      },
+      {
+        "id": "teacher_model",
+        "x": 0,
+        "y": 200,
+        "width": 350
+      },
+      {
+        "id": "mode",
+        "x": 450,
+        "y": 0,
+        "width": 250
+      },
+      {
+        "id": "activity_level",
+        "x": 450,
+        "y": 120,
+        "width": 250
+      },
+      {
+        "id": "apm",
+        "x": 450,
+        "y": 240,
+        "width": 250
+      },
+      {
+        "id": "idle_seconds",
+        "x": 450,
+        "y": 360,
+        "width": 250
+      },
+      {
+        "id": "active_window",
+        "x": 450,
+        "y": 480,
+        "width": 250
+      },
+      {
+        "id": "scenario_context",
+        "x": 800,
+        "y": 200,
+        "width": 450
+      },
+      {
+        "id": "kenny_response",
+        "x": 1350,
+        "y": 200,
+        "width": 550
+      }
+    ],
+    "edges": [
+      {
+        "from": "teacher_provider",
+        "to": "teacher_model",
+        "type": "semantic",
+        "source_handle": "semantic-out-bottom",
+        "target_handle": "semantic-in-top"
+      },
+      {
+        "from": "mode",
+        "to": "scenario_context",
+        "type": "canvas",
+        "source_handle": "data-out",
+        "target_handle": "data-in"
+      },
+      {
+        "from": "activity_level",
+        "to": "scenario_context",
+        "type": "canvas",
+        "source_handle": "data-out",
+        "target_handle": "data-in"
+      },
+      {
+        "from": "apm",
+        "to": "scenario_context",
+        "type": "canvas",
+        "source_handle": "data-out",
+        "target_handle": "data-in"
+      },
+      {
+        "from": "idle_seconds",
+        "to": "scenario_context",
+        "type": "canvas",
+        "source_handle": "data-out",
+        "target_handle": "data-in"
+      },
+      {
+        "from": "active_window",
+        "to": "scenario_context",
+        "type": "canvas",
+        "source_handle": "data-out",
+        "target_handle": "data-in"
+      },
+      {
+        "from": "scenario_context",
+        "to": "kenny_response",
+        "type": "canvas",
+        "source_handle": "data-out",
+        "target_handle": "data-in"
+      },
+      {
+        "from": "teacher_model",
+        "to": "kenny_response",
+        "type": "semantic",
+        "source_handle": "semantic-out-bottom",
+        "target_handle": "data-in-top"
+      }
+    ],
+    "layout_direction": "LR"
+  }
+}

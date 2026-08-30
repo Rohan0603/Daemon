@@ -76,6 +76,33 @@ class TestOllamaWorker:
         worker.run()
         mock_post.assert_not_called()
 
+    @patch("src.llm.ollama_worker.requests.post")
+    def test_unsupported_tools_recover_with_degraded_no_tool_request(self, mock_post):
+        unsupported = MagicMock(status_code=400, text="model does not support tools")
+        recovered = MagicMock(status_code=200)
+        recovered.json.return_value = {
+            "message": {"role": "assistant", "content": '[{"dialogue":"offline","type":"observation"}]'}
+        }
+        mock_post.side_effect = [unsupported, recovered]
+        worker = OllamaWorker(prompt="test", pet_id="kenny")
+        result = worker._chat_completion([{"role": "user", "content": "test"}])
+        assert result and "offline" in result
+        assert mock_post.call_args_list[1].kwargs["json"].get("tools") is None
+        assert mock_post.call_args_list[1].kwargs["json"]["format"] == "json"
+
+    @patch("src.llm.ollama_worker.requests.post")
+    def test_oom_error_is_explicit(self, mock_post):
+        response = MagicMock(status_code=500, text="out of memory")
+        mock_post.return_value = response
+        errors = []
+        worker = OllamaWorker(prompt="test", pet_id="kenny")
+        worker.error_occurred.connect(errors.append)
+        worker.run()
+        assert "oom" in errors
+
+    def test_tool_iterations_are_bounded(self):
+        assert OllamaWorker.MAX_TOOL_ITERATIONS <= 4
+
     def test_parse_garbage_falls_back_to_freeform(self):
         worker = OllamaWorker(prompt="test", pet_id="kenny")
         result = worker._parse_response("   some free form text   ")
@@ -180,5 +207,4 @@ class TestGarbageFilterNickname(unittest.TestCase):
         worker = OllamaWorker(prompt="hi", pet_id="kenny")
         items = [{"dialogue": "...", "thought": "x"}]
         self.assertFalse(worker._filter_garbage_items(items))
-
 

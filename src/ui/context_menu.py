@@ -18,6 +18,7 @@ class _Signals(QObject):
     mute_toggle = pyqtSignal(bool)
     wipe_memory = pyqtSignal()
     sign_out = pyqtSignal()
+    observability_requested = pyqtSignal(str)
 
 
 class PetContextMenu(QMenu):
@@ -49,6 +50,24 @@ class PetContextMenu(QMenu):
         brain_ops.addAction("⚠️ Lobotomy (Wipe All Data)", self.signals.wipe_memory.emit)
 
         self.addAction("Sign out of Firebase", self.signals.sign_out.emit)
+
+        observability = self.addMenu("📊 Observability ▸")
+        observability.addAction(
+            "Open Grafana Dashboard",
+            lambda: self.signals.observability_requested.emit("http://127.0.0.1:3000"),
+        )
+        observability.addAction(
+            "Open Prometheus",
+            lambda: self.signals.observability_requested.emit("http://127.0.0.1:9090"),
+        )
+        observability.addAction(
+            "Open Daemon Metrics",
+            lambda: self.signals.observability_requested.emit("http://127.0.0.1:4097/metrics"),
+        )
+        observability.addAction(
+            "Open Prometheus Alerts",
+            lambda: self.signals.observability_requested.emit("http://127.0.0.1:9090/alerts"),
+        )
         
         self.addSeparator()
         

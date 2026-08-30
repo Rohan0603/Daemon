@@ -7,9 +7,7 @@
     "model_id": "opencode/nemotron-3.5-lightning-free",
     "provider": "opencode-zen",
     "server_url": "https://opencode.ai/zen/v1",
-    "zen_api_key": "sk-Kl6KqXvG4vlSylT1TmvcWh5ge5GIBgXFGV1n1glADmjpqUraLZJxxm3BOO0TudY6",
     "timeout_sec": 180,
-    "api_key": "sk-Kl6KqXvG4vlSylT1TmvcWh5ge5GIBgXFGV1n1glADmjpqUraLZJxxm3BOO0TudY6",
     "ollama_url": "http://127.0.0.1:11434",
     "ollama_model": "hf.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M",
     "modelfile_path": "data/Modelfile",
@@ -53,9 +51,8 @@
     "monitor": false
   },
   "firebase": {
-    "api_key": "AIzaSyAX0n85NY4F7WycIYfVwEjfM25hSkDt33U",
     "project_id": "daemon-87f81",
-    "credentials_path": "data/firebase-credentials.json"
+    "auth_backend_url": ""
   },
   "mcp": {
     "host": "127.0.0.1",
@@ -63,8 +60,7 @@
   },
   "ide_bridge": {
     "host": "127.0.0.1",
-    "port": 4098,
-    "token": ""
+    "port": 4098
   },
   "behavior": {
     "apm_hyper_threshold": 150,
@@ -254,5 +250,6 @@
       "twitch",
       "discord"
     ]
-  }
+  },
+  "some_key": "config_value"
 }

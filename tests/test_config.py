@@ -4,7 +4,14 @@ import shutil
 import pytest
 from unittest.mock import patch
 from pathlib import Path
-from src.config import load_config, flatten_config, unflatten_config, validate_config, MissingConfigurationError
+from src.config import (
+    load_config,
+    flatten_config,
+    unflatten_config,
+    validate_config,
+    MissingConfigurationError,
+    _secret_value,
+)
 
 _ORIGINAL_COPY2 = shutil.copy2
 
@@ -12,7 +19,7 @@ _ORIGINAL_COPY2 = shutil.copy2
 def _get_minimal_valid_cfg():
     return {
         "llm": {"model_id": "test-model", "api_key": "test-key", "server_url": "http://localhost"},
-        "firebase": {"api_key": "test-fb-key", "project_id": "test-id", "credentials_path": "dummy.json"},
+        "firebase": {"project_id": "test-id", "auth_backend_url": "https://auth.example.test"},
         "user": {}, "pet": {}, "tts": {}, "consent": {}, "window": {}, 
         "mcp": {}, "behavior": {}, "logging": {}, "storage": {},
         "visuals": {}, "triggers": {}
@@ -24,7 +31,7 @@ def test_load_config_default_fallback(mock_copy, tmp_path):
     mock_copy.side_effect = _ORIGINAL_COPY2
     mock_conf = tmp_path / "test_config.json"
     
-    with patch.dict(os.environ, {"FIREBASE_API_KEY": "dummy-key"}, clear=True):
+    with patch.dict(os.environ, {"OPENCODE_API_KEY": "test-key"}, clear=True):
         with patch("src.config._CONFIG_PATH", mock_conf):
             cfg = load_config()
             assert isinstance(cfg, dict)
@@ -48,7 +55,7 @@ def test_load_config_with_override(tmp_path):
     }
     config_file.write_text(json.dumps(custom_data), encoding="utf-8")
 
-    with patch.dict(os.environ, {"FIREBASE_API_KEY": "test-fb-key"}, clear=True):
+    with patch.dict(os.environ, {"OPENCODE_API_KEY": "test-key"}, clear=True):
         with patch("src.config._CONFIG_PATH", config_file):
             cfg = load_config()
         assert cfg["llm"]["model_id"] == "custom-model"
@@ -93,7 +100,7 @@ def test_flatten_and_unflatten_config():
             "monitor": True
         },
         "firebase": {
-            "api_key": "custom-key"
+            "auth_backend_url": "https://auth.example.test"
         }
     }
 
@@ -103,7 +110,7 @@ def test_flatten_and_unflatten_config():
     assert flat["pet_opacity"] == 0.9
     assert flat["pet_speed_multiplier"] == 1.1
     assert flat["window_monitor"] is True
-    assert flat["FIREBASE_API_KEY"] == "custom-key"
+    assert flat["FIREBASE_AUTH_BACKEND_URL"] == "https://auth.example.test"
 
     unflattened = unflatten_config(flat)
     assert unflattened["llm"]["model_id"] == "model-1"
@@ -111,7 +118,7 @@ def test_flatten_and_unflatten_config():
     assert unflattened["pet"]["opacity"] == 0.9
     assert unflattened["pet"]["speed_multiplier"] == 1.1
     assert unflattened["window"]["monitor"] is True
-    assert unflattened["firebase"]["api_key"] == "custom-key"
+    assert unflattened["firebase"]["auth_backend_url"] == "https://auth.example.test"
 
 def test_validate_config_passes_with_valid_data():
     valid_cfg = _get_minimal_valid_cfg()
@@ -122,7 +129,6 @@ def test_validate_config_raises_on_missing_fields():
     invalid_cfg = _get_minimal_valid_cfg()
     invalid_cfg["llm"]["model_id"] = ""
     invalid_cfg["llm"]["api_key"] = ""
-    invalid_cfg["firebase"]["api_key"] = ""
     with pytest.raises(MissingConfigurationError) as exc_info:
         with patch("os.path.exists", return_value=True), patch("os.access", return_value=True):
             validate_config(invalid_cfg)
@@ -135,6 +141,46 @@ def test_validate_config_does_not_require_service_account_file():
     valid_cfg["firebase"]["credentials_path"] = "missing.json"
     with patch("os.path.exists", return_value=False), patch("os.access", return_value=True):
         validate_config(valid_cfg)
+
+
+def test_load_config_ignores_firebase_credentials_in_file_and_uses_environment(tmp_path):
+    template = Path("assets/daemon_config_template.json")
+    config_file = tmp_path / "daemon_config.json"
+    file_cfg = json.loads(template.read_text(encoding="utf-8"))
+    file_cfg["llm"]["api_key"] = "disk-value"
+    file_cfg["llm"]["zen_api_key"] = "disk-value"
+    file_cfg["firebase"]["api_key"] = "disk-value"
+    file_cfg["firebase"]["credentials_path"] = "disk-credentials.json"
+    file_cfg["firebase"]["auth_backend_url"] = "https://disk-auth.example.test"
+    file_cfg["ide_bridge"]["token"] = "disk-value"
+    config_file.write_text(json.dumps(file_cfg), encoding="utf-8")
+
+    env = {
+        "OPENCODE_API_KEY": "environment-value",
+        "FIREBASE_AUTH_BACKEND_URL": "https://env-auth.example.test",
+    }
+    with patch.dict(os.environ, env, clear=True), patch("src.config._CONFIG_PATH", config_file):
+        cfg = load_config()
+
+    assert cfg["llm"]["api_key"] == env["OPENCODE_API_KEY"]
+    assert cfg["llm"]["zen_api_key"] == ""
+    assert "api_key" not in cfg["firebase"]
+    assert "credentials_path" not in cfg["firebase"]
+    assert cfg["firebase"]["auth_backend_url"] == env["FIREBASE_AUTH_BACKEND_URL"]
+    assert cfg["ide_bridge"]["token"] == ""
+
+
+def test_validate_config_requires_runtime_llm_credential():
+    cfg = _get_minimal_valid_cfg()
+    cfg["llm"].pop("api_key")
+    with pytest.raises(MissingConfigurationError, match="llm.api_key"):
+        validate_config(cfg)
+
+
+def test_secret_lookup_falls_back_to_credential_manager(monkeypatch):
+    monkeypatch.delenv("OPENCODE_API_KEY", raising=False)
+    monkeypatch.setattr("src.config._credential_manager_value", lambda target: "stored-runtime-key")
+    assert _secret_value("OPENCODE_API_KEY", "Daemon/OpenCodeApiKey") == "stored-runtime-key"
 
 
 # ── Session store ─────────────────────────────────────────────────────────────

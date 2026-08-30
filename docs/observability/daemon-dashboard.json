@@ -1,0 +1,17 @@
+{
+  "title": "Daemon chatbot reliability",
+  "schemaVersion": 38,
+  "refresh": "15s",
+  "panels": [
+    {"title": "Request latency p50", "expr": "histogram_quantile(0.50, sum by (le,request_type,provider) (rate(daemon_request_visible_latency_seconds_bucket[5m])))"},
+    {"title": "Request latency p95", "expr": "histogram_quantile(0.95, sum by (le,request_type,provider) (rate(daemon_request_visible_latency_seconds_bucket[5m])))"},
+    {"title": "Request latency p99", "expr": "histogram_quantile(0.99, sum by (le,request_type,provider) (rate(daemon_request_visible_latency_seconds_bucket[5m])))"},
+    {"title": "Throughput", "expr": "sum by (request_type,status) (rate(daemon_request_throughput_total[5m]))"},
+    {"title": "Error and fallback rate", "expr": "sum(rate(daemon_llm_requests_total{status=\"error\"}[5m])) / sum(rate(daemon_llm_requests_total[5m]))"},
+    {"title": "Provider availability", "expr": "daemon_provider_health"},
+    {"title": "Queue and concurrency", "expr": "daemon_request_queue_depth or daemon_request_in_flight"},
+    {"title": "Cache hit rate", "expr": "sum(rate(daemon_cache_hits_total[5m])) / sum(rate(daemon_request_throughput_total[5m]))"},
+    {"title": "MCP failures", "expr": "sum by (tool,status) (rate(daemon_mcp_tool_calls_total{status!=\"allowed\"}[5m]))"},
+    {"title": "Token usage", "expr": "sum by (type) (rate(daemon_llm_tokens_total[5m]))"}
+  ]
+}

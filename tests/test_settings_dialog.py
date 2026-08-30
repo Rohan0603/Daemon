@@ -65,12 +65,16 @@ class TestSettingsDialog:
         assert values["allow_window_management"] is False
         assert values["allow_keyboard_injection"] is False
 
-    def test_firebase_configuration_is_release_managed(self, app):
-        dialog = SettingsDialog(firebase_project_id="staging-project")
+    def test_firebase_configuration_keeps_project_id_managed_and_exposes_backend(self, app):
+        dialog = SettingsDialog(
+            firebase_project_id="staging-project",
+            firebase_auth_backend_url="https://auth.example.test",
+        )
         values = dialog.get_values()
         assert dialog._fb_project_id.isReadOnly()
         assert dialog._fb_project_id.text() == "staging-project"
-        assert "FIREBASE_API_KEY" not in values
+        assert dialog._fb_auth_backend_url.text() == "https://auth.example.test"
+        assert values["FIREBASE_AUTH_BACKEND_URL"] == "https://auth.example.test"
         assert values["FIREBASE_PROJECT_ID"] == "staging-project"
 
     def test_consent_toggle_changes_get_values(self, app):

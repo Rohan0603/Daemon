@@ -1,0 +1,15 @@
+groups:
+  - name: daemon-chatbot
+    rules:
+      - alert: DaemonProviderUnavailable
+        expr: daemon_provider_health == 0
+        for: 2m
+      - alert: DaemonChatbotHighErrorRate
+        expr: sum(rate(daemon_llm_requests_total{status="error"}[5m])) / sum(rate(daemon_llm_requests_total[5m])) > 0.10
+        for: 5m
+      - alert: DaemonChatbotP95VisibleLatency
+        expr: histogram_quantile(0.95, sum by (le,request_type,provider) (rate(daemon_request_visible_latency_seconds_bucket[5m]))) > 5
+        for: 10m
+      - alert: DaemonChatbotQueueSaturated
+        expr: daemon_request_queue_depth > 16
+        for: 2m

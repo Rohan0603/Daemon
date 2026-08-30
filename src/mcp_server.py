@@ -4,6 +4,7 @@ import os
 import re
 import time
 import ctypes
+from typing import Literal
 from PyQt6.QtCore import QThread
 from mcp.server.fastmcp import FastMCP
 from functools import wraps
@@ -25,7 +26,22 @@ def _log_tool_call(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
         logger.debug("[MCP] Tool called: %s", tool_name)
-        return func(*args, **kwargs)
+        started = time.monotonic()
+        try:
+            result = func(*args, **kwargs)
+            allowed = not (isinstance(result, dict) and result.get("error"))
+            return result
+        except Exception:
+            allowed = True
+            raise
+        finally:
+            try:
+                from src.observability import record_mcp_tool_call
+                record_mcp_tool_call(
+                    tool_name, time.monotonic() - started, allowed,
+                )
+            except Exception:
+                logger.debug("[MCP] metrics unavailable", exc_info=True)
     return wrapper
 
 
@@ -83,7 +99,6 @@ EXPRESSION_ACTIONS = frozenset({
 VALID_ACTIONS = FSM_ACTIONS | EXPRESSION_ACTIONS
 # Consent mapping for intrusive tools
 CONSENT_TOOL_MAP = {
-    "change_visual_state": "allow_intrusive_animations",
     "read_clipboard": "allow_clipboard_hijacking",
     "capture_blackmail_evidence": "allow_window_management",
     "send_system_toast": "allow_audio_disruptions",
@@ -99,7 +114,6 @@ CONSENT_TOOL_MAP = {
     "vision_click_coordinate": "allow_mouse_interference",
 }
 FEATURE_TOOL_MAP = {
-    "change_visual_state": "pet_interaction",
     "trigger_pet_animation": "pet_interaction",
     "read_clipboard": "desktop_interaction",
     "capture_blackmail_evidence": "desktop_interaction",
@@ -173,11 +187,6 @@ class MCPServerThread(QThread):
 def _create_fastmcp_app(server_thread):
     """Create the FastMCP app with all tools registered."""
     app = FastMCP("DaemonMCP", host="127.0.0.1", port=4097)
-
-    @app.tool()
-    def change_visual_state(action: str, layer: str, duration_ms: int = None, target_x: int = None, target_y: int = None) -> dict:
-        """Change Daemon's visual animation state."""
-        return _handle_change_visual_state(server_thread, action, layer, duration_ms, target_x, target_y)
 
     @app.tool()
     def read_clipboard() -> dict:
@@ -376,38 +385,6 @@ def extract_consent_config(nested_config: dict | None) -> dict:
         return {}
     return nested_config.get("consent", {}) or {}
 
-def _handle_change_visual_state(server_thread, action: str, layer: str, duration_ms: int, target_x: int, target_y: int) -> dict:
-    """Handle change_visual_state tool call."""
-    allowed, err = _is_tool_allowed(server_thread, "change_visual_state")
-    if not allowed:
-        return {"content": [{"type": "text", "text": err}]}
-
-    if action not in VALID_ACTIONS:
-        return {"content": [{"type": "text", "text": f"Invalid action: {action}. Valid actions: {sorted(VALID_ACTIONS)}"}]}
-    if layer not in ("fsm", "expression"):
-        return {"content": [{"type": "text", "text": f"Invalid layer: {layer}"}]}
-
-    # Auto-correct layer if action belongs exclusively to the other layer
-    if layer == "fsm" and action not in FSM_ACTIONS and action in EXPRESSION_ACTIONS:
-        logger.warning("Auto-corrected action '%s' from fsm->expression layer", action)
-        layer = "expression"
-    elif layer == "expression" and action not in EXPRESSION_ACTIONS and action in FSM_ACTIONS:
-        logger.warning("Auto-corrected action '%s' from expression->fsm layer", action)
-        layer = "fsm"
-
-    # Dispatch to the correct handler
-    if layer == "fsm":
-        if action not in FSM_ACTIONS:
-            return {"content": [{"type": "text", "text": f"Action '{action}' is not valid for fsm layer. Valid FSM actions: {sorted(FSM_ACTIONS)}"}]}
-        if server_thread._fsm_bridge:
-            server_thread._fsm_bridge.fsm_action_requested.emit(action)
-    else:
-        if action not in EXPRESSION_ACTIONS:
-            return {"content": [{"type": "text", "text": f"Action '{action}' is not valid for expression layer. Valid expression actions: {sorted(EXPRESSION_ACTIONS)}"}]}
-        if server_thread._action_layer:
-            server_thread._action_layer.trigger(action, duration_ms, {})
-
-    return {"content": [{"type": "text", "text": "ok"}]}
 def _handle_read_clipboard(server_thread) -> dict:
     """Handle read_clipboard tool call."""
     allowed, err = _is_tool_allowed(server_thread, "read_clipboard")

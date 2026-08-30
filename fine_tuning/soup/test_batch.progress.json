@@ -1,0 +1,9 @@
+{
+  "total_target": 200,
+  "generated": 50,
+  "errors": 0,
+  "batches_completed": 1,
+  "started_at": "2026-08-30T11:12:34.201843",
+  "last_batch_at": "2026-08-30T11:12:40.021761",
+  "error_rows": []
+}

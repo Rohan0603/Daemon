@@ -1,0 +1,27 @@
+base: Qwen2.5-3B-Instruct
+task: sft
+backend: transformers  # use transformers (CPU-compatible); use unsloth for GPU
+
+data:
+  train: ./data/kenny_alpaca.jsonl
+  format: alpaca
+  val_split: 0.1
+
+training:
+  epochs: 1              # 1 epoch on CPU for testing; increase on Kaggle GPU
+  lr: 2e-4
+  batch_size: 1          # batch size 1 on CPU; 2-4 on 4GB GPU
+  gradient_accumulation_steps: 4
+  lora:
+    r: 16
+    alpha: 16
+  quantization: none     # no quantization on CPU; use 4bit on Kaggle GPU
+  max_steps: 50          # small step count for testing
+
+output: ./output/kenny-sft-cpu
+
+logging:
+  steps: 10
+  project: null          # no W&B / MLflow on Kaggle
+
+tags: ["kenny", "sft", "qwen2.5-3b", "cpu-test"]

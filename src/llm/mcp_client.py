@@ -29,8 +29,11 @@ without a live server.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import threading
+import time
+from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 try:
@@ -43,6 +46,88 @@ except Exception:  # pragma: no cover - the mcp SDK ships with the project
     _HAVE_MCP = False
 
 logger = logging.getLogger(__name__)
+
+_CLIENT_CACHE: dict[str, "DaemonMCPClient"] = {}
+_CLIENT_CACHE_LOCK = threading.Lock()
+
+
+class MCPExecutionError(RuntimeError):
+    """Base error for bounded MCP request execution."""
+
+
+class MCPExecutionBudgetError(MCPExecutionError):
+    """Raised when a request exceeds its tool, time, or payload budget."""
+
+
+@dataclass
+class MCPExecutionBudget:
+    """Per-request limits shared by a worker's MCP tool loop."""
+
+    max_tool_calls: int = 8
+    max_wall_clock_seconds: float = 30.0
+    max_payload_bytes: int = 64 * 1024
+    cancellation: threading.Event | None = None
+    started_at: float = field(default_factory=time.monotonic)
+    tool_calls: int = 0
+    payload_bytes: int = 0
+
+    def _check(self) -> None:
+        if self.cancellation is not None and self.cancellation.is_set():
+            raise MCPExecutionError("MCP request cancelled")
+        if time.monotonic() - self.started_at >= self.max_wall_clock_seconds:
+            raise MCPExecutionBudgetError(
+                f"MCP request exceeded wall-clock budget ({self.max_wall_clock_seconds:.1f}s)"
+            )
+
+    def reserve(self, name: str, args: dict[str, Any]) -> None:
+        self._check()
+        if self.tool_calls >= self.max_tool_calls:
+            raise MCPExecutionBudgetError(
+                f"MCP request exceeded tool-call budget ({self.max_tool_calls})"
+            )
+        payload_size = self._payload_size(name, args)
+        if self.payload_bytes + payload_size > self.max_payload_bytes:
+            raise MCPExecutionBudgetError(
+                f"MCP request exceeded payload budget ({self.max_payload_bytes} bytes)"
+            )
+        self.tool_calls += 1
+        self.payload_bytes += payload_size
+
+    @staticmethod
+    def _payload_size(name: str, args: dict[str, Any]) -> int:
+        try:
+            return len(json.dumps(
+                {"name": name, "arguments": args or {}},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode("utf-8"))
+        except (TypeError, ValueError) as exc:
+            raise MCPExecutionError(f"MCP tool payload is not serializable: {exc}") from exc
+
+    def check_tool(self, name: str, args: dict[str, Any]) -> None:
+        """Preflight a tool call (useful when the client is mocked)."""
+        self._check()
+        if self.tool_calls >= self.max_tool_calls:
+            raise MCPExecutionBudgetError(
+                f"MCP request exceeded tool-call budget ({self.max_tool_calls})"
+            )
+        if self.payload_bytes + self._payload_size(name, args) > self.max_payload_bytes:
+            raise MCPExecutionBudgetError(
+                f"MCP request exceeded payload budget ({self.max_payload_bytes} bytes)"
+            )
+
+    def record_result(self, result: str) -> None:
+        self._check()
+        result_size = len((result or "").encode("utf-8"))
+        if self.payload_bytes + result_size > self.max_payload_bytes:
+            raise MCPExecutionBudgetError(
+                f"MCP request exceeded payload budget ({self.max_payload_bytes} bytes)"
+            )
+        self.payload_bytes += result_size
+
+    def remaining_seconds(self) -> float:
+        self._check()
+        return max(0.001, self.max_wall_clock_seconds - (time.monotonic() - self.started_at))
 
 
 def _tool_to_llm_schema(tool: Any) -> dict:
@@ -120,8 +205,27 @@ class DaemonMCPClient:
     def list_tools(self) -> list[dict]:
         return asyncio.run(self._with_timeout(self._alist_tools(), self.LIST_TOOLS_TIMEOUT))
 
-    def call_tool(self, name: str, args: Optional[dict]) -> str:
-        return asyncio.run(self._with_timeout(self._acall_tool(name, args or {}), self.CALL_TOOL_TIMEOUT))
+    def call_tool(
+        self,
+        name: str,
+        args: Optional[dict],
+        *,
+        budget: MCPExecutionBudget | None = None,
+        cancellation: threading.Event | None = None,
+    ) -> str:
+        if budget is not None:
+            budget.reserve(name, args or {})
+            timeout = min(self.CALL_TOOL_TIMEOUT, budget.remaining_seconds())
+        else:
+            if cancellation is not None and cancellation.is_set():
+                raise MCPExecutionError("MCP request cancelled")
+            timeout = self.CALL_TOOL_TIMEOUT
+        result = asyncio.run(self._with_timeout(self._acall_tool(name, args or {}), timeout))
+        if cancellation is not None and cancellation.is_set():
+            raise MCPExecutionError("MCP request cancelled")
+        if budget is not None:
+            budget.record_result(result)
+        return result
 
     @staticmethod
     async def _with_timeout(coro, seconds: float):
@@ -134,16 +238,36 @@ class DaemonMCPClient:
                     self._schema_cache = self.list_tools()
                 except Exception as exc:  # timeout / connection / handshake errors
                     logger.warning("MCP schema fetch failed (%s); tools disabled this run", exc)
-                    self._schema_cache = []
+                    # Keep a previously known-good catalog. A transient server
+                    # failure must not erase schemas for in-flight workers.
+                    if self._schema_cache is None:
+                        self._schema_cache = []
             return self._schema_cache
 
 
 def build_client() -> DaemonMCPClient:
-    """Build a client pointed at the running Daemon MCP server (from config)."""
+    """Return a process-shared client pointed at the configured MCP server.
+
+    Workers are short-lived, but MCP schema discovery is not request-specific.
+    Sharing the client preserves its schema cache and avoids a fresh SSE
+    initialize handshake for every LLM request.
+    """
     try:
         from src.config import config_get
         host = config_get("mcp.host") or "127.0.0.1"
         port = config_get("mcp.port") or 4097
     except Exception:
         host, port = "127.0.0.1", 4097
-    return DaemonMCPClient(f"http://{host}:{port}/sse")
+    base_url = f"http://{host}:{port}/sse"
+    with _CLIENT_CACHE_LOCK:
+        client = _CLIENT_CACHE.get(base_url)
+        if client is None:
+            client = DaemonMCPClient(base_url)
+            _CLIENT_CACHE[base_url] = client
+        return client
+
+
+def clear_client_cache() -> None:
+    """Clear shared MCP clients after server/config lifecycle changes."""
+    with _CLIENT_CACHE_LOCK:
+        _CLIENT_CACHE.clear()

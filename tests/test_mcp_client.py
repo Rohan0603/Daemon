@@ -4,10 +4,19 @@ These exercise the async → sync wrappers and the schema/text conversion using
 a faked MCP SSE session, so no live MCP server is required.
 """
 import json
+import pytest
 from contextlib import asynccontextmanager
 from unittest.mock import MagicMock, patch
 
-from src.llm.mcp_client import DaemonMCPClient, _extract_text, _tool_to_llm_schema
+from src.llm.mcp_client import (
+    DaemonMCPClient,
+    MCPExecutionBudget,
+    MCPExecutionBudgetError,
+    _extract_text,
+    _tool_to_llm_schema,
+    build_client,
+    clear_client_cache,
+)
 
 
 class _FakeTool:
@@ -99,3 +108,45 @@ def test_get_tool_schema_returns_empty_on_failure_no_hang():
     assert schema == [], "dead MCP server must fall back to empty schema"
     # Second call must not retry the failing fetch (cached empty result).
     assert client.get_tool_schema() == []
+
+
+@patch("src.config.config_get", side_effect=lambda key: {
+    "mcp.host": "127.0.0.1",
+    "mcp.port": 4097,
+}.get(key))
+def test_build_client_reuses_schema_cache(_config_get):
+    clear_client_cache()
+
+
+def test_budget_counts_calls_and_payload():
+    budget = MCPExecutionBudget(max_tool_calls=1, max_payload_bytes=1000)
+    budget.reserve("one", {"value": 1})
+    with pytest.raises(MCPExecutionBudgetError, match="tool-call budget"):
+        budget.reserve("two", {})
+
+
+def test_budget_rejects_oversized_payload():
+    budget = MCPExecutionBudget(max_payload_bytes=10)
+    with pytest.raises(MCPExecutionBudgetError, match="payload budget"):
+        budget.reserve("tool", {"large": "x" * 100})
+
+
+def test_schema_refresh_failure_preserves_cached_schema():
+    client = DaemonMCPClient("http://127.0.0.1:4097/sse")
+    cached = [{"type": "function", "function": {"name": "cached"}}]
+    client._schema_cache = cached
+    client.list_tools = lambda: (_ for _ in ()).throw(RuntimeError("offline"))
+    assert client.get_tool_schema(force_refresh=True) is cached
+
+
+def test_budget_cancellation_is_explicit():
+    import threading
+    event = threading.Event()
+    event.set()
+    budget = MCPExecutionBudget(cancellation=event)
+    with pytest.raises(RuntimeError, match="cancelled"):
+        budget.reserve("tool", {})
+    first = build_client()
+    second = build_client()
+    assert first is second
+    clear_client_cache()

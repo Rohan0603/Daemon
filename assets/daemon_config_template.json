@@ -7,7 +7,7 @@
       "model_id": "opencode/nemotron-3.5-lightning-free",
       "provider": "opencode-zen",
       "server_url": "https://opencode.ai/zen/v1",
-      "zen_api_key": "YOUR_ZEN_API_KEY_HERE",
+      "zen_api_key": "",
       "timeout_sec": 180,
       "api_key": "",
       "ollama_url": "http://127.0.0.1:11434",
@@ -52,8 +52,8 @@
     "monitor": false
   },
   "firebase": {
-    "api_key": "",
-    "project_id": "daemon-87f81"
+    "project_id": "daemon-87f81",
+    "auth_backend_url": ""
   },
   "mcp": {
     "host": "127.0.0.1",

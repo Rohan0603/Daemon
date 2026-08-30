@@ -2,6 +2,46 @@
 
 > **READ THIS FIRST in every new session.** Authoritative project state: what's built, what's next, known issues.
 
+## 2026-08-29 — Bounded MCP Execution
+
+- Added per-request MCP budgets for tool count, wall-clock time, and cumulative
+  UTF-8 payload size, with explicit budget/cancellation errors.
+- Propagated worker abort events through Ollama and OpenCode MCP tool loops;
+  existing request-cancellation metrics API records cancelled loops.
+- MCP schema refresh failures preserve cached schemas instead of erasing them.
+- Focused budget, cancellation, schema-cache, and worker-loop tests: 21 passed.
+- Broader worker tests are blocked by a pre-existing BOM in modified
+  `data/daemon_config.json`.
+
+## 2026-08-29 — Bounded OpenCode Session Reuse
+
+- Added `OpenCodeSessionManager` for optional interactive-only session reuse,
+  enabled by `DAEMON_REUSE_OPENCODE_SESSIONS`.
+- Sessions expire by idle time or max turns, recover through reset/health
+  checks, and are closed during shutdown. Autonomous/refill workers stay
+  ephemeral.
+- Integrated manager through `OpencodeWorker` without changing provider
+  gateway, config, data config, observability, or streaming transport.
+- Added focused lifecycle tests; full targeted run was blocked by the current
+  uncommitted config file's UTF-8 BOM.
+
+## 2026-08-29 — End-to-End Latency Instrumentation
+
+- Implemented typed `RequestTiming` lifecycle tracking with correlation IDs across PetWindow request dispatch, context/RAG construction, provider workers, parsing/dispatch, and first visible bubble.
+- Added Prometheus phase histograms and provider/reason fallback counters; MCP handlers now record duration and allowed/error status.
+- Added focused observability regression coverage. Tests: 52 passed, 2 skipped (observability, OpenCode/Ollama workers, MCP); PetWindow dispatch/unit tests: 25 passed.
+- Graphify refresh remains required after this change.
+
+## 2026-08-29 — Provider Gateway
+
+- Added typed `src/llm/provider_gateway.py` shared policy for OpenCode/Ollama:
+  normalized requests/results/errors, monotonic deadlines, jittered bounded
+  retries, circuit health, and explicit fallback decisions.
+- Integrated gateway policy into `PetWindow` provider selection and Ollama →
+  OpenCode fallback without changing `data/daemon_config.json` or worker
+  transport behavior.
+- Added focused gateway tests; `tests/test_provider_gateway.py`: 4 passed.
+
 ---
 
 ## Project Snapshot
@@ -10,6 +50,13 @@
 **Branch:** `master` | **Latest commit:** `58cddec` (MCP connection fix)
 **Stack:** Python 3.14, PyQt6, pynput, ctypes, requests, comtypes, Pillow, structlog, prometheus-client
 **Test count:** 914 passed, 1 skipped (37.41s)
+
+## 2026-08-29 — Runtime Secret Rotation
+
+- Removed credential values from tracked `data/daemon_config.json` and the public config template.
+- Config loading now strips credential-shaped file fields and resolves runtime secrets from environment variables or Windows Credential Manager generic credentials.
+- Startup validation continues to fail safely when the selected OpenCode provider has no runtime credential; errors identify only missing field names.
+- Added regression coverage for file-secret stripping, environment lookup, and missing-credential validation. Focused config/auth suite: 48 passed in 1.38s.
 
 ## 2026-08-29 — Evidence-Based Repository Cleanup
 
@@ -545,3 +592,112 @@ Update `AGENTS.md` and this file (or an archive entry) after each task.
 - Updated README CLI documentation and added regression tests for debug-overrides-config and runtime handler updates.
 - Verification: focused suite 86 passed; full suite 941 passed, 4 failed, 1 skipped in 30.89s. Remaining failures are pre-existing Firebase vector CRUD constructor compatibility tests and the Ollama clipboard-signal test.
 - Graphify updated successfully to 4,944 nodes and 8,170 edges.
+
+## 2026-08-29 - Low-Latency Chatbot Architecture Assessment
+
+- Completed a Full architecture pass for low-latency chatbot optimization, covering PyQt6 runtime, OpenCode orchestration, Ollama fallback, MCP, RAG/memory, Firebase, packaging, and observability.
+- Confirmed primary latency risk: `OpencodeWorker` creates, posts to, and deletes an OpenCode session for every burst; MCP schema/tool calls can add additional synchronous round trips.
+- Confirmed existing resilience foundations: provider selector, Ollama lifecycle manager and warm-up, local RAG fallback, thought-pool cache, atomic local persistence, Prometheus metrics, correlation IDs, and OpenTelemetry hooks.
+- Recommended next sequence: instrument end-to-end latency; add bounded warm persistent OpenCode sessions with cancellation; make MCP schema cached and tool execution budgeted; route cache/local fast paths before cloud; implement provider circuit breaker and capability-aware degradation; then load-test and tune models/deployment.
+- Security note: repository runtime configuration currently contains credential-shaped values; rotate any exposed provider/Firebase credentials and keep secrets outside tracked config.
+
+## 2026-08-29 - Shared MCP Schema Cache
+
+- Implemented first low-latency slice in `src/llm/mcp_client.py`: `build_client()` now returns a process-shared client per MCP URL, preserving its schema cache across short-lived OpenCode/Ollama workers and avoiding repeated SSE initialization handshakes.
+- Added explicit `clear_client_cache()` for configuration/server lifecycle changes and regression coverage in `tests/test_mcp_client.py`.
+- Verification: targeted MCP/OpenCode/Ollama suite 49 passed in 3.18s; full suite 949 passed, 1 skipped, 1 warning in 31.49s.
+
+## 2026-08-29 - Observability Access Links
+
+- Added startup log line listing Grafana, Prometheus, Daemon metrics, and Prometheus alerts URLs.
+- Added `📊 Observability` submenu to the pet right-click menu with actions opening each local endpoint through `QDesktopServices`, restricted to localhost/127.0.0.1 URLs.
+- Added UI regression coverage in `tests/ui/test_observability_menu.py`.
+- Verification: observability/menu tests 9 passed, 2 skipped; compile and diff checks passed.
+
+## 2026-08-29 - Credentialless Pet Boot
+
+- Deferred strict provider validation until after Qt startup. Missing OpenCode credentials now start the pet and schedule the Connectivity settings dialog instead of aborting before `QApplication`.
+- Initialization-only config consumers use non-validating loads; strict validation remains enforced when configuration is used for provider startup.
+- Added actionable credential guidance to the validation error and README.
+- Verification: config/auth/CRUD tests 47 passed; daemon imports successfully with provider credentials absent; compile and diff checks passed.
+
+## 2026-08-29 - Secure Connectivity Credential Storage
+
+- Settings API-key save path now stores non-empty provider secrets in Windows Credential Manager (`Daemon/OpenCodeApiKey`, `Daemon/OpenCodeZenApiKey`, etc.) and strips them from JSON before disk persistence.
+- Runtime config retains the entered secret for the current process; future boots retrieve it from Credential Manager or environment variables.
+- Credential Manager write failures surface as configuration errors instead of silently losing credentials.
+- Connections UI labels API-key storage behavior explicitly.
+- Settings save failures are shown in the UI and do not apply an unpersisted runtime configuration.
+- Verification: config/settings tests 24 passed; compile and diff checks passed.
+
+## 2026-08-29 - Runtime Log Triage
+
+- Latest daemon log exposed a Credential Manager compatibility bug: `pywin32` stores `CredentialBlob` as UTF-16 bytes and rejects bytes on write; persistence now writes Unicode strings and decodes UTF-16 blobs correctly.
+- Verified live Windows Credential Manager write/read/delete round trip with a probe credential; no secret value logged.
+- Focused config/settings/pet-window tests: 44 passed; compile and `git diff --check` passed.
+- Removed older `logs/daemon_*.log` files and `crash_dump.log`, retaining newest daemon log for current diagnostics. Preserved `data/daemon_thoughts.log` as active runtime state.
+
+## 2026-08-29 - Firebase HTTP 403 Sign-in Diagnosis
+
+- Latest auth failures were HTTP 403 while `FIREBASE_API_KEY` was absent from both environment and Windows Credential Manager; project ID alone cannot authenticate Firebase REST requests.
+- Added Firebase Web API-key field to Settings → Connections, with password masking and secure Credential Manager persistence through existing config handling.
+- Updated auth setup documentation: 403 commonly indicates missing/invalid/restricted Web API key or disabled Identity Toolkit API, not incorrect email/password.
+- Updated settings regression coverage; Firebase/auth/settings/pet tests: 48 passed.
+
+## 2026-08-29 - Backend-Only Firebase Client Boundary
+
+- Removed Firebase Web API-key input from Connectivity settings and replaced it with an auth-backend URL.
+- `FirebaseAuth` supports backend `/auth/sign-in`, `/auth/sign-up`, and `/auth/refresh` token exchange without placing Firebase keys in the desktop client.
+- `FirebaseCRUD` routes through backend `/firestore/*` when backend mode is configured; legacy direct mode remains only as a migration fallback for existing local deployments.
+- Documented backend requirements: HTTPS, Daemon-session authentication, UID/resource authorization, and server-only Admin SDK credentials.
+- Verification: Firebase auth/CRUD/settings tests 42 passed; compile and diff checks passed.
+
+## 2026-08-29 - Model Routing Benchmark and Deployment Runtime Guidance
+
+- Added `scripts/benchmark_model_routing.py`, a dependency-free repeatable HTTP harness for OpenCode and Ollama.
+- Benchmark JSON records latency/TTFE, JSON validity, MCP tool adherence, provider token counts, CPU time, RSS delta, concurrency, and errors; it does not modify provider or config files.
+- Added `docs/model-routing-benchmark.md` with Windows, WSL, Docker GPU/CPU, quantization, concurrency, warm-up, and resource recommendations grounded in current worker behavior.
+- Added focused extraction and aggregation tests; benchmark tests: 2 passed.
+
+## 2026-08-29 - Latency Reliability Dashboard and Offline Load Harness
+
+- Expanded Prometheus coverage with visible latency, throughput, queue depth,
+  in-flight requests, provider health, cache hits, and cancellation metrics.
+- Added dashboard-ready Grafana panel definitions and Prometheus alert rules
+  under `docs/observability/`; no provider or secret/config files changed.
+- Added bounded deterministic `src/load_harness.py` plus
+  `scripts/load_test_chatbot.py`; default runs cover user, autonomous, refill,
+  MCP failure, cancellation, and concurrency without Qt workers or sockets.
+- Focused validation: 11 passed, 2 skipped; offline harness CLI verified.
+
+## 2026-08-29 - Hardened Local Ollama Fallback
+
+- Hardened `OllamaManager` readiness probing to use configured server URL,
+  validate `/api/tags` shape, keep model warm with bounded `keep_alive`, and
+  classify warm-up OOM/load/timeout/unavailable failures.
+- Hardened `OllamaWorker` with bounded provider timeouts, four-iteration/eight
+  tool-call budgets, malformed tool-argument tolerance, explicit transport and
+  OOM/load/timeout classification, and automatic degraded no-tool recovery when
+  a model rejects tool calling.
+- Added focused manager/worker regression tests. Validation was blocked during
+  collection by a pre-existing syntax error in `src/llm/opencode_worker.py`
+  (`_post_message_streaming`, line 278); modified Ollama modules compile cleanly.
+
+## 2026-08-29 - Interactive Local Fast Path
+
+- Added `InteractiveFastPath` for interactive requests: bounded exact-query
+  cache with monotonic TTL, explicit invalidation, exact local-memory answers,
+  and high-confidence local-only RAG answers.
+- Wired `PetWindow` to resolve this path before provider dispatch; misses retain
+  existing worker/provider behavior. Memory/diary/RAG refresh invalidates it.
+- Added local-only `RAGRetriever.retrieve_local()` and Prometheus
+  `daemon_local_route_total` telemetry plus cache-hit labels.
+- Added focused routing tests. Collection was blocked by the pre-existing
+  syntax error in `src/llm/opencode_worker.py` at `_post_message_streaming`;
+  changed modules compile cleanly.
+
+## 2026-08-29 - OpenCode Event Streaming
+
+- Added capability-detected OpenCode `/global/event` SSE consumption to `OpencodeWorker`, emitting incremental dialogue, one-shot first-visible timing, disconnect notifications, and session cancellation via `/abort`; final message POST remains authoritative fallback.
+- Added focused coverage in `tests/test_opencode_worker_streaming.py` for partial extraction, first-visible timing, unsupported endpoint fallback, and cancellation cleanup.
+- Streaming tests: 3 passed. Existing stateless worker regression remains blocked by pre-existing UTF-8 BOM parsing in `data/daemon_config.json` (`MissingConfigurationError`).

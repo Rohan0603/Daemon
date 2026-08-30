@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import sys
 import time
+from dataclasses import dataclass, field
 from contextlib import contextmanager
 from functools import wraps
 from typing import Any, Callable, Dict, Optional, TypeVar
@@ -46,6 +47,24 @@ F = TypeVar('F', bound=Callable[..., Any])
 _metrics_registry: Optional["CollectorRegistry"] = None
 _tracer = None
 _observability_initialized = False
+
+
+@dataclass
+class RequestTiming:
+    """Typed lifecycle timing shared by UI and one-shot provider workers."""
+
+    correlation_id: str
+    started_at: float = field(default_factory=time.monotonic)
+    queued_at: float = field(default_factory=time.monotonic)
+    marks: dict[str, float] = field(default_factory=dict)
+
+    def mark(self, phase: str) -> float:
+        elapsed = time.monotonic() - self.started_at
+        self.marks[phase] = elapsed
+        return elapsed
+
+    def duration(self, phase: str) -> float:
+        return max(0.0, self.marks.get(phase, 0.0))
 
 
 # =============================================================================
@@ -158,6 +177,65 @@ class DaemonMetrics:
             "daemon_llm_tokens_total",
             "Total LLM tokens (prompt + completion)",
             ["type"],
+            registry=self._registry,
+        )
+        self.e2e_phase_seconds = Histogram(
+            "daemon_e2e_phase_seconds",
+            "End-to-end request phase duration",
+            ["phase", "request_type", "provider"],
+            registry=self._registry,
+        )
+        self.llm_fallback_total = Counter(
+            "daemon_llm_fallback_total",
+            "LLM fallback outcomes by reason",
+            ["provider", "reason"],
+            registry=self._registry,
+        )
+        self.request_in_flight = Gauge(
+            "daemon_request_in_flight",
+            "Current chatbot requests in flight",
+            registry=self._registry,
+        )
+        self.request_queue_depth = Gauge(
+            "daemon_request_queue_depth",
+            "Current chatbot request queue depth",
+            ["request_type"],
+            registry=self._registry,
+        )
+        self.provider_health = Gauge(
+            "daemon_provider_health",
+            "Provider availability (1=available, 0=unavailable)",
+            ["provider"],
+            registry=self._registry,
+        )
+        self.cache_hits_total = Counter(
+            "daemon_cache_hits_total",
+            "Responses served from local/cache fast paths",
+            ["cache"],
+            registry=self._registry,
+        )
+        self.local_route_total = Counter(
+            "daemon_local_route_total",
+            "Interactive requests resolved by local fast-path or delegated",
+            ["source", "status"],
+            registry=self._registry,
+        )
+        self.request_cancellations_total = Counter(
+            "daemon_request_cancellations_total",
+            "Requests cancelled before completion",
+            ["request_type"],
+            registry=self._registry,
+        )
+        self.request_visible_latency_seconds = Histogram(
+            "daemon_request_visible_latency_seconds",
+            "Latency until first user-visible response event",
+            ["request_type", "provider"],
+            registry=self._registry,
+        )
+        self.request_throughput_total = Counter(
+            "daemon_request_throughput_total",
+            "Completed chatbot requests",
+            ["request_type", "status"],
             registry=self._registry,
         )
 
@@ -408,6 +486,77 @@ def record_llm_request(
         _metrics.llm_request_duration_seconds.labels(type=request_type).observe(duration_seconds)
         if tokens:
             _metrics.llm_tokens_total.labels(type=request_type).inc(tokens)
+        _metrics.request_throughput_total.labels(
+            request_type=request_type, status=status,
+        ).inc()
+
+
+def update_request_in_flight(value: int) -> None:
+    if _metrics:
+        _metrics.request_in_flight.set(max(0, value))
+
+
+def update_request_queue_depth(request_type: str, value: int) -> None:
+    if _metrics:
+        _metrics.request_queue_depth.labels(request_type=request_type).set(max(0, value))
+
+
+def update_provider_health(provider: str, healthy: bool) -> None:
+    if _metrics:
+        _metrics.provider_health.labels(provider=provider).set(1 if healthy else 0)
+
+
+def record_cache_hit(cache: str) -> None:
+    if _metrics:
+        _metrics.cache_hits_total.labels(cache=cache).inc()
+
+
+def record_local_route(source: str, status: str) -> None:
+    if _metrics:
+        _metrics.local_route_total.labels(source=source, status=status).inc()
+
+
+def record_request_cancellation(request_type: str) -> None:
+    if _metrics:
+        _metrics.request_cancellations_total.labels(request_type=request_type).inc()
+
+
+def record_visible_latency(
+    duration_seconds: float, request_type: str, provider: str,
+) -> None:
+    if _metrics:
+        _metrics.request_visible_latency_seconds.labels(
+            request_type=request_type, provider=provider,
+        ).observe(max(0.0, duration_seconds))
+
+
+def record_request_phase(timing: RequestTiming, phase: str, request_type: str,
+                         provider: str) -> None:
+    """Record one marked E2E phase without putting high-cardinality IDs in labels."""
+    if _metrics and phase in timing.marks:
+        logger.debug(
+            "e2e_latency phase=%s duration_seconds=%.6f correlation_id=%s request_type=%s provider=%s",
+            phase, timing.duration(phase), timing.correlation_id, request_type, provider,
+        )
+        _metrics.e2e_phase_seconds.labels(
+            phase=phase, request_type=request_type, provider=provider,
+        ).observe(timing.duration(phase))
+
+
+def record_stage_duration(phase: str, duration_seconds: float,
+                          request_type: str = "context",
+                          provider: str = "na") -> None:
+    if _metrics:
+        _metrics.e2e_phase_seconds.labels(
+            phase=phase, request_type=request_type, provider=provider,
+        ).observe(max(0.0, duration_seconds))
+
+
+def record_llm_fallback(provider: str, reason: str) -> None:
+    if _metrics:
+        _metrics.llm_fallback_total.labels(
+            provider=provider, reason=reason,
+        ).inc()
 
 
 def record_mcp_tool_call(

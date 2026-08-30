@@ -2,6 +2,9 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Defense-in-depth: the desktop client uses the Daemon auth backend, not
+    // direct Firestore REST. Backend Admin SDK access must still enforce the
+    // same per-user ownership checks before reading or writing data.
 
     // Authenticated access only
     function isAuthenticated() {

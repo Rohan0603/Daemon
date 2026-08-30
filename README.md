@@ -405,6 +405,36 @@ Override any constant via `~/.daemon_config.json`:
 
 Settings panel (right-click tray → Settings) provides live-preview sliders for size, opacity, speed, and voice toggle.
 
+Provider credentials are intentionally not stored in `data/daemon_config.json`.
+For the current PowerShell session, set one before starting Daemon:
+
+```powershell
+$env:OPENCODE_ZEN_API_KEY = "<your-opencode-zen-key>"
+# Or use the standard OpenCode provider:
+$env:OPENCODE_API_KEY = "<your-opencode-key>"
+py daemon.py --debug
+```
+
+For persistent Windows user configuration, use `setx` and start a new terminal:
+
+```powershell
+setx OPENCODE_ZEN_API_KEY "<your-opencode-zen-key>"
+```
+
+Alternatively, store the secret in Windows Credential Manager under
+`Daemon/OpenCodeZenApiKey` or `Daemon/OpenCodeApiKey`.
+
+For production desktop distribution, configure `firebase.auth_backend_url` (or
+`FIREBASE_AUTH_BACKEND_URL`) in Settings → Connections. The backend owns all
+Firebase keys and exposes `/auth/sign-in`, `/auth/sign-up`, `/auth/refresh`,
+`/data/document`, `/data/collection`, `/data/batch`, `/data/query`, and
+`/data/vector-search` routes over HTTPS. The desktop client stores only its
+encrypted session token. The proxy must authenticate the Daemon session,
+validate the Firebase UID against every requested resource, and keep Admin SDK
+credentials exclusively in its server environment.
+Without an auth backend, cloud Firebase sign-in remains offline; do not ask
+end-users for a Firebase API key.
+
 ---
 
 ## Commands

@@ -21,6 +21,75 @@ class MissingConfigurationError(Exception):
     """Raised when critical configuration values or files are missing."""
     pass
 
+
+# Secrets never come from JSON config. Environment variables are the portable
+# source; Windows Credential Manager is an optional local fallback.
+_SECRET_ENV_MAP = {
+    ("llm", "api_key"): ("OPENCODE_API_KEY", "Daemon/OpenCodeApiKey"),
+    ("llm", "zen_api_key"): ("OPENCODE_ZEN_API_KEY", "Daemon/OpenCodeZenApiKey"),
+    # Legacy direct-Firebase mode; production uses firebase.auth_backend_url.
+    ("ide_bridge", "token"): ("IDE_BRIDGE_TOKEN", "Daemon/IdeBridgeToken"),
+}
+
+
+def _credential_manager_value(target: str) -> str:
+    """Read a generic Windows Credential Manager value without exposing it."""
+    if os.name != "nt":
+        return ""
+    try:
+        import win32cred
+
+        credential = win32cred.CredRead(target, win32cred.CRED_TYPE_GENERIC)
+        value = credential.get("CredentialBlob", b"")
+        if isinstance(value, bytes):
+            if b"\x00" in value:
+                value = value.decode("utf-16-le")
+            else:
+                value = value.decode("utf-8")
+        return value.strip() if isinstance(value, str) else ""
+    except (ImportError, OSError, UnicodeError):
+        return ""
+    except Exception:
+        # pywin32 raises pywintypes.error when target is not registered.
+        return ""
+
+
+def _store_credential(target: str, value: str) -> None:
+    """Persist a secret in the current user's Windows Credential Manager."""
+    if not value:
+        return
+    if os.name != "nt":
+        raise MissingConfigurationError(
+            "Windows Credential Manager is required to persist provider credentials."
+        )
+    try:
+        import win32cred
+
+        win32cred.CredWrite(
+            {
+                "Type": win32cred.CRED_TYPE_GENERIC,
+                "TargetName": target,
+                "UserName": "Daemon",
+                "CredentialBlob": value,
+                "Persist": win32cred.CRED_PERSIST_LOCAL_MACHINE,
+            },
+            0,
+        )
+    except ImportError as exc:
+        raise MissingConfigurationError(
+            "pywin32 is required to save credentials to Windows Credential Manager."
+        ) from exc
+    except Exception as exc:
+        logger.error("Credential Manager write failed for %s: %s", target, type(exc).__name__)
+        raise MissingConfigurationError(
+            "Could not save credential to Windows Credential Manager."
+        ) from exc
+
+
+def _secret_value(env_name: str, target: str) -> str:
+    value = os.environ.get(env_name, "")
+    return value.strip() if value and value.strip() else _credential_manager_value(target)
+
 if getattr(sys, "frozen", False):
     _local_app_data = os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
     STORAGE_DIR = Path(_local_app_data) / "Daemon"
@@ -69,9 +138,8 @@ FLAT_TO_NESTED = {
     "feature_code_intelligence": ("features", "code_intelligence"),
     "feature_desktop_interaction": ("features", "desktop_interaction"),
     "window_monitor": ("window", "monitor"),
-    "FIREBASE_API_KEY": ("firebase", "api_key"),
+    "FIREBASE_AUTH_BACKEND_URL": ("firebase", "auth_backend_url"),
     "FIREBASE_PROJECT_ID": ("firebase", "project_id"),
-    "FIREBASE_CREDENTIALS_PATH": ("firebase", "credentials_path"),
     "MCP_HOST": ("mcp", "host"),
     "MCP_PORT": ("mcp", "port"),
     "APM_HYPER_THRESHOLD": ("behavior", "apm_hyper_threshold"),
@@ -198,9 +266,8 @@ NESTED_TO_FLAT = {
     ("consent", "allow_keyboard_injection"): "allow_keyboard_injection",
     ("consent", "allow_window_management"): "allow_window_management",
     ("window", "monitor"): "window_monitor",
-    ("firebase", "api_key"): "FIREBASE_API_KEY",
+    ("firebase", "auth_backend_url"): "FIREBASE_AUTH_BACKEND_URL",
     ("firebase", "project_id"): "FIREBASE_PROJECT_ID",
-    ("firebase", "credentials_path"): "FIREBASE_CREDENTIALS_PATH",
     ("mcp", "host"): "MCP_HOST",
     ("mcp", "port"): "MCP_PORT",
     ("behavior", "apm_hyper_threshold"): "APM_HYPER_THRESHOLD",
@@ -311,22 +378,36 @@ def _deep_merge(target: dict, source: dict) -> None:
             target[k] = copy.deepcopy(v) if isinstance(v, (dict, list)) else v
 
 
+def _remove_file_secrets(file_cfg: dict) -> dict:
+    """Drop credential fields from disk config before it can enter runtime."""
+    cleaned = copy.deepcopy(file_cfg)
+    for section, key in _SECRET_ENV_MAP:
+        section_cfg = cleaned.get(section)
+        if isinstance(section_cfg, dict):
+            section_cfg.pop(key, None)
+    firebase_cfg = cleaned.get("firebase")
+    if isinstance(firebase_cfg, dict):
+        firebase_cfg.pop("api_key", None)
+        firebase_cfg.pop("credentials_path", None)
+    return cleaned
+
+
 def _apply_env_overrides(cfg: dict) -> dict:
     """Override config from environment variables (highest priority).
     Called after JSON file merge so .env / env vars win over file values.
     """
-    env_map: dict[str, tuple[str, str]] = {
-        "OPENCODE_API_KEY": ("llm", "api_key"),
-        "OPENCODE_ZEN_API_KEY": ("llm", "zen_api_key"),
-        "FIREBASE_API_KEY": ("firebase", "api_key"),
-        "FIREBASE_PROJECT_ID": ("firebase", "project_id"),
-    }
-    for env_key, (section, subkey) in env_map.items():
-        val = os.environ.get(env_key)
-        if val and val.strip():
+    for (section, subkey), (env_key, target) in _SECRET_ENV_MAP.items():
+        val = _secret_value(env_key, target)
+        if val:
             if section not in cfg:
                 cfg[section] = {}
-            cfg[section][subkey] = val.strip()
+            cfg[section][subkey] = val
+    project_id = os.environ.get("FIREBASE_PROJECT_ID", "")
+    if project_id and project_id.strip():
+        cfg.setdefault("firebase", {})["project_id"] = project_id.strip()
+    backend_url = os.environ.get("FIREBASE_AUTH_BACKEND_URL", "")
+    if backend_url and backend_url.strip():
+        cfg.setdefault("firebase", {})["auth_backend_url"] = backend_url.strip()
     return cfg
 
 
@@ -359,7 +440,13 @@ def validate_config(cfg: dict) -> None:
         missing.append("firebase.project_id")
 
     if missing:
-        raise MissingConfigurationError(f"Missing mandatory configuration fields: {', '.join(missing)}")
+        details = f"Missing mandatory configuration fields: {', '.join(missing)}"
+        if "llm.api_key or llm.zen_api_key" in missing:
+            details += (
+                ". Set OPENCODE_API_KEY or OPENCODE_ZEN_API_KEY in the environment "
+                "or Windows Credential Manager; secrets are not stored in daemon_config.json."
+            )
+        raise MissingConfigurationError(details)
 
     # 3. Environmental Checks
     # Write access check for data dir
@@ -386,7 +473,7 @@ def _resolve_packaged_paths(cfg: dict) -> None:
             logging_cfg[key] = str(STORAGE_DIR / Path(value).name)
 
 
-def load_config() -> dict:
+def load_config(*, validate: bool = True) -> dict:
     """Load configuration merging template, JSON, and environment overrides.
 
     Order of priority (highest to lowest):
@@ -438,6 +525,8 @@ def load_config() -> dict:
         _deep_merge(nested_part, unflattened)
         file_cfg = nested_part
 
+    file_cfg = _remove_file_secrets(file_cfg)
+
     # Deep merge template and file configs (file overrides template)
     _deep_merge(cfg, file_cfg)
 
@@ -446,8 +535,10 @@ def load_config() -> dict:
 
     _resolve_packaged_paths(cfg)
 
-    # Validate the final merged configuration
-    validate_config(cfg)
+    # Boot can load non-secret settings before Qt is available; callers that
+    # need a usable provider must run strict validation explicitly.
+    if validate:
+        validate_config(cfg)
 
     return cfg
 
@@ -570,9 +661,15 @@ def save_config(cfg: dict, path=None) -> None:
     """Write *cfg* to the JSON config file, creating parent dirs on demand."""
     save_path = path or CONFIG_PATH
     try:
+        if save_path == CONFIG_PATH:
+            for (section, key), (_, target) in _SECRET_ENV_MAP.items():
+                value = cfg.get(section, {}).get(key, "") if isinstance(cfg.get(section), dict) else ""
+                if value:
+                    _store_credential(target, str(value))
+        disk_cfg = _remove_file_secrets(copy.deepcopy(cfg))
         save_path.parent.mkdir(parents=True, exist_ok=True)
         with open(save_path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2, ensure_ascii=False)
+            json.dump(disk_cfg, f, indent=2, ensure_ascii=False)
         if save_path == CONFIG_PATH:
             _RUNTIME_CONFIG.clear()
             _RUNTIME_CONFIG.update(copy.deepcopy(cfg))

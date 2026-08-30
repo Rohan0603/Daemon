@@ -7,6 +7,7 @@ them against the Daemon MCP server.
 from unittest.mock import MagicMock
 
 from src.llm.opencode_worker import OpencodeWorker
+from src.llm.mcp_client import MCPExecutionBudget
 
 
 def test_extract_tool_calls_top_level():
@@ -48,3 +49,13 @@ def test_forward_tool_calls_invokes_mcp_client():
                                         "arguments": {"action": "jump"}}}]}
     worker._forward_tool_calls(data)
     worker._mcp.call_tool.assert_called_once_with("change_visual_state", {"action": "jump"})
+
+
+def test_forward_tool_calls_stops_at_budget():
+    worker = OpencodeWorker(prompt="x")
+    worker._mcp = MagicMock()
+    worker._tool_budget = MCPExecutionBudget(max_tool_calls=0)
+    data = {"tool_calls": [{"function": {"name": "change_visual_state",
+                                         "arguments": {"action": "jump"}}}]}
+    worker._forward_tool_calls(data)
+    worker._mcp.call_tool.assert_not_called()

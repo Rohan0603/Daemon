@@ -1,9 +1,14 @@
 """Shared fixtures for all Daemon tests."""
 
 from unittest.mock import MagicMock, patch
+import os
 
 import pytest
 from PyQt6.QtWidgets import QApplication
+
+# Keep module imports independent from developer machine credentials. Production
+# startup still validates that a real runtime credential is configured.
+os.environ.setdefault("OPENCODE_API_KEY", "test-opencode-key")
 
 
 # ── Qt Application Fixtures ─────────────────────────────────────────────

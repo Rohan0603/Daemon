@@ -41,7 +41,10 @@ warnings.filterwarnings("ignore", category=DeprecationWarning, message="Opencode
 from src.llm import (
     ContextManager,
     OpencodeWorker,
+    OpenCodeSessionManager,
+    ProviderGateway,
 )
+from src.llm.interactive_fast_path import InteractiveFastPath
 from src.memory import Memory
 from src.memory import EmbeddingEngine, RAGRetriever
 from src.history import History
@@ -122,8 +125,12 @@ class PetWindow(QWidget):
         QApplication.primaryScreen().availableGeometryChanged.connect(self._on_screen_geometry_changed)
 
         from src.config import load_config, session_get
-        self._config = load_config()
+        self._config = load_config(validate=False)
         self._llm_provider = self._config.get("llm", {}).get("engine", "opencode")
+        self._provider_gateway = ProviderGateway(preferred=self._llm_provider)
+        self._interactive_session_manager = OpenCodeSessionManager(
+            self._config.get("llm", {}).get("server_url", ""),
+        )
 
         # Session-only fallback: if Ollama was unreachable at boot, use opencode
         # for this session. daemon_config.json is NOT modified.
@@ -134,6 +141,7 @@ class PetWindow(QWidget):
                 "daemon_config.json is unchanged."
             )
             self._llm_provider = "opencode"
+            self._provider_gateway.preferred = "opencode"
 
         self._ollama_manager = None
         if self._llm_provider == "ollama":
@@ -215,6 +223,7 @@ class PetWindow(QWidget):
         self._context_menu.signals.mute_toggle.connect(self._on_mute_toggle)
         self._context_menu.signals.wipe_memory.connect(self._on_wipe_memory)
         self._context_menu.signals.sign_out.connect(self._on_sign_out)
+        self._context_menu.signals.observability_requested.connect(self._open_observability_url)
 
         self._apm_worker = APMWorker()
         self._apm_worker.apm_updated.connect(self._on_apm_updated)
@@ -276,6 +285,9 @@ class PetWindow(QWidget):
         self._rag_retriever = RAGRetriever(
             EmbeddingEngine(),
             records=self._rag_records(),
+        )
+        self._interactive_fast_path = InteractiveFastPath(
+            self._memory, self._rag_retriever,
         )
         self._fsm_bridge.action_triggered.connect(self._on_mcp_expression_action)
         self._fsm_bridge.action_requested.connect(self.trigger_state_override)
@@ -789,6 +801,10 @@ class PetWindow(QWidget):
             worker.tool_call_requested.connect(self._on_ollama_tool_call)
             return worker
         from src.llm.opencode_worker import OpencodeWorker
+        if not kw.get("is_autonomous", False):
+            manager = getattr(self, "_interactive_session_manager", None)
+            if manager is not None:
+                kw["session_manager"] = manager
         return OpencodeWorker(parent=self, **kw)
 
     def _on_ollama_tool_call(self, name: str, args: dict) -> None:
@@ -1188,6 +1204,7 @@ class PetWindow(QWidget):
             llm_api_key=self._config.get("llm", {}).get("api_key", ""),
             llm_server_url=self._config.get("llm", {}).get("server_url") or "http://127.0.0.1:4096",
             firebase_project_id=self._config.get("firebase", {}).get("project_id", ""),
+            firebase_auth_backend_url=self._config.get("firebase", {}).get("auth_backend_url", ""),
             **self._saved_consent,
             **self._saved_features,
             parent=self,
@@ -1215,7 +1232,7 @@ class PetWindow(QWidget):
             self._chattiness = values["chattiness"]
 
     def _save_settings(self, values: dict) -> None:
-        from src.config import save_config, unflatten_config
+        from src.config import MissingConfigurationError, save_config, unflatten_config
         consent_keys = ("allow_intrusive_animations", "allow_audio_disruptions",
                         "allow_browser_redirection", "allow_clipboard_hijacking",
                         "allow_mouse_interference", "allow_window_management",
@@ -1235,7 +1252,18 @@ class PetWindow(QWidget):
         for section, section_values in unflatten_config(values).items():
             nested_cfg.setdefault(section, {}).update(section_values)
         nested_cfg["firebase"] = dict(self._config.get("firebase", {}))
-        save_config(nested_cfg)
+        try:
+            save_config(nested_cfg)
+        except (MissingConfigurationError, OSError) as exc:
+            from PyQt6.QtWidgets import QMessageBox
+
+            logger.error("Settings could not be persisted: %s", type(exc).__name__)
+            QMessageBox.warning(
+                self,
+                "Settings not saved",
+                f"Credentials could not be stored securely. {exc}",
+            )
+            return
         self._config = nested_cfg
         if self._mcp_server:
             self._mcp_server._config = self._config.get("consent", {})
@@ -1249,6 +1277,8 @@ class PetWindow(QWidget):
             else:
                 self._teardown_ollama_manager()
         self._llm_provider = new_provider
+        if hasattr(self, "_provider_gateway"):
+            self._provider_gateway.preferred = new_provider
 
     def _restore_settings(self) -> None:
         self._apply_settings({
@@ -1771,6 +1801,8 @@ class PetWindow(QWidget):
 
         context = get_active_window_title()
         logger.info("Starting user query (chars=%d, active_window_present=%s)", len(text), bool(context))
+        if self._try_interactive_fast_path(text):
+            return
         self._current_user_input = text
         self._last_mode = "user_input"
 
@@ -1796,6 +1828,32 @@ class PetWindow(QWidget):
             is_autonomous=False,
         )
 
+    def _try_interactive_fast_path(self, text: str) -> bool:
+        """Serve only high-confidence local answers; return False on miss."""
+        fast_path = getattr(self, "_interactive_fast_path", None)
+        if fast_path is None:
+            return False
+        result = fast_path.resolve(text)
+        try:
+            from src.observability import record_local_route, record_cache_hit
+            if result is None:
+                record_local_route("provider", "miss")
+                return False
+            record_local_route(result.source, "hit")
+            record_cache_hit(f"interactive_{result.source}")
+        except Exception:
+            logger.debug("Local route metrics unavailable", exc_info=True)
+        self._current_user_input = text
+        self._last_mode = "user_input"
+        self._active_request_timing = None
+        self._fsm.transition_to(PetState.IDLE)
+        self._dispatch_structured(result.item, force=True, user_input=text)
+        logger.info(
+            "Interactive local fast-path hit: source=%s confidence=%.3f",
+            result.source, result.confidence,
+        )
+        return True
+
 
     def _on_opencode_result(self, text: str) -> None:
         logger.info("LLM response received (chars=%d)", len(text))
@@ -1817,12 +1875,20 @@ class PetWindow(QWidget):
         if self.__dict__.get('_force_quit', False):
             logger.debug("Skipping error handler during shutdown")
             return
+        # Gateway owns fallback policy; keep legacy retry flow unchanged.
+        gateway = self.__dict__.get("_provider_gateway")
+        if gateway is None:
+            gateway = ProviderGateway(preferred=self._llm_provider)
+        request = gateway.request(
+            "", provider=self._llm_provider,
+            autonomous=getattr(self, "_autonomous_query_pending", False),
+        )
+        provider_error = gateway.normalize_error(request, error)
+        decision = gateway.fallback_decision(request, provider_error)
         if error == "timeout" and self._llm_provider == "ollama":
             self._show_bubble("Kenny's brain is still loading... give it a moment")
             return
-
-        # Ollama parse_failed → fallback to opencode serve
-        if error == "parse_failed" and self._llm_provider == "ollama":
+        if decision.should_fallback and self._llm_provider == "ollama":
             fallback_input = getattr(self, "_current_user_input", "")
             fallback_mode = getattr(self, "_last_mode", "general")
             logger.info("Ollama parse_failed; falling back to opencode serve")
@@ -1837,12 +1903,16 @@ class PetWindow(QWidget):
                     is_autonomous=False,
                 )
             self._llm_provider = "ollama"
+            gateway.preferred = "ollama"
             return
 
         self._autonomous_query_pending = False
         self._deferred_trigger_params = None
         self._current_user_input = ""
         self._fsm.current_state = PetState.IDLE
+        manager = getattr(self, "_interactive_session_manager", None)
+        if manager is not None:
+            manager.reset()
         # Invalidate session ID — the worker that errored may have been aborted,
         # leaving a stale server-side session. Next worker will create a fresh one.
         self._opencode_session_id = None
@@ -2144,6 +2214,17 @@ class PetWindow(QWidget):
         self._fsm.transition_to(PetState.IDLE)
         self._show_bubble("whoa... what... where am I? who are you?")
 
+    def _open_observability_url(self, url: str) -> None:
+        """Open a local observability link from the context menu."""
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+
+        if not url.startswith(("http://127.0.0.1:", "http://localhost:")):
+            logger.warning("Rejected non-local observability URL: %s", url)
+            return
+        if not QDesktopServices.openUrl(QUrl(url)):
+            logger.warning("Could not open observability URL: %s", url)
+
     def _on_sign_out(self) -> None:
         if self._auth:
             self._auth.sign_out()
@@ -2175,6 +2256,9 @@ class PetWindow(QWidget):
 
     def _refresh_rag_records(self) -> None:
         self._rag_retriever.replace_records(self._rag_records())
+        fast_path = getattr(self, "_interactive_fast_path", None)
+        if fast_path is not None:
+            fast_path.invalidate()
 
     def _on_pin_toggle(self) -> None:
         self._pinned = not self._pinned
@@ -2248,6 +2332,9 @@ class PetWindow(QWidget):
     def _on_health_check(self) -> None:
         from src.opencode_serve_manager import check_health
         alive = check_health()
+        manager = getattr(self, "_interactive_session_manager", None)
+        if alive and manager is not None:
+            manager.health_check()
         if not alive and not self._brain_disconnected:
             self._brain_disconnected = True
             self._fsm.transition_to(PetState.DEVASTATED)
@@ -2300,6 +2387,8 @@ class PetWindow(QWidget):
             mode=modes[0], apm=self._current_apm, idle_seconds=self._idle_seconds,
             ide_slug=ide_slug,
         )
+        timing.marks["context"] = time.monotonic() - context_started
+        record_request_phase(timing, "context", "autonomous" if is_autonomous else "user", self._llm_provider)
         prompt = base + f"\nmodes: {json.dumps(modes)}"
         
         if isinstance(self._opencode_worker, QThread) and self._opencode_worker.isRunning():
@@ -2319,11 +2408,23 @@ class PetWindow(QWidget):
     def _on_structured_multiplexed(self, items: list[dict]) -> None:
         if not items:
             return
+        gateway = self.__dict__.get("_provider_gateway")
+        if gateway is not None:
+            gateway.record_success(self._llm_provider)
         self._dispatch_structured(items[0], force=True)
         for item in items[1:]:
             self._response_manager.add_items([item])
 
     def _dispatch_structured(self, item: dict, force: bool = False, user_input: str = "") -> None:
+        # Access instance storage directly: tests may construct QWidget via __new__.
+        timing = self.__dict__.get("_active_request_timing")
+        if timing is not None:
+            from src.observability import record_request_phase
+            timing.mark("parse_dispatch")
+            record_request_phase(
+                timing, "parse_dispatch",
+                "user" if user_input else "autonomous", self._llm_provider,
+            )
         thought = item.get("thought", "")
         dialogue = item.get("dialogue", "")
         # Hard-cap bubble text to configured char limit (150 default)
@@ -2360,10 +2461,34 @@ class PetWindow(QWidget):
             self._fsm.transition_to(PetState.IDLE)
         if dialogue:
             self._show_bubble(dialogue)
+            if timing is not None:
+                timing.mark("first_visible")
+                from src.observability import record_request_phase
+                record_request_phase(
+                    timing, "first_visible",
+                    "user" if user_input else "autonomous", self._llm_provider,
+                )
             # Dynamic GCD: base 8s + 1s per 30 chars
             self._gcd_expiry_timestamp = time.time() + 8.0 + (len(dialogue) / 30.0)
-        self._history.add_entry(user_input, dialogue, "idle")
-        self._last_daemon_action = "idle"
+        # Dispatch action from response JSON
+        action = item.get("action")
+        visual_state = item.get("visual_state")
+        if action:
+            from src.mcp_server import EXPRESSION_ACTIONS
+            if action in EXPRESSION_ACTIONS:
+                duration_ms = item.get("duration_ms") or 2000
+                self._fsm_bridge.emit_action_triggered(action, duration_ms, {})
+            else:
+                self._fsm_bridge.emit_request(action, None, None)
+        if visual_state:
+            from src.animator import Emotion
+            try:
+                emotion = Emotion(visual_state)
+                self._animator.set_emotion(emotion)
+            except ValueError:
+                logger.warning("Invalid visual_state: %s", visual_state)
+        self._history.add_entry(user_input, dialogue, action or "idle")
+        self._last_daemon_action = action or "idle"
         self.interaction_count += 1
 
     def _should_fire_autonomous(self, mode: str) -> bool:
@@ -2577,7 +2702,13 @@ class PetWindow(QWidget):
                           idle_seconds: float = 0.0,
                           typing_content: str = "",
                           is_autonomous: bool = True) -> None:
+        from src.log_context import get_correlation_id, set_correlation_id
+        from src.observability import RequestTiming, record_request_phase
+        cid = get_correlation_id() or set_correlation_id()
+        timing = RequestTiming(cid)
+        self._active_request_timing = timing
         self._last_mode = mode
+        context_started = time.monotonic()
         if is_autonomous:
             self._autonomous_query_pending = True
         screen_text = ScreenReader.get_foreground_text()
@@ -2642,9 +2773,13 @@ class PetWindow(QWidget):
         worker = self._make_llm_worker(
             prompt=prompt,
             is_autonomous=is_autonomous,
+            timing=timing,
+            correlation_id=cid,
         )
         worker.response_ready.connect(self._on_response_ready)
         worker.error_occurred.connect(self._on_opencode_error)
+        if hasattr(worker, "partial_response"):
+            worker.partial_response.connect(self._on_partial_response)
         if hasattr(worker, "session_created"):
             worker.session_created.connect(self._on_session_created)
         worker.brain_update_ready.connect(self._on_brain_update)
@@ -2653,6 +2788,9 @@ class PetWindow(QWidget):
 
     def _on_response_ready(self, items: list[dict]) -> None:
         logger.info("_on_response_ready: %d items", len(items))
+        gateway = self.__dict__.get("_provider_gateway")
+        if gateway is not None:
+            gateway.record_success(self._llm_provider)
         self._accumulated_stream_text = ""
         self._autonomous_query_pending = False
         self._session_active = True
@@ -3122,12 +3260,15 @@ class PetWindow(QWidget):
         sys.excepthook = _hook
 
     def _close_opencode_session(self) -> None:
+        manager = getattr(self, "_interactive_session_manager", None)
+        if manager is not None:
+            manager.close()
         if not self._opencode_session_id:
             return
         import requests as _req
         from src.config import load_config, DEFAULT_SERVER_URL
         
-        cfg = load_config()
+        cfg = load_config(validate=False)
         opencode_server_url = cfg.get("llm", {}).get("server_url") or DEFAULT_SERVER_URL
         
         try:

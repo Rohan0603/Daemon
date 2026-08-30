@@ -10,15 +10,17 @@ from src.events import EventBus, EventType
 @pytest.fixture
 def auth(tmp_path: Path) -> FirebaseAuth:
     token_path = tmp_path / ".daemon_auth.json"
-    return FirebaseAuth(api_key="test-key", project_id="test-project", token_path=token_path)
+    instance = FirebaseAuth(api_key="test-key", project_id="test-project", token_path=token_path)
+    instance._auth_backend_url = "https://auth.example.test"
+    return instance
 
 
 def test_sign_in_success(auth: FirebaseAuth) -> None:
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
-        "idToken": "id1", "refreshToken": "rt1",
-        "localId": "uid1", "email": "a@b.com", "expiresIn": "3600",
+        "id_token": "id1", "refresh_token": "rt1",
+        "uid": "uid1", "email": "a@b.com", "expires_in": "3600",
     }
     with patch("requests.post", return_value=mock_resp) as mock_post:
         result = auth.sign_in("a@b.com", "pass123")
@@ -45,8 +47,8 @@ def test_sign_up_success(auth: FirebaseAuth) -> None:
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
-        "idToken": "id2", "refreshToken": "rt2",
-        "localId": "uid2", "email": "new@b.com", "expiresIn": "3600",
+        "id_token": "id2", "refresh_token": "rt2",
+        "uid": "uid2", "email": "new@b.com", "expires_in": "3600",
     }
     with patch("requests.post", return_value=mock_resp):
         result = auth.sign_up("new@b.com", "pass456")
@@ -57,8 +59,8 @@ def test_sign_in_without_remember_me_does_not_persist(auth: FirebaseAuth) -> Non
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
-        "idToken": "id2", "refreshToken": "rt2",
-        "localId": "uid2", "email": "new@b.com", "expiresIn": "3600",
+        "id_token": "id2", "refresh_token": "rt2",
+        "uid": "uid2", "email": "new@b.com", "expires_in": "3600",
     }
     with patch("requests.post", return_value=mock_resp):
         result = auth.sign_in("new@b.com", "pass456", remember_me=False)
@@ -74,6 +76,23 @@ def test_sign_up_existing_email(auth: FirebaseAuth) -> None:
     with patch("requests.post", return_value=mock_resp):
         result = auth.sign_up("exists@b.com", "pass")
     assert result is None
+
+
+def test_backend_sign_in_does_not_use_firebase_api_key(auth: FirebaseAuth) -> None:
+    auth._auth_backend_url = "https://auth.example.test"
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "uid": "uid-backend",
+        "id_token": "id-backend",
+        "refresh_token": "refresh-backend",
+        "expires_in": 3600,
+    }
+    with patch("requests.post", return_value=mock_resp) as mock_post:
+        result = auth.sign_in("a@b.com", "pass123")
+    assert result == "uid-backend"
+    assert mock_post.call_args.args[0] == "https://auth.example.test/auth/sign-in"
+    assert "key" not in mock_post.call_args.args[0]
 
 
 def test_refresh_token(auth: FirebaseAuth) -> None:
@@ -165,7 +184,9 @@ def test_network_error_returns_none(auth: FirebaseAuth) -> None:
 def auth_with_bus(tmp_path: Path) -> FirebaseAuth:
     token_path = tmp_path / ".daemon_auth.json"
     bus = EventBus()
-    return FirebaseAuth(api_key="test-key", project_id="test-project", token_path=token_path, event_bus=bus)
+    instance = FirebaseAuth(api_key="test-key", project_id="test-project", token_path=token_path, event_bus=bus)
+    instance._auth_backend_url = "https://auth.example.test"
+    return instance
 
 
 def test_sign_in_emits_auth_success_event(auth_with_bus: FirebaseAuth) -> None:
@@ -176,8 +197,8 @@ def test_sign_in_emits_auth_success_event(auth_with_bus: FirebaseAuth) -> None:
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.json.return_value = {
-        "idToken": "id1", "refreshToken": "rt1",
-        "localId": "uid1", "email": "a@b.com", "expiresIn": "3600",
+        "id_token": "id1", "refresh_token": "rt1",
+        "uid": "uid1", "email": "a@b.com", "expires_in": "3600",
     }
     with patch("requests.post", return_value=mock_resp):
         auth_with_bus.sign_in("a@b.com", "pass123")
@@ -200,7 +221,7 @@ def test_sign_in_failure_emits_auth_failure_event(auth_with_bus: FirebaseAuth) -
     
     assert len(events) == 1
     assert events[0].type == EventType.AUTH_FAILURE
-    assert events[0].data["reason"] == "http_400"
+    assert events[0].data["reason"] == "backend_http_400"
 
 
 def test_refresh_emits_token_refreshed_event(auth_with_bus: FirebaseAuth) -> None:

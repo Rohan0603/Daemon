@@ -9,12 +9,20 @@ from __future__ import annotations
 import json
 import logging
 import warnings
+import time
+import threading
+import threading
 from typing import Any
 
 import requests
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from src.config import config_get, DEFAULT_SERVER_URL
+from src.observability import (
+    RequestTiming, record_request_phase, record_llm_fallback,
+    record_request_cancellation,
+)
+from src.log_context import correlation_scope
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +39,9 @@ class OpencodeWorker(QThread):
     # ── Signals (forward-compatible aliases) ────────────────────────────────
 
     response_ready = pyqtSignal(list)       # list[dict] — parsed structured items
+    partial_response = pyqtSignal(str)      # incremental user-visible dialogue
+    first_visible = pyqtSignal(float)       # seconds from request start
+    stream_disconnected = pyqtSignal(str)   # event stream ended unexpectedly
     error_occurred = pyqtSignal(str)        # error description
     trigger_ready = pyqtSignal(list)        # alias for response_ready
     session_created = pyqtSignal(str)       # emitted for backward compat (never fires in stateless mode)
@@ -53,8 +64,27 @@ class OpencodeWorker(QThread):
         self._is_autonomous = is_autonomous
         self._screen_context = screen_context
         self._abort = False
+        self._cancel_event = threading.Event()
         self._last_raw_response = ""
         self._timed_out = False
+        self._timing: RequestTiming | None = kwargs.pop("timing", None)
+        self._session_manager = kwargs.pop("session_manager", None)
+        self._session_request_succeeded = False
+        self._using_managed_session = False
+        self._correlation_id = kwargs.pop("correlation_id", "") or (
+            self._timing.correlation_id if self._timing else ""
+        )
+        self._streaming_enabled = kwargs.pop("streaming", True)
+        self._stream_thread: threading.Thread | None = None
+        self._stream_response = None
+        self._stream_stop = threading.Event()
+        self._stream_ready = threading.Event()
+        self._stream_disconnected = False
+        self._active_session_id: str | None = None
+        self._first_visible_emitted = False
+        self._stream_text = ""
+        self._stream_dialogue = ""
+        self._started_at = time.monotonic()
 
         # Config — local opencode serve URL for session management
         self._server_url = DEFAULT_SERVER_URL
@@ -77,53 +107,106 @@ class OpencodeWorker(QThread):
         self._forward_tools = str(config_get("llm.opencode_forward_tools") or "false").lower() != "false"
         self._mcp = None
         self._tools = None
+        self._tool_budget = None
 
     # ── Public API ──────────────────────────────────────────────────────────
 
     def abort(self) -> None:
         self._abort = True
+        self._cancel_event.set()
+        self._stream_stop.set()
+        stream_response = self._stream_response
+        if stream_response is not None:
+            try:
+                stream_response.close()
+            except Exception:
+                pass
+        session_id = self._active_session_id
+        if session_id:
+            try:
+                requests.post(
+                    f"{self._server_url}/session/{session_id}/abort",
+                    timeout=2,
+                )
+            except Exception:
+                logger.debug("abort request failed for session %s", session_id[:8])
 
     def run(self) -> None:
         """Execute a single stateless burst: create → post → parse → cleanup."""
         if self._abort:
             return
 
-        session_id = self._create_session()
+        scope = correlation_scope(self._correlation_id) if self._correlation_id else correlation_scope("")
+        with scope:
+            self._mark("queue")
+            from src.llm.mcp_client import MCPExecutionBudget
+            self._tool_budget = MCPExecutionBudget(cancellation=self._cancel_event)
+            session_id = self._create_session()
         if not session_id:
+            self._fallback("session_create")
             self.error.emit("session_create_failed")
             self.error_occurred.emit("session_create_failed")
             return
 
         try:
+            self._active_session_id = session_id
             if self._abort:
                 return
 
-            raw = self._post_message(session_id, self._prompt)
+            started = time.monotonic()
+            raw = self._post_message_streaming(session_id, self._prompt)
+            self._mark("provider", started=started)
             if self._abort:
                 return
 
             if raw:
                 self._last_raw_response = raw
+                started = time.monotonic()
                 items = self._parse_response(raw)
+                self._mark("parse", started=started)
                 if items:
                     # Extract brain_update before emitting
                     self._extract_brain_update(items)
+                    self._emit_first_visible()
+                    self._session_request_succeeded = True
                     self.response_ready.emit(items)
                     return
 
             if self._timed_out:
+                self._fallback("timeout")
                 logger.warning("run: post_message timed out for %s",
                                session_id[:8] if session_id else "?")
                 self.error.emit("timeout")
                 self.error_occurred.emit("timeout")
             else:
+                self._fallback("parse_failed")
                 logger.warning("run: all parse strategies failed for %s (response_chars=%d)",
                                session_id[:8] if session_id else "?", len(raw or ""))
                 self.error.emit("parse_failed")
                 self.error_occurred.emit("parse_failed")
 
         finally:
-            self._delete_session(session_id)
+            self._stream_stop.set()
+            if self._stream_thread and self._stream_thread.is_alive():
+                self._stream_thread.join(timeout=1)
+            if self._session_manager is not None and self._using_managed_session:
+                self._session_manager.record_result(self._session_request_succeeded)
+            else:
+                self._delete_session(session_id)
+            self._active_session_id = None
+
+    def _mark(self, phase: str, *, started: float | None = None, record: bool = True) -> None:
+        if not self._timing:
+            return
+        if started is None:
+            self._timing.mark(phase)
+        else:
+            self._timing.marks[phase] = time.monotonic() - started
+        if record:
+            record_request_phase(self._timing, phase, "autonomous" if self._is_autonomous else "user", "opencode")
+
+    def _fallback(self, reason: str) -> None:
+        record_llm_fallback("opencode", reason)
 
     # ── HTTP helpers ────────────────────────────────────────────────────────
 
@@ -131,6 +214,11 @@ class OpencodeWorker(QThread):
         """POST /session → returns session_id or None."""
         if self._abort:
             return None
+        if self._session_manager is not None and getattr(self._session_manager, "enabled", False):
+            session_id = self._session_manager.acquire()
+            if session_id:
+                self._using_managed_session = True
+                return session_id
         try:
             resp = requests.post(
                 f"{self._server_url}/session",
@@ -175,14 +263,7 @@ class OpencodeWorker(QThread):
         return out
 
     def _post_message(self, session_id: str, payload_text: str) -> str:
-        """POST /session/{id}/message → extract text; forward any tool calls.
-
-        Best-effort: if the Daemon MCP server is reachable we advertise its
-        tool catalog in the payload so opencode can emit tool calls, then
-        execute those calls against the MCP server (the pet performs the
-        action). If opencode returns no tool calls, behaviour is unchanged
-        (plain dialogue).
-        """
+        """POST a message and extract its final text response."""
         if self._abort:
             return ""
         self._ensure_tools()
@@ -198,24 +279,15 @@ class OpencodeWorker(QThread):
             if resp.status_code >= 400:
                 logger.warning("post_message failed: HTTP %s", resp.status_code)
                 return ""
-
             data = resp.json()
-            # Execute any tool calls opencode emitted (pet performs the action).
-            # Normally a no-op: when forward_tools is disabled opencode already
-            # performed the action itself via the daemon_fsm MCP server.
             if self._forward_tools:
                 self._forward_tool_calls(data)
-            # Extract text from parts array (standard OpenCode response shape)
             for part in data.get("parts", []):
                 if isinstance(part, dict) and part.get("type") == "text":
                     text = part.get("text", "")
                     if text:
                         return text
-            # Alternate response shape: direct text field
-            direct_text = data.get("text") or data.get("content", "")
-            if direct_text:
-                return direct_text
-            return ""
+            return data.get("text") or data.get("content", "")
         except requests.exceptions.Timeout:
             logger.warning("post_message timed out after %ss", self._post_timeout)
             self._timed_out = True
@@ -223,6 +295,111 @@ class OpencodeWorker(QThread):
         except Exception as exc:
             logger.warning("post_message exception (%s)", type(exc).__name__)
             return ""
+
+    def _post_message_streaming(self, session_id: str, payload_text: str) -> str:
+        """Use global SSE events when available; retain final POST fallback."""
+        if not self._streaming_enabled or self._abort:
+            return self._post_message(session_id, payload_text)
+        self._stream_stop.clear()
+        self._stream_ready.clear()
+        self._stream_disconnected = False
+        self._stream_text = ""
+        self._stream_dialogue = ""
+        self._stream_thread = threading.Thread(
+            target=self._consume_events, args=(session_id,),
+            name="opencode-events", daemon=True,
+        )
+        self._stream_thread.start()
+        self._stream_ready.wait(timeout=2)
+        raw = self._post_message(session_id, payload_text)
+        self._stream_stop.set()
+        return raw
+
+    def _consume_events(self, session_id: str) -> None:
+        """Consume SSE events and emit newly visible dialogue text."""
+        response = None
+        try:
+            response = requests.get(
+                f"{self._server_url}/global/event",
+                headers={"Accept": "text/event-stream"},
+                stream=True, timeout=(2, 1),
+            )
+            self._stream_response = response
+            self._stream_ready.set()
+            if response.status_code >= 400:
+                return
+            for line in response.iter_lines(decode_unicode=True):
+                if self._stream_stop.is_set() or self._abort:
+                    return
+                if not line:
+                    continue
+                if isinstance(line, bytes):
+                    line = line.decode("utf-8", errors="replace")
+                if line.startswith("data:"):
+                    self._handle_stream_event(line[5:].strip(), session_id)
+            if not self._stream_stop.is_set() and not self._abort:
+                self._stream_disconnected = True
+                self.stream_disconnected.emit("eof")
+        except (requests.exceptions.RequestException, OSError) as exc:
+            self._stream_ready.set()
+            if not self._stream_stop.is_set() and not self._abort:
+                self._stream_disconnected = True
+                self.stream_disconnected.emit(type(exc).__name__)
+        except Exception as exc:
+            self._stream_ready.set()
+            if not self._stream_stop.is_set() and not self._abort:
+                self._stream_disconnected = True
+                self.stream_disconnected.emit(type(exc).__name__)
+        finally:
+            self._stream_ready.set()
+            self._stream_response = None
+            if response is not None:
+                try:
+                    response.close()
+                except Exception:
+                    pass
+
+    def _handle_stream_event(self, payload: str, session_id: str) -> None:
+        try:
+            event = json.loads(payload)
+        except (TypeError, json.JSONDecodeError):
+            return
+        props = event.get("properties") or event.get("data") or {}
+        part = props.get("part") if isinstance(props, dict) else None
+        if not isinstance(part, dict):
+            part = props if isinstance(props, dict) else {}
+        event_session = part.get("sessionID") or props.get("sessionID")
+        if event_session and event_session != session_id:
+            return
+        if part.get("type") not in (None, "text"):
+            return
+        text = part.get("text") or part.get("delta") or part.get("content")
+        if not isinstance(text, str) or not text:
+            return
+        if part.get("delta") is not None:
+            self._stream_text += text
+        elif text.startswith(self._stream_text):
+            self._stream_text = text
+        else:
+            self._stream_text += text
+        from src.llm import extract_dialogue_stream
+        dialogue = extract_dialogue_stream(self._stream_text)
+        if not dialogue or dialogue == self._stream_dialogue:
+            return
+        delta = dialogue[len(self._stream_dialogue):]
+        self._stream_dialogue = dialogue
+        if delta:
+            self._emit_first_visible()
+            self.partial_response.emit(delta)
+
+    def _emit_first_visible(self) -> None:
+        if self._first_visible_emitted:
+            return
+        self._first_visible_emitted = True
+        elapsed = time.monotonic() - (self._timing.started_at if self._timing else self._started_at)
+        if self._timing:
+            self._timing.mark("first_visible")
+        self.first_visible.emit(max(0.0, elapsed))
 
     def _ensure_tools(self) -> None:
         """Build the MCP tool catalog for opencode (no-op if disabled/unreachable)."""
@@ -282,12 +459,26 @@ class OpencodeWorker(QThread):
         """Execute any tool calls opencode emitted, via the Daemon MCP server."""
         if self._mcp is None:
             return
+        from src.llm.mcp_client import MCPExecutionBudgetError, MCPExecutionError
         for call in self._extract_tool_calls(data):
             name = call["name"]
             args = call.get("arguments") or {}
             try:
                 logger.info("OpencodeWorker forwarding tool call '%s' to MCP server", name)
-                self._mcp.call_tool(name, args)
+                if self._tool_budget is not None:
+                    self._tool_budget.check_tool(name, args)
+                if self._tool_budget is None:
+                    self._mcp.call_tool(name, args)
+                else:
+                    self._mcp.call_tool(
+                        name, args, budget=self._tool_budget,
+                        cancellation=self._cancel_event,
+                    )
+            except (MCPExecutionBudgetError, MCPExecutionError) as exc:
+                logger.warning("OpencodeWorker MCP tool budget/cancellation: %s", exc)
+                if "cancelled" in str(exc).lower():
+                    record_request_cancellation("opencode")
+                break
             except Exception as exc:  # pragma: no cover - depends on runtime MCP state
                 logger.warning("OpencodeWorker MCP call_tool failed for '%s': %s", name, exc)
 

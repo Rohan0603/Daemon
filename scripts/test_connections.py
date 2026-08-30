@@ -6,8 +6,6 @@ import requests
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.config import load_config, DEFAULT_SERVER_URL
-from src.firebase_auth import FirebaseAuth
-from src.firebase_crud import FirebaseCRUD
 
 def check_opencode(server_url: str):
     print(f"Testing OpenCode LLM at {server_url}...")
@@ -17,28 +15,19 @@ def check_opencode(server_url: str):
     except requests.exceptions.RequestException as e:
         print(f"  [WARN] Could not connect to OpenCode. Is 'opencode serve' running? Error: {e}")
 
-def test_firebase_api_key():
-    print("Testing Firebase Auth API Key presence...")
+def test_firebase_backend(backend_url: str):
+    print("Testing Daemon auth backend...")
+    if not backend_url:
+        print("  [WARN] Firebase cloud sync is offline; configure firebase.auth_backend_url.")
+        return
     try:
-        auth = FirebaseAuth()
-        if not auth._api_key or auth._api_key.startswith("your-"):
-            print(f"  [WARN] Firebase API key is missing or a placeholder: '{auth._api_key}'")
+        resp = requests.get(f"{backend_url.rstrip('/')}/health", timeout=5)
+        if resp.status_code == 200:
+            print("  [OK] Daemon auth backend is reachable.")
         else:
-            print("  [OK] Firebase API key found in config.")
-    except Exception as e:
-        print(f"  [ERROR] {e}")
-
-def test_firebase_credentials():
-    print("Testing Firebase service account credentials...")
-    try:
-        crud = FirebaseCRUD()
-        crud._ensure_client()
-        if crud.client:
-            print("  [OK] Firebase service account credentials loaded and client initialized.")
-        else:
-            print("  [WARN] Firebase client could not be initialized. Missing credentials file?")
-    except Exception as e:
-        print(f"  [WARN] Could not initialize Firebase: {e}")
+            print(f"  [WARN] Backend /health returned HTTP {resp.status_code}.")
+    except requests.exceptions.RequestException as e:
+        print(f"  [WARN] Could not reach Daemon auth backend: {e}")
 
 from src.opencode_serve_manager import ensure_opencode_serve_running, stop_opencode_serve
 
@@ -55,9 +44,7 @@ if __name__ == "__main__":
         
     check_opencode(opencode_url)
     print()
-    test_firebase_api_key()
-    print()
-    test_firebase_credentials()
+    test_firebase_backend(cfg.get("firebase", {}).get("auth_backend_url", ""))
     
     print("\nStopping local opencode server...")
     stop_opencode_serve()
