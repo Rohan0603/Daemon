@@ -335,10 +335,28 @@ class OllamaWorker(QThread):
 
     def _fallback_tools(self) -> list[dict]:
         """Generated tool schema when the MCP server is unreachable."""
-        others = [t for t in OLLAMA_TOOLS]
-        return others
+        from src.mcp_server import VALID_ACTIONS
+        change_state = {
+            "type": "function",
+            "function": {
+                "name": "change_visual_state",
+                "description": "Change the pet's visual state or animation.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {"type": "string", "enum": sorted(VALID_ACTIONS)},
+                        "layer": {"type": "string", "enum": ["fsm", "expression"]},
+                        "duration_ms": {"type": "integer"},
+                        "target_x": {"type": "integer"},
+                        "target_y": {"type": "integer"},
+                    },
+                    "required": ["action"],
+                },
+            },
+        }
+        return [change_state, *OLLAMA_TOOLS]
 
-    _FALLBACK_TOOL_NAMES = frozenset({"send_system_toast", "read_clipboard"})
+    _FALLBACK_TOOL_NAMES = frozenset({"change_visual_state", "send_system_toast", "read_clipboard"})
 
     def _execute_tool(self, name: str, args: dict, *, budget=None) -> str:
         # Primary path: call the real MCP server so consent gating, validation
@@ -362,7 +380,10 @@ class OllamaWorker(QThread):
         # Legacy fallback: emit signals; pet_window performs the action.
         if budget is not None:
             budget.reserve(name, args)
-        if name == "send_system_toast":
+        if name == "change_visual_state":
+            self.tool_call_requested.emit(name, args)
+            result = json.dumps({"status": "ok", "action": args.get("action", "idle")})
+        elif name == "send_system_toast":
             self.tool_call_requested.emit(name, args)
             result = json.dumps({"status": "ok"})
         elif name == "read_clipboard":

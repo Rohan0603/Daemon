@@ -26,6 +26,18 @@ def test_on_ollama_tool_call_routes_fsm_to_request(safe_pet_window):
     assert captured and captured[0] == "celebrate"
 
 
+def test_on_ollama_tool_call_honors_animation_consent(safe_pet_window):
+    captured = []
+    safe_pet_window._fsm_bridge.action_triggered.connect(
+        lambda n, d, p: captured.append((n, d, p))
+    )
+    safe_pet_window._mcp_server._config = {"allow_intrusive_animations": False}
+
+    safe_pet_window._on_ollama_tool_call("change_visual_state", {"action": "jump"})
+
+    assert captured == []
+
+
 def test_server_change_visual_state_jump_routes_to_action_layer():
     thread = MagicMock()
     thread._fsm_bridge = MagicMock()

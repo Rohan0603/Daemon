@@ -10,6 +10,7 @@ from .provider_gateway import (
     Health, FallbackDecision, ProviderGateway,
 )
 from .interactive_fast_path import FastPathResult, InteractiveFastPath
+from .orchestrator import LLMOrchestrator, LLMRequest
 
 def extract_dialogue_stream(accumulated_text: str) -> str:
     """Extract dialogue text from accumulated LLM output stream."""
@@ -73,5 +74,7 @@ __all__ = [
     "ProviderGateway",
     "FastPathResult",
     "InteractiveFastPath",
+    "LLMOrchestrator",
+    "LLMRequest",
     "extract_dialogue_stream",
 ]

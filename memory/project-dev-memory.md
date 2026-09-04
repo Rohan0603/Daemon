@@ -1,5 +1,34 @@
 # Daemon — Project Dev Memory
 
+## 2026-09-04 — Notebook Empty-Output Handling
+
+- Updated `fine_tuning/notebooks/colab_finetune.ipynb` Cell 4 to skip and report records with empty outputs while still failing on missing fields or invalid types.
+- Uploaded dataset contains 244 rows; record 208 is empty-output, leaving 243 valid training/evaluation rows.
+- Cell 4 syntax and notebook JSON validation passed.
+## 2026-09-04 — Phase 2 LLM Orchestrator Contract
+
+- Added `src/llm/orchestrator.py` with provider-neutral request and worker
+  lifecycle contracts. It supports common signal routing, autonomous deferral,
+  user preemption, and non-blocking cancellation through injected workers.
+- Exported `LLMOrchestrator` and `LLMRequest` from `src.llm`.
+- Added focused fake-worker contract tests. Full `PetWindow` rewiring remains
+  next step after this lifecycle boundary is proven.
+- Focused orchestrator/provider tests: 8 passed. An earlier full-suite run was
+  blocked by transient MCP import drift; the later rerun collected normally.
+  Phase 2 contract committed as `5f7855e` on `task-2-llm-orchestrator`.
+- PetWindow now delegates worker construction, common signal wiring, and start
+  to the orchestrator while retaining existing preemption policy. Focused
+  integration tests: 24 passed. Full suite: 993 passed, 2 skipped in 47.53s.
+
+## 2026-09-04 — Phase 3 Action Boundary
+
+- Ollama `change_visual_state` calls now reuse MCP consent and valid-action
+  validation before dispatching through the existing FSM/action bridge.
+- Bound MCP wrapper references explicitly to PetWindow's bridge, action layer,
+  consent config, and feature config so compatibility wrappers cannot drift.
+- Added denied-animation regression coverage. Focused action tests: 9 passed.
+  Full suite: 994 passed, 2 skipped in 47.67s.
+
 ## 2026-09-04 — Unsloth Formatter Batch Compatibility
 
 - Fixed `fine_tuning/notebooks/colab_finetune.ipynb` Cell 5 `formatting_func` to support both Unsloth's scalar formatter probe and batched dataset mapping.
@@ -19,6 +48,33 @@
   measurable success criteria.
 - Documentation validation passed: notebook JSON, expected content markers,
   trailing whitespace, and `git diff --check`.
+
+## 2026-09-04 — Phase 0 Runtime Baseline
+
+- Added `scripts/benchmark_runtime.py`, a provider-free deterministic baseline
+  for user, autonomous, refill, and MCP paths with JSON latency, throughput,
+  and Python allocation metrics.
+- Added `tests/test_benchmark_runtime.py`; focused test and direct benchmark
+  smoke run passed.
+- Restored MCP visual-state routing, scoped MCP log-level changes to `src`,
+  restored Ollama offline visual-state fallback, and added Firestore native
+  nearest-neighbor fallback while preserving configured vector endpoints.
+- Full suite: 989 passed, 2 skipped, 1 warning in 48.51s.
+- Phase 0 committed as `bb473bb`.
+
+## 2026-09-04 — Phase 1 Training Pipeline
+
+- Hardened `fine_tuning/notebooks/colab_finetune.ipynb`: validates Alpaca
+  records, creates deterministic 90/10 train/evaluation split, evaluates every
+  50 steps, saves bounded checkpoints, and reports final evaluation loss.
+- LoRA save cell now writes `artifact_manifest.json` with base model, source
+  dataset, split sizes/seed, training metrics, and UTC creation time.
+- GGUF export and Hugging Face publishing are explicit opt-in operations;
+  Hub token comes from the Colab `HF_TOKEN` secret, never notebook source.
+- Notebook JSON and all 9 code cells compile after neutralizing standard
+  Colab magics for static validation. GPU execution remains a Colab-only gate.
+- Focused benchmark test: 1 passed. Full suite: 989 passed, 2 skipped in
+  48.27s. Phase 1 committed as `1a904d8` on `task-1-training-pipeline`.
 
 > **READ THIS FIRST in every new session.** Authoritative project state: what's built, what's next, known issues.
 

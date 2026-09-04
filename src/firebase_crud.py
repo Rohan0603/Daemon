@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Sequence
+from urllib.parse import quote
 
 import requests
 
@@ -228,7 +229,7 @@ class FirebaseCRUD:
         if (category_field is None) != (category_value is None):
             raise ValueError("category_field and category_value must be provided together")
 
-        def _do():
+        def _backend_do():
             response = self._request(
                 "POST",
                 "data/vector-search",
@@ -247,4 +248,57 @@ class FirebaseCRUD:
             response.raise_for_status()
             return self._payload_documents(response.json())
 
-        return self._with_retry(_do) or []
+        if self._backend_url:
+            return self._with_retry(_backend_do) or []
+
+        token = self._token()
+        if not token or not self._project_id:
+            return []
+        structured_query = {
+            "from": [{"collectionId": collection}],
+            "findNearest": {
+                "vectorField": {"fieldPath": vector_field},
+                "queryVector": {
+                    "mapValue": {
+                        "fields": {
+                            "value": {
+                                "arrayValue": {
+                                    "values": [{"doubleValue": float(value)} for value in vector]
+                                }
+                            }
+                        }
+                    }
+                },
+                "distanceMeasure": distance_measure,
+                "limit": limit,
+            },
+        }
+        if category_field is not None:
+            structured_query["where"] = {
+                "fieldFilter": {
+                    "field": {"fieldPath": category_field},
+                    "op": "EQUAL",
+                    "value": {"stringValue": category_value},
+                }
+            }
+        url = (
+            "https://firestore.googleapis.com/v1/projects/"
+            f"{quote(self._project_id, safe='')}/databases/"
+            f"{quote(self._database_id, safe='')}/documents:runQuery"
+        )
+        response = self._session.request(
+            "POST",
+            url,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"structuredQuery": structured_query},
+            timeout=15,
+        )
+        response.raise_for_status()
+        results = []
+        for row in response.json() if isinstance(response.json(), list) else []:
+            document = row.get("document", {}) if isinstance(row, dict) else {}
+            fields = self._decode_fields(document.get("fields", {}))
+            name = document.get("name", "")
+            fields["id"] = name.rsplit("/", 1)[-1] if name else ""
+            results.append(fields)
+        return results

@@ -99,6 +99,7 @@ EXPRESSION_ACTIONS = frozenset({
 VALID_ACTIONS = FSM_ACTIONS | EXPRESSION_ACTIONS
 # Consent mapping for intrusive tools
 CONSENT_TOOL_MAP = {
+    "change_visual_state": "allow_intrusive_animations",
     "read_clipboard": "allow_clipboard_hijacking",
     "capture_blackmail_evidence": "allow_window_management",
     "send_system_toast": "allow_audio_disruptions",
@@ -114,6 +115,7 @@ CONSENT_TOOL_MAP = {
     "vision_click_coordinate": "allow_mouse_interference",
 }
 FEATURE_TOOL_MAP = {
+    "change_visual_state": "pet_interaction",
     "trigger_pet_animation": "pet_interaction",
     "read_clipboard": "desktop_interaction",
     "capture_blackmail_evidence": "desktop_interaction",
@@ -187,6 +189,19 @@ class MCPServerThread(QThread):
 def _create_fastmcp_app(server_thread):
     """Create the FastMCP app with all tools registered."""
     app = FastMCP("DaemonMCP", host="127.0.0.1", port=4097)
+
+    @app.tool()
+    def change_visual_state(
+        action: str,
+        layer: str,
+        duration_ms: int = None,
+        target_x: int = None,
+        target_y: int = None,
+    ) -> dict:
+        """Change Daemon's visual animation state."""
+        return _handle_change_visual_state(
+            server_thread, action, layer, duration_ms, target_x, target_y
+        )
 
     @app.tool()
     def read_clipboard() -> dict:
@@ -385,6 +400,40 @@ def extract_consent_config(nested_config: dict | None) -> dict:
         return {}
     return nested_config.get("consent", {}) or {}
 
+
+def _handle_change_visual_state(
+    server_thread,
+    action: str,
+    layer: str,
+    duration_ms: int,
+    target_x: int,
+    target_y: int,
+) -> dict:
+    """Route a visual action to the FSM bridge or expression layer."""
+    allowed, err = _is_tool_allowed(server_thread, "change_visual_state")
+    if not allowed:
+        return {"content": [{"type": "text", "text": err}]}
+
+    if action not in VALID_ACTIONS:
+        return {"content": [{"type": "text", "text": f"Invalid action: {action}. Valid actions: {sorted(VALID_ACTIONS)}"}]}
+    if layer not in ("fsm", "expression"):
+        return {"content": [{"type": "text", "text": f"Invalid layer: {layer}"}]}
+
+    if layer == "fsm" and action in EXPRESSION_ACTIONS:
+        logger.warning("Auto-corrected action '%s' from fsm->expression layer", action)
+        layer = "expression"
+    elif layer == "expression" and action in FSM_ACTIONS:
+        logger.warning("Auto-corrected action '%s' from expression->fsm layer", action)
+        layer = "fsm"
+
+    if layer == "fsm":
+        if server_thread._fsm_bridge:
+            server_thread._fsm_bridge.fsm_action_requested.emit(action)
+    elif server_thread._action_layer:
+        server_thread._action_layer.trigger(action, duration_ms, {})
+
+    return {"content": [{"type": "text", "text": "ok"}]}
+
 def _handle_read_clipboard(server_thread) -> dict:
     """Handle read_clipboard tool call."""
     allowed, err = _is_tool_allowed(server_thread, "read_clipboard")
@@ -472,7 +521,6 @@ def _handle_browser_navigation(server_thread, url: str) -> dict:
 def _handle_set_log_level(server_thread, level: str) -> dict:
     """Handle set_log_level tool call."""
     import logging as _logging
-    from src.logging_setup import set_global_log_level
     if not isinstance(level, str):
         return {"content": [{"type": "text", "text": "Invalid level: expected a string"}]}
     level_str = level.upper()
@@ -482,9 +530,8 @@ def _handle_set_log_level(server_thread, level: str) -> dict:
     if level_val is None:
         return {"content": [{"type": "text", "text": f"Invalid level: {level_str}"}]}
 
-    set_global_log_level(level_str)
     _logging.getLogger("src").setLevel(level_val)
-    logger.info("Global logger level set to %s by MCP tool", level_str)
+    logger.info("src logger level set to %s by MCP tool", level_str)
     return {"content": [{"type": "text", "text": f"Log level set to {level_str}"}]}
 def _handle_get_screen_time(server_thread) -> dict:
     """Handle get_screen_time tool call."""

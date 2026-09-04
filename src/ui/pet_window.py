@@ -43,6 +43,8 @@ from src.llm import (
     OpencodeWorker,
     OpenCodeSessionManager,
     ProviderGateway,
+    LLMOrchestrator,
+    LLMRequest,
 )
 from src.llm.interactive_fast_path import InteractiveFastPath
 from src.memory import Memory
@@ -299,6 +301,12 @@ class PetWindow(QWidget):
             action_layer=self._action_layer,
             rag_retriever=self._rag_retriever,
         )
+        # Keep compatibility wrappers and test doubles bound to same action
+        # boundary as production MCP server.
+        self._mcp_server._fsm_bridge = self._fsm_bridge
+        self._mcp_server._action_layer = self._action_layer
+        self._mcp_server._config = self._config.get("consent", {})
+        self._mcp_server._features = self._config.get("features", {})
         self._write_coalescer = WriteCoalescer(
             memory=self._memory, history=self._history,
             memory_manager=self._firebase_mem,
@@ -379,6 +387,7 @@ class PetWindow(QWidget):
         self._bubble_timer_ms = 0
         self._bubble_rect = QRect()
         self._opencode_worker: OpencodeWorker | None = None
+        self._llm_orchestrator = LLMOrchestrator(self._make_worker_for_request)
         self._boredom_timer_ms: int = BOREDOM_TIMEOUT_SEC * 1000
         self._autonomous_query_pending: bool = False
         self._boredom_retry_count: int = 0
@@ -807,22 +816,30 @@ class PetWindow(QWidget):
                 kw["session_manager"] = manager
         return OpencodeWorker(parent=self, **kw)
 
+    def _make_worker_for_request(self, request: LLMRequest) -> Any:
+        return self._make_llm_worker(
+            prompt=request.prompt,
+            is_autonomous=request.autonomous,
+            timing=request.metadata.get("timing"),
+            correlation_id=request.metadata.get("correlation_id", ""),
+        )
+
     def _on_ollama_tool_call(self, name: str, args: dict) -> None:
         if name == "change_visual_state":
             action = args.get("action", "idle")
             target_x = args.get("target_x")
             target_y = args.get("target_y")
             logger.debug("LLM action triggered: %s (target=%s,%s)", action, target_x, target_y)
-            # Mirror the MCP server's FSM/EXPRESSION split so physical
-            # animations like "jump" (expression actions) actually reach the
-            # ActionLayer instead of being dropped by the FSM-only handler.
-            from src.mcp_server import EXPRESSION_ACTIONS
+            from src.mcp_server import EXPRESSION_ACTIONS, VALID_ACTIONS, _is_tool_allowed
+            allowed, error = _is_tool_allowed(self._mcp_server, "change_visual_state")
+            if not allowed or action not in VALID_ACTIONS:
+                logger.warning("Blocked Ollama visual action '%s': %s", action, error or "invalid action")
+                return
             if action in EXPRESSION_ACTIONS:
-                duration_ms = args.get("duration_ms") or 2000
-                self._fsm_bridge.emit_action_triggered(action, duration_ms, {})
+                self._fsm_bridge.emit_action_triggered(
+                    action, args.get("duration_ms") or 2000, {}
+                )
             else:
-                # FSM/behaviour actions: pass the action itself (not the literal
-                # "triggered_action" tag) so _on_mcp_fsm_action can map it.
                 self._fsm_bridge.emit_request(action, target_x, target_y)
         elif name == "send_system_toast":
             title = args.get("title", "Daemon")
@@ -2786,20 +2803,22 @@ class PetWindow(QWidget):
                     is_autonomous=is_autonomous,
                 )
                 return
-        worker = self._make_llm_worker(
-            prompt=prompt,
-            is_autonomous=is_autonomous,
-            timing=timing,
-            correlation_id=cid,
+        worker = self._llm_orchestrator.submit(
+            LLMRequest(
+                prompt=prompt,
+                autonomous=is_autonomous,
+                metadata={"timing": timing, "correlation_id": cid},
+            ),
+            preempt=False,
+            response_ready=self._on_response_ready,
+            error_occurred=self._on_opencode_error,
+            partial_response=self._on_partial_response,
+            session_created=self._on_session_created,
+            brain_update_ready=self._on_brain_update,
         )
-        worker.response_ready.connect(self._on_response_ready)
-        worker.error_occurred.connect(self._on_opencode_error)
-        if hasattr(worker, "partial_response"):
-            worker.partial_response.connect(self._on_partial_response)
-        if hasattr(worker, "session_created"):
-            worker.session_created.connect(self._on_session_created)
-        worker.brain_update_ready.connect(self._on_brain_update)
-        worker.start()
+        if worker is None:
+            logger.info("Orchestrator deferred '%s' trigger", mode)
+            return
         self._opencode_worker = worker
 
     def _on_response_ready(self, items: list[dict]) -> None:
@@ -2813,6 +2832,7 @@ class PetWindow(QWidget):
         if getattr(self, "_opencode_worker", None) is not None:
             w = self._opencode_worker
             self._opencode_worker = None
+            self._llm_orchestrator.clear(w)
             if w.isRunning():
                 if not hasattr(self, '_zombie_workers'):
                     self._zombie_workers = set()
