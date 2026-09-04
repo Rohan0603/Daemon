@@ -424,16 +424,152 @@ setx OPENCODE_ZEN_API_KEY "<your-opencode-zen-key>"
 Alternatively, store the secret in Windows Credential Manager under
 `Daemon/OpenCodeZenApiKey` or `Daemon/OpenCodeApiKey`.
 
-For production desktop distribution, configure `firebase.auth_backend_url` (or
-`FIREBASE_AUTH_BACKEND_URL`) in Settings → Connections. The backend owns all
-Firebase keys and exposes `/auth/sign-in`, `/auth/sign-up`, `/auth/refresh`,
-`/data/document`, `/data/collection`, `/data/batch`, `/data/query`, and
-`/data/vector-search` routes over HTTPS. The desktop client stores only its
-encrypted session token. The proxy must authenticate the Daemon session,
-validate the Firebase UID against every requested resource, and keep Admin SDK
-credentials exclusively in its server environment.
-Without an auth backend, cloud Firebase sign-in remains offline; do not ask
-end-users for a Firebase API key.
+---
+
+## Cloud Authentication & Backend Architecture
+
+### Security Model: Backend-Only Firebase Access
+
+**CRITICAL**: Desktop clients **must not** hold or request Firebase service-account credentials. All cloud authentication and data access is mediated through a trusted backend service.
+
+#### Design
+
+1. **Desktop Client**: Authenticates against a **Daemon backend service** over HTTPS using email/password only.
+2. **Backend Service**: Holds Firebase Admin SDK credentials and Firebase Web API keys (server-only).
+3. **Token Exchange**: Backend returns encrypted session tokens after validating credentials against Firebase.
+4. **Data Proxy**: All Firestore reads/writes are routed through backend endpoints; client never calls Firestore REST directly.
+
+#### Configuration
+
+Set `firebase.auth_backend_url` in Settings → Connections or via environment:
+
+```powershell
+$env:FIREBASE_AUTH_BACKEND_URL = "https://daemon-backend-abc123.run.app"
+```
+
+#### Backend Endpoint Contract
+
+The backend must expose these HTTPS endpoints with Bearer token authentication:
+
+**Authentication Routes**:
+- `POST /auth/sign-in` — Email/password login
+  - Request: `{ "email": "user@example.com", "password": "secret" }`
+  - Response: `{ "uid": "...", "idToken": "...", "refreshToken": "...", "expiresIn": 3600 }`
+- `POST /auth/sign-up` — New account registration
+  - Request: `{ "email": "user@example.com", "password": "secret" }`
+  - Response: Same as sign-in
+- `POST /auth/refresh` — Renew expired token
+  - Request: `{ "refreshToken": "..." }`
+  - Response: `{ "idToken": "...", "expiresIn": 3600 }`
+
+**Data Routes** (require Bearer `Authorization: Bearer <idToken>` header):
+- `GET /data/document?collection=...&doc_id=...` — Fetch single document
+- `PATCH /data/document` — Update document (`{ "collection": "...", "doc_id": "...", "fields": {...} }`)
+- `DELETE /data/document?collection=...&doc_id=...` — Delete document
+- `POST /data/collection?collection=...` — List collection
+- `POST /data/batch` — Multi-document write (`{ "writes": [...] }`)
+- `GET /data/query?...` — Query with filters (syntax: Firestore-compatible)
+- `POST /data/vector-search` — Vector search (if RAG enabled)
+
+**Health Route**:
+- `GET /health` — Returns `{ "status": "ok" }`
+
+#### Backend Implementation Options
+
+Choose one deployment pattern for your backend:
+
+**Option 1: Firebase Cloud Run (Recommended)**
+- Deploy a Node.js / Python service on Cloud Run that imports `firebase-admin`.
+- Set environment: `FIREBASE_PROJECT_ID`, `FIREBASE_DATABASE_URL`, `FIREBASE_WEB_API_KEY`.
+- Example: `https://daemon-api-abc123.run.app/auth/sign-in`
+- Pro: Fully managed, auto-scales, integrates seamlessly with Firestore.
+- Con: Firebase project resource + compute cost.
+
+**Option 2: Firebase Cloud Functions**
+- Lightweight HTTP functions for auth/CRUD endpoints.
+- Deploy with `firebase deploy --only functions`.
+- Pro: Lower cost for light usage.
+- Con: Cold start latency (mitigated by connection pooling).
+
+**Option 3: Firebase App Hosting (Next.js / Angular Backend)**
+- Deploy a server-side backend (Next.js API routes, Angular Universal).
+- Include Firebase Admin SDK initialization in your backend.
+- Pro: Full application control, supports complex workflows.
+- Con: Higher complexity.
+
+**Option 4: Custom HTTPS Service (Docker / Kubernetes)**
+- Run your own backend on a VPS, container orchestration, or on-premises.
+- Include `firebase-admin` SDK in your service.
+- Pro: Complete control.
+- Con: Operational overhead.
+
+#### Example: Cloud Run Backend (Node.js)
+
+```javascript
+// backend/functions/index.js
+const express = require('express');
+const admin = require('firebase-admin');
+const cors = require('cors');
+
+admin.initializeApp();
+const auth = admin.auth();
+const db = admin.firestore();
+
+const app = express();
+app.use(cors({ origin: 'http://localhost:4097' })); // Allow desktop client
+
+// Authentication
+app.post('/auth/sign-in', async (req, res) => {
+  const { email, password } = req.body;
+  try {
+    // Call Firebase REST API to sign in
+    const signInUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${process.env.FIREBASE_WEB_API_KEY}`;
+    const response = await fetch(signInUrl, {
+      method: 'POST',
+      body: JSON.stringify({ email, password, returnSecureToken: true })
+    });
+    const data = await response.json();
+    if (data.error) return res.status(400).json(data.error);
+    res.json({ uid: data.localId, idToken: data.idToken, refreshToken: data.refreshToken, expiresIn: 3600 });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Data proxy
+app.patch('/data/document', async (req, res) => {
+  const { collection, doc_id, fields } = req.body;
+  const uid = req.user.uid; // From verified ID token
+  try {
+    await db.collection(collection).doc(doc_id).set({ ...fields, updated_by: uid }, { merge: true });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+exports.api = functions.https.onRequest(app);
+```
+
+Deploy with:
+
+```bash
+firebase deploy --only functions
+```
+
+Then configure Daemon:
+
+```powershell
+$env:FIREBASE_AUTH_BACKEND_URL = "https://us-central1-your-project.cloudfunctions.net/api"
+```
+
+#### Local Development (No Backend)
+
+When `firebase.auth_backend_url` is not configured:
+- Cloud sign-in is unavailable.
+- Daemon runs in **local-only mode** with offline memory (local JSON only).
+- Autonomous chat and response cache still work.
+- Perfect for testing LLM behavior without cloud persistence.
 
 ---
 

@@ -81,4 +81,15 @@ def test_persona_signin_error(qapp):
     dlg._email_input.setText("x@y.com")
     dlg._password_input.setText("pwd")
     dlg._on_action()
-    assert "Authentication failed" in dlg._error_label.text()
+    assert "Sign-in failed" in dlg._error_label.text()
+
+
+def test_backend_error_message_is_used(qapp):
+    dlg = LoginDialog(
+        on_sign_in=MagicMock(return_value=None),
+        get_error_message=lambda: "Sign-in failed. Check your email and password.",
+    )
+    dlg._email_input.setText("x@y.com")
+    dlg._password_input.setText("pwd")
+    dlg._on_action()
+    assert dlg._error_label.text() == "Sign-in failed. Check your email and password."

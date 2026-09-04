@@ -13,11 +13,13 @@ class LoginDialog(QDialog):
         self,
         on_sign_in: Optional[Callable[[str, str], Optional[str]]] = None,
         on_sign_up: Optional[Callable[[str, str], Optional[str]]] = None,
+        get_error_message: Optional[Callable[[], Optional[str]]] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._on_sign_in = on_sign_in
         self._on_sign_up = on_sign_up
+        self._get_error_message = get_error_message
         self._mode = "signin"
 
         self.setWindowTitle("Daemon: Authentication")
@@ -104,15 +106,18 @@ class LoginDialog(QDialog):
             elif "@" not in email or "." not in email:
                 self.show_error("Please enter a valid email address.")
             else:
-                if self._mode == "signin":
-                    self.show_error("Authentication failed. Please check your credentials.")
-                else:
-                    self.show_error("Registration failed. Email may already be in use.")
+                message = self._get_error_message() if self._get_error_message else None
+                self.show_error(message or self._default_error_message())
         except Exception as e:
             logging.getLogger(__name__).exception("Login failed with exception: %s", e)
             self.show_error("Connection error. Could not reach authentication service.")
         finally:
             self.set_loading(False)
+
+    def _default_error_message(self) -> str:
+        if self._mode == "signin":
+            return "Sign-in failed. Check your email and password."
+        return "Sign-up failed. Check your details and try again."
 
     def get_credentials(self) -> tuple[str, str]:
         return (self._email_input.text().strip(), self._password_input.text())

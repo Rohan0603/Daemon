@@ -159,7 +159,9 @@ def test_load_config_ignores_firebase_credentials_in_file_and_uses_environment(t
         "OPENCODE_API_KEY": "environment-value",
         "FIREBASE_AUTH_BACKEND_URL": "https://env-auth.example.test",
     }
-    with patch.dict(os.environ, env, clear=True), patch("src.config._CONFIG_PATH", config_file):
+    with patch.dict(os.environ, env, clear=True), \
+         patch("src.config._CONFIG_PATH", config_file), \
+         patch("src.config._credential_manager_value", return_value=""):
         cfg = load_config()
 
     assert cfg["llm"]["api_key"] == env["OPENCODE_API_KEY"]

@@ -2,6 +2,66 @@
 
 > Generated 2026-06-20. Covers all phases through Phase 58.
 
+> **Current-state note (2026-09-04):** The sections below preserve historical
+> implementation detail. For current architecture decisions, boundaries,
+> migration order, and performance targets, see
+> [Architecture Evolution Plan](architecture-evolution-plan.md).
+
+## 0. Current Runtime Boundary
+
+Daemon is an evolutionary Python/PyQt6 system, not a greenfield C++/Rust
+runtime. The existing boundaries are the foundation for future work:
+
+```text
+ui -> autonomy -> {llm, system}
+ui -> storage and integrations
+```
+
+| Boundary | Owns | Must not own |
+|----------|------|--------------|
+| `ui` | Qt widgets, painting, dialogs, signal wiring | Provider policy, persistence rules, action authorization |
+| `autonomy` | FSM, behavior priority, emotion state, engagement, response pool | Qt transport details, provider-specific HTTP |
+| `llm` | Provider gateway, workers, deadlines, retries, parsing, sessions | Widget lifecycle and painting |
+| `system` | OS sensors, TTS, UIA, input hooks | UI policy and LLM decisions |
+| storage | Local atomic stores and cloud-sync adapters | Direct UI behavior |
+| plugins | Explicit extension points and profiles | Bypassing consent or storage boundaries |
+
+Current production seams include `BehaviorController`, `ProviderGateway`,
+`ThoughtPool`, `MemoryManager`, `ActionLayer`, and the typed request-timing
+instrumentation. `PetWindow` remains the main composition root and should be
+reduced incrementally, not replaced wholesale.
+
+## 0.1 Runtime Data Flow
+
+```text
+Sensors -> EventBus -> BehaviorController -> priority scheduler
+                                                                                               |-> deterministic fast path / ThoughtPool
+                                                                                               |-> LLM orchestrator -> ProviderGateway
+                                                                                               |                         |-> Ollama
+                                                                                               |                         `-> OpenCode
+                                                                                               `-> typed intents
+                                                                                                              |-> PetFSM -> PetRenderer
+                                                                                                              |-> consent-gated ActionLayer
+                                                                                                              `-> local-first Memory
+```
+
+The Qt event loop must remain responsive regardless of model, network, TTS,
+MCP, or Firebase activity. Cached reactions and deterministic state changes
+serve latency-sensitive interactions; model calls provide novelty and
+complex planning.
+
+## 0.2 Performance and Privacy Budgets
+
+- UI action to animation acknowledgement: target `<150 ms`.
+- Cached short-phrase speech start: target `<300 ms`.
+- Uncached model generation: measure separately as first-token and complete
+     structured-response latency; do not mislabel it as UI latency.
+- Idle resident memory: target `<200 MB` on representative hardware.
+- Camera and microphone: disabled by default and local-only when explicitly
+     enabled.
+- Cloud memory sync: opt-in and never required for local startup.
+- Intrusive OS actions: consent-gated, bounded, cancellable, and auditable.
+
 ---
 
 ## 1. Memory System Architecture (3-Tier)

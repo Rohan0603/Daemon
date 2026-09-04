@@ -2279,9 +2279,25 @@ class PetWindow(QWidget):
             def on_sign_up(email: str, password: str) -> str | None:
                 return self._auth.sign_up(email, password, remember_me=dialog.remember_me)
 
+            def get_auth_error_message() -> str | None:
+                messages = {
+                    "INVALID_LOGIN_CREDENTIALS": "Sign-in failed. Check your email and password.",
+                    "EMAIL_EXISTS": "An account with this email already exists. Sign in instead.",
+                    "INVALID_EMAIL": "Enter a valid email address.",
+                    "WEAK_PASSWORD": "Choose a stronger password.",
+                    "backend_not_configured": "Authentication service is not configured.",
+                    "backend_network_error": "Could not reach authentication service. Check your connection.",
+                }
+                return messages.get(self._auth.last_error_code)
+
             from .login_dialog import LoginDialog
 
-            dialog = LoginDialog(on_sign_in=on_sign_in, on_sign_up=on_sign_up, parent=self)
+            dialog = LoginDialog(
+                on_sign_in=on_sign_in,
+                on_sign_up=on_sign_up,
+                get_error_message=get_auth_error_message,
+                parent=self,
+            )
             if dialog.exec() == QDialog.DialogCode.Accepted:
                 uid = self._auth.uid
             else:

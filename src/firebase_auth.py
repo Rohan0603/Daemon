@@ -84,6 +84,7 @@ class FirebaseAuth:
         self._id_token: Optional[str] = None
         self._refresh_token: Optional[str] = None
         self._expires_at: float = 0.0
+        self._last_error_code: Optional[str] = None
 
     @property
     def uid(self) -> Optional[str]:
@@ -105,11 +106,17 @@ class FirebaseAuth:
     def auth_backend_url(self) -> str:
         return self._auth_backend_url
 
+    @property
+    def last_error_code(self) -> Optional[str]:
+        return self._last_error_code
+
     def _auth_request(
         self, endpoint: str, email: str, password: str, remember_me: bool = True
     ) -> Optional[str]:
+        self._last_error_code = None
         if not self._auth_backend_url:
             logger.warning("[FirebaseAuth] auth backend URL is not configured")
+            self._last_error_code = "backend_not_configured"
             self._publish_auth_failure("backend_not_configured")
             return None
         return self._backend_auth_request(endpoint, email, password, remember_me)
@@ -125,10 +132,18 @@ class FirebaseAuth:
             )
         except requests.RequestException as exc:
             logger.warning("[FirebaseAuth] auth backend network error: %s", exc)
+            self._last_error_code = "backend_network_error"
             self._publish_auth_failure("backend_network_error")
             return None
         if resp.status_code != 200:
             logger.warning("[FirebaseAuth] auth backend failed: HTTP %s", resp.status_code)
+            try:
+                payload = resp.json()
+                error = payload.get("error", payload) if isinstance(payload, dict) else {}
+                code = error.get("message") if isinstance(error, dict) else None
+            except (ValueError, TypeError):
+                code = None
+            self._last_error_code = code or f"backend_http_{resp.status_code}"
             self._publish_auth_failure(f"backend_http_{resp.status_code}")
             return None
         try:
@@ -139,6 +154,7 @@ class FirebaseAuth:
             data["expiresIn"] = data.get("expiresIn") or data.get("expires_in", 3600)
         except (ValueError, KeyError, TypeError):
             logger.warning("[FirebaseAuth] auth backend returned invalid token payload")
+            self._last_error_code = "backend_invalid_response"
             self._publish_auth_failure("backend_invalid_response")
             return None
         self._set_tokens(data)

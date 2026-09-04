@@ -1,6 +1,32 @@
 # Daemon — Project Dev Memory
 
+## 2026-09-04 — Unsloth Formatter Batch Compatibility
+
+- Fixed `fine_tuning/notebooks/colab_finetune.ipynb` Cell 5 `formatting_func` to support both Unsloth's scalar formatter probe and batched dataset mapping.
+- Root cause: empty scalar `input` made `zip(instructions, input_texts, outputs)` empty, causing `test_text[0]` `IndexError`; earlier scalar concatenation also failed when batched fields were lists.
+- Focused validation passed: notebook JSON valid; scalar formatter returns 1 item; batched formatter returns 2 items.
+
+## 2026-09-04 — Architecture and Training Plan Documentation
+
+- Updated `docs/architecture.md` with current runtime boundaries, data flow,
+  performance budgets, and privacy constraints while preserving historical
+  implementation sections.
+- Updated `fine_tuning/assets/FINETUNE_README.md` with the training execution
+  gate, Daemon dataset contract, held-out evaluation requirements, artifact
+  manifest, and notebook troubleshooting.
+- Added `docs/architecture-evolution-plan.md` with six architecture decisions,
+  build-vs-buy guidance, dependency map, phased roadmap, governance gaps, and
+  measurable success criteria.
+- Documentation validation passed: notebook JSON, expected content markers,
+  trailing whitespace, and `git diff --check`.
+
 > **READ THIS FIRST in every new session.** Authoritative project state: what's built, what's next, known issues.
+
+## 2026-09-04 — Actionable Login Errors
+
+- Preserved safe backend auth error codes in `FirebaseAuth.last_error_code` instead of discarding non-200 response details.
+- Added optional `LoginDialog` error-message provider and mapped known sign-in/sign-up, configuration, and network failures to actionable UI text; unknown errors remain generic.
+- Focused auth/login tests: 31 passed. PetWindow unit tests: 20 passed. Static diagnostics and `git diff --check` clean. Graphify updated.
 
 ## 2026-08-29 — Bounded MCP Execution
 

@@ -1,5 +1,10 @@
 # Fine-tuning Guide: Qwen2.5-3B-Instruct with Unsloth
 
+> **Status (2026-09-04):** Training artifacts are experimental until they
+> pass the evaluation contract below. The desktop runtime must keep consent,
+> action authorization, schema validation, and fallback behavior outside the
+> model.
+
 ## Files Created
 
 | File | Platform | Description |
@@ -15,6 +20,9 @@
 2. Click **File → Upload notebook** → select `finetune_qwen2.5_3b_colab.ipynb`
 3. Go to **Runtime → Change runtime type → T4 GPU**
 4. Click **Connect**, then **Runtime → Run all**
+
+The notebook must execute `trainer.train()` before saving adapters. Confirm
+the training cell reports completed steps and loss before using the save cell.
 
 ### Option 2: Kaggle
 1. Go to [kaggle.com/code](https://www.kaggle.com/code)
@@ -50,6 +58,18 @@ Audience: [WHO WILL USE IT]
 
 Save the output as `training_data.jsonl` and upload it to Colab/Kaggle.
 
+### Daemon dataset contract
+
+The current Daemon pipeline uses Alpaca JSONL with `instruction`, `input`, and
+`output` fields. Validate every record before training:
+
+- `instruction` and `output` are non-empty strings.
+- `input` is a string or empty value.
+- No record contains credentials, access tokens, raw private screen content,
+	or unapproved cloud data.
+- Keep a versioned train/evaluation split; never evaluate only on training
+	examples.
+
 ## Key Hyperparameters
 
 | Parameter | Default | Notes |
@@ -63,9 +83,30 @@ Save the output as `training_data.jsonl` and upload it to Colab/Kaggle.
 ## After Training
 
 1. **Download adapters**: `lora_model/` folder from Colab file browser or Kaggle Output panel
-2. **Test inference**: Cell 7 in the notebook
-3. **Export to GGUF** (optional): Uncomment Cell 8 for Ollama/LM Studio deployment
-4. **Push to Hub** (optional): Uncomment Cell 9 with your HF token
+2. **Run evaluation**: compare base and fine-tuned responses on held-out
+	Daemon prompts before deployment
+3. **Test inference**: Cell 7 in the notebook
+4. **Export to GGUF** (optional): run valid Python export code for
+	Ollama/LM Studio deployment
+5. **Push to Hub** (optional): use a secret manager or Colab secret; never
+	commit an HF token in a notebook
+
+### Artifact manifest
+
+Record these values beside every adapter or GGUF artifact:
+
+| Field | Example |
+|-------|---------|
+| Base model | `unsloth/Qwen2.5-3B-Instruct-bnb-4bit` |
+| Dataset revision | Git commit or immutable dataset ID |
+| Training configuration | LoRA rank, learning rate, sequence length, steps |
+| Evaluation revision | Prompt-set revision and base-vs-tuned results |
+| Serving format | LoRA, merged 16-bit, or GGUF quantization |
+| Runtime target | Ollama model name and Modelfile revision |
+
+Do not treat a fine-tuned model as production-ready based on loss alone.
+Evaluate persona consistency, structured JSON validity, refusal behavior,
+consent-boundary compliance, and general instruction retention.
 
 ## Troubleshooting
 
@@ -76,6 +117,8 @@ Save the output as `training_data.jsonl` and upload it to Colab/Kaggle.
 | Slow training | Increase `gradient_accumulation_steps` to 8 |
 | Kaggle 30h limit | Use Colab for free tier, or Kaggle with paid compute |
 | Unsloth install fails | `!pip install unsloth --no-deps` then restart runtime |
+| Adapters appear unchanged | Confirm `trainer.train()` ran before `save_pretrained()` |
+| GGUF export cell fails | Remove prose from code cells and run only valid Python statements |
 
 ## Model Details
 

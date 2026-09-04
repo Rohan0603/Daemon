@@ -41,6 +41,7 @@ def test_sign_in_wrong_password(auth: FirebaseAuth) -> None:
         result = auth.sign_in("a@b.com", "wrong")
     assert result is None
     assert auth.uid is None
+    assert auth.last_error_code == "INVALID_LOGIN_CREDENTIALS"
 
 
 def test_sign_up_success(auth: FirebaseAuth) -> None:
@@ -76,6 +77,7 @@ def test_sign_up_existing_email(auth: FirebaseAuth) -> None:
     with patch("requests.post", return_value=mock_resp):
         result = auth.sign_up("exists@b.com", "pass")
     assert result is None
+    assert auth.last_error_code == "EMAIL_EXISTS"
 
 
 def test_backend_sign_in_does_not_use_firebase_api_key(auth: FirebaseAuth) -> None:
