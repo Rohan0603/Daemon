@@ -240,12 +240,14 @@ class PetWindow(QWidget):
         self._lsp_debounce_timer.setInterval(5000)
         self._lsp_debounce_timer.timeout.connect(self._on_lsp_timeout)
 
-        self._event_worker = EventStreamWorker()
-        self._event_worker.lsp_error_detected.connect(self._on_lsp_error_detected)
-        self._event_worker.lsp_error_cleared.connect(self._on_lsp_error_cleared)
-        self._event_worker.command_completed.connect(self._on_command_completed)
-        self._event_worker.file_edited.connect(self._on_file_edited)
-        self._event_worker.start()
+        self._event_worker = None
+        if self._llm_provider == "opencode":
+            self._event_worker = EventStreamWorker()
+            self._event_worker.lsp_error_detected.connect(self._on_lsp_error_detected)
+            self._event_worker.lsp_error_cleared.connect(self._on_lsp_error_cleared)
+            self._event_worker.command_completed.connect(self._on_command_completed)
+            self._event_worker.file_edited.connect(self._on_file_edited)
+            self._event_worker.start()
 
         self._tts = TTSWorker(config=self._config)
         self._tts.start()
@@ -960,6 +962,7 @@ class PetWindow(QWidget):
         summary_worker = getattr(self, "_summary_worker", None)
         if summary_worker is not None and summary_worker.isRunning():
             summary_worker.abort()
+            summary_worker.quit()
             summary_worker.wait(2000)
         # Clear the ghost-summary failsafe timer if still active
         timer = getattr(self, "_shutdown_timer", None)
@@ -968,6 +971,8 @@ class PetWindow(QWidget):
         if getattr(self, '_click_through', None) is not None:
             self._click_through.stop()
         self._mcp_server.stop()
+        if self._mcp_server.isRunning():
+            self._mcp_server.wait(3000)
         self._fsm_timer.stop()
         self._behavior_timer.stop()
         self._hyper_flash_timer.stop()
@@ -987,7 +992,11 @@ class PetWindow(QWidget):
             self._write_coalescer.flush()
         # Abort active opencode worker
         if getattr(self, '_opencode_worker', None) is not None:
-            self._opencode_worker.abort()
+            worker = self._opencode_worker
+            worker.abort()
+            worker.quit()
+            if worker.isRunning():
+                worker.wait(3000)
             self._opencode_worker = None
         # Abort refill workers
         if hasattr(self, '_refill_workers_lock'):
@@ -997,6 +1006,21 @@ class PetWindow(QWidget):
                         worker.abort()
                     if hasattr(worker, 'quit'):
                         worker.quit()
+                    if worker.isRunning():
+                        worker.wait(3000)
+                self._refill_workers.clear()
+        for worker in list(getattr(self, '_zombie_workers', set())):
+            if worker.isRunning():
+                worker.abort()
+                worker.quit()
+                worker.wait(3000)
+        if hasattr(self, '_zombie_workers'):
+            self._zombie_workers.clear()
+        code_worker = getattr(self, '_code_analysis_worker', None)
+        if code_worker is not None and code_worker.isRunning():
+            code_worker.abort()
+            code_worker.quit()
+            code_worker.wait(3000)
         # Stop response manager
         if hasattr(self, '_response_manager') and self._response_manager:
             if hasattr(self._response_manager, 'stop'):

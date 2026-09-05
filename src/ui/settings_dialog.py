@@ -270,6 +270,8 @@ class SettingsDialog(QDialog):
         ol_layout.addWidget(QLabel("Ollama URL:"))
         ol_layout.addWidget(self._ollama_url_edit)
         ol_layout.addLayout(model_row)
+        self._ollama_status_label = QLabel(ollama_status or "Status: not validated")
+        ol_layout.addWidget(self._ollama_status_label)
         llm_layout.addWidget(self._ollama_widget)
         llm_layout.addStretch(1)
 

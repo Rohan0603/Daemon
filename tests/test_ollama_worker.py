@@ -50,7 +50,7 @@ class TestOllamaWorker:
         mock_post.side_effect = [mock_resp1, mock_resp2]
 
         results = []
-        worker = OllamaWorker(prompt="test", pet_id="kenny")
+        worker = OllamaWorker(prompt="test", pet_id="kenny", is_autonomous=True)
         worker.response_ready.connect(lambda items: results.append(items))
         worker.run()
         assert len(results) == 1
@@ -84,11 +84,41 @@ class TestOllamaWorker:
             "message": {"role": "assistant", "content": '[{"dialogue":"offline","type":"observation"}]'}
         }
         mock_post.side_effect = [unsupported, recovered]
-        worker = OllamaWorker(prompt="test", pet_id="kenny")
+        worker = OllamaWorker(prompt="test", pet_id="kenny", is_autonomous=True)
         result = worker._chat_completion([{"role": "user", "content": "test"}])
         assert result and "offline" in result
         assert mock_post.call_args_list[1].kwargs["json"].get("tools") is None
         assert mock_post.call_args_list[1].kwargs["json"]["format"] == "json"
+
+    @patch("src.llm.ollama_worker.requests.post")
+    def test_tool_request_uses_context_large_enough_for_mcp_catalog(self, mock_post):
+        response = MagicMock(status_code=200)
+        response.json.return_value = {
+            "message": {"role": "assistant", "content": "ok"}
+        }
+        mock_post.return_value = response
+
+        worker = OllamaWorker(prompt="test", pet_id="kenny", is_autonomous=True)
+        worker._chat_completion([{"role": "user", "content": "test"}])
+
+        options = mock_post.call_args.kwargs["json"]["options"]
+        assert options["num_ctx"] == 8192
+
+    @patch("src.llm.ollama_worker.requests.post")
+    def test_user_request_skips_mcp_tools(self, mock_post):
+        response = MagicMock(status_code=200)
+        response.json.return_value = {
+            "message": {"role": "assistant", "content": "ok"}
+        }
+        mock_post.return_value = response
+
+        worker = OllamaWorker(prompt="test", pet_id="kenny")
+        worker._chat_completion([{"role": "user", "content": "test"}])
+
+        payload = mock_post.call_args.kwargs["json"]
+        assert "tools" not in payload
+        assert payload["format"] == "json"
+        assert all(message["role"] != "system" for message in payload["messages"])
 
     @patch("src.llm.ollama_worker.requests.post")
     def test_oom_error_is_explicit(self, mock_post):
@@ -167,33 +197,22 @@ class TestOllamaWorker:
         assert res2["action"] == "celebrate"
         assert res2["brain_update"] == {"user_nickname": "new name"}
 
-    def test_variable_substitutions(self):
-        from pathlib import Path
-        # Mock parent and memory
-        mock_parent = MagicMock()
-        mock_memory = MagicMock()
-        mock_memory.get_all.return_value = {
-            "user_nickname": "test_nick",
-            "user_partner_name": "test_partner",
-            "user_engineer_name": "test_engineer"
+    @patch("src.llm.ollama_worker.requests.post")
+    def test_ollama_uses_tool_directive_without_opencode_skill(self, mock_post):
+        mock_resp = MagicMock(status_code=200)
+        mock_resp.json.return_value = {
+            "message": {"role": "assistant", "content": "ok"}
         }
-        mock_parent._memory = mock_memory
-        
-        worker = OllamaWorker(prompt="test", pet_id="kenny")
-        worker.parent = MagicMock(return_value=mock_parent)
-        
-        # Verify custom system prompt loader substitutes variables correctly
-        # and returns the FULL SKILL.md (no hardcoded persona slice / no
-        # second copy of Kenny). The single source is the SKILL.md file.
-        with patch.object(Path, "exists", return_value=True), \
-             patch.object(Path, "read_text", return_value="## Identity & Obsession\nIdentity: {user_nickname} deployed by {user_partner_name} for {user_engineer_name}\n## Phonetics & Delivery (CRITICAL - TTS reads verbatim)"):
-            skill_md = worker._load_skill_md()
-            assert "test_nick" in skill_md
-            assert "test_partner" in skill_md
-            assert "test_engineer" in skill_md
-            assert "{user_nickname}" not in skill_md
-            # Full SKILL.md is returned, including the non-persona sections.
-            assert "Phonetics & Delivery" in skill_md
+        mock_post.return_value = mock_resp
+
+        worker = OllamaWorker(prompt="test", pet_id="kenny", is_autonomous=True)
+        worker._ollama_model = "prompt-separation-test"
+        worker._chat_completion([{"role": "user", "content": "test"}])
+
+        messages = mock_post.call_args.kwargs["json"]["messages"]
+        assert messages[0]["role"] == "system"
+        assert "Available tools:" in messages[0]["content"]
+        assert "Phonetics & Delivery" not in messages[0]["content"]
 
 
 class TestGarbageFilterNickname(unittest.TestCase):

@@ -11,7 +11,7 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 from src.constants import STORAGE_DIR, DEBUG, MAX_RESPONSE_CHARS
-from src.config import DEFAULT_SERVER_URL
+from src.config import DEFAULT_SERVER_URL, firebase_auth_configured
 
 def _resolve_skill_path(pet_id: str) -> Path:
     """Resolve the SKILL.md path for a given pet_id, falling back to kenny if not found."""
@@ -329,7 +329,10 @@ def main() -> None:
     app.setQuitOnLastWindowClosed(False)
 
     # ── Firebase Auth gate ────────────────────────────────────────────────
-    if not args.no_auth:
+    # An absent backend is an intentional local-only configuration. Do not
+    # load stale refresh tokens or open a login dialog that cannot succeed.
+    auth_backend_configured = firebase_auth_configured(cfg)
+    if not args.no_auth and auth_backend_configured:
         from src.firebase_auth import FirebaseAuth
 
         auth = FirebaseAuth()
@@ -341,6 +344,8 @@ def main() -> None:
     else:
         auth = None
         fresh_login = False
+        if not args.no_auth and not auth_backend_configured:
+            logger.info("Firebase auth is not configured; running local-only mode")
 
     window = PetWindow(
         opencode_enabled=not args.no_opencode,

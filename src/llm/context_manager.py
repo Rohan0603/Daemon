@@ -164,7 +164,7 @@ class ContextManager:
         expr_list = ", ".join(sorted(EXPRESSION_ACTIONS))
         vs_list = ", ".join(sorted(VISUAL_STATES))
         lines.append(
-            "Respond as Kenny (the desktop pet personality from your system prompt). "
+            "Respond as Kenny, the trained desktop pet personality. "
             "Output ONLY a JSON array: "
             '[{"dialogue": "...", "thought": "...", "type": "typing_reaction|observation|intel_roast|idle_thought", '
             f'"action": "<one of: {fsm_list} or {expr_list}>", '
@@ -207,7 +207,7 @@ class ContextManager:
         vs_list = ", ".join(sorted(VISUAL_STATES))
         lines.append(
             "[This is an internal monologue — you are NOT responding to the user.] "
-            "Think as Kenny (the desktop pet personality from your system prompt). "
+            "Think as Kenny, the trained desktop pet personality. "
             "Output ONLY a JSON array: "
             '[{"dialogue": "...", "thought": "...", "type": "typing_reaction|observation|intel_roast|idle_thought", '
             f'"action": "<one of: {fsm_list} or {expr_list}>", '

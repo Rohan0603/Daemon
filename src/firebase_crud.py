@@ -20,8 +20,10 @@ class FirebaseCRUD:
         self._database_id = database_id
         backend_url = getattr(auth, "auth_backend_url", "")
         self._backend_url = backend_url.rstrip("/") if isinstance(backend_url, str) else ""
+        firebase_api_key = getattr(auth, "firebase_api_key", "")
+        self._firebase_api_key = firebase_api_key if isinstance(firebase_api_key, str) else ""
         self._session = requests.Session()
-        self._available = bool(self._auth and self._backend_url)
+        self._available = bool(self._auth and (self._backend_url or (self._firebase_api_key and self._project_id)))
         self._last_status: int | None = None
 
     @property
@@ -54,6 +56,55 @@ class FirebaseCRUD:
                 response = self._session.request(method, url, headers=headers, timeout=15, **kwargs)
                 self._last_status = response.status_code
         return response
+
+    def _firestore_request(self, method: str, path: str, **kwargs):
+        token = self._token()
+        if not token or not self._project_id:
+            self._last_status = 401
+            return None
+        headers = dict(kwargs.pop("headers", {}))
+        headers["Authorization"] = f"Bearer {token}"
+        headers.setdefault("Content-Type", "application/json")
+        base = (
+            "https://firestore.googleapis.com/v1/projects/"
+            f"{quote(self._project_id, safe='')}/databases/"
+            f"{quote(self._database_id, safe='')}/documents"
+        )
+        url = f"{base}/{path.lstrip('/')}" if not path.startswith("documents:") else f"{base}:{path[10:]}"
+        response = self._session.request(method, url, headers=headers, timeout=15, **kwargs)
+        self._last_status = response.status_code
+        if response.status_code == 401 and self._auth and self._auth.refresh():
+            token = self._token()
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+                response = self._session.request(method, url, headers=headers, timeout=15, **kwargs)
+                self._last_status = response.status_code
+        return response
+
+    @staticmethod
+    def _encode_value(value):
+        if value is None:
+            return {"nullValue": None}
+        if isinstance(value, bool):
+            return {"booleanValue": value}
+        if isinstance(value, int) and not isinstance(value, bool):
+            return {"integerValue": str(value)}
+        if isinstance(value, float):
+            return {"doubleValue": value}
+        if isinstance(value, str):
+            return {"stringValue": value}
+        if isinstance(value, list):
+            return {"arrayValue": {"values": [FirebaseCRUD._encode_value(item) for item in value]}}
+        if isinstance(value, dict):
+            return {"mapValue": {"fields": FirebaseCRUD._encode_fields(value)}}
+        raise TypeError(f"unsupported Firestore value: {type(value).__name__}")
+
+    @staticmethod
+    def _encode_fields(data: dict) -> dict:
+        return {key: FirebaseCRUD._encode_value(value) for key, value in data.items()}
+
+    def _direct_path(self, collection: str, doc_id: str) -> str:
+        return f"{quote(collection.strip('/'), safe='/')}/{quote(doc_id, safe='')}"
 
     @staticmethod
     def _decode_value(value: dict):
@@ -121,6 +172,12 @@ class FirebaseCRUD:
 
     def get(self, collection: str, doc_id: str) -> dict | None:
         def _do():
+            if not self._backend_url:
+                response = self._firestore_request("GET", self._direct_path(collection, doc_id))
+                if response is None or response.status_code == 404:
+                    return None
+                response.raise_for_status()
+                return self._payload_data(response.json())
             response = self._request(
                 "GET",
                 "data/document",
@@ -134,6 +191,16 @@ class FirebaseCRUD:
 
     def set(self, collection: str, doc_id: str, data: dict, merge: bool = True) -> bool:
         def _do():
+            if not self._backend_url:
+                path = self._direct_path(collection, doc_id)
+                params = None
+                if merge:
+                    params = [("updateMask.fieldPaths", key) for key in data]
+                response = self._firestore_request(
+                    "PATCH", path, params=params,
+                    json={"fields": self._encode_fields(data)},
+                )
+                return bool(response is not None and response.status_code < 300)
             response = self._request(
                 "PATCH",
                 "data/document",
@@ -147,6 +214,15 @@ class FirebaseCRUD:
 
     def add(self, collection: str, data: dict) -> str | None:
         def _do():
+            if not self._backend_url:
+                response = self._firestore_request(
+                    "POST", quote(collection.strip('/'), safe='/'),
+                    json={"fields": self._encode_fields(data)},
+                )
+                if response is None:
+                    return None
+                response.raise_for_status()
+                return response.json().get("name", "").rsplit("/", 1)[-1] or None
             response = self._request("POST", "data/collection", json={"collection": collection, "data": data})
             if response is None:
                 return None
@@ -157,6 +233,18 @@ class FirebaseCRUD:
 
     def batch_add(self, collection: str, items: list[dict]) -> bool:
         def _do():
+            if not self._backend_url:
+                writes = [{
+                    "update": {
+                        "name": (
+                            "projects/" + self._project_id + "/databases/" + self._database_id
+                            + "/documents/" + collection.strip('/') + "/" + item.get("id", "")
+                        ),
+                        "fields": self._encode_fields({key: value for key, value in item.items() if key != "id"}),
+                    }
+                } for item in items if item.get("id")]
+                response = self._firestore_request("POST", "documents:commit", json={"writes": writes})
+                return bool(response is not None and response.status_code < 300)
             response = self._request("POST", "data/batch", json={"collection": collection, "items": items})
             if response is None:
                 return False
@@ -166,6 +254,9 @@ class FirebaseCRUD:
 
     def delete(self, collection: str, doc_id: str) -> bool:
         def _do():
+            if not self._backend_url:
+                response = self._firestore_request("DELETE", self._direct_path(collection, doc_id))
+                return bool(response is not None and response.status_code < 300)
             response = self._request(
                 "DELETE",
                 "data/document",
@@ -185,6 +276,29 @@ class FirebaseCRUD:
         ascending: bool = True,
     ) -> list[dict]:
         def _do():
+            if not self._backend_url:
+                query = {"from": [{"collectionId": collection}]}
+                if order_by:
+                    query["orderBy"] = [{
+                        "field": {"fieldPath": order_by},
+                        "direction": "ASCENDING" if ascending else "DESCENDING",
+                    }]
+                if limit:
+                    query["limit"] = limit
+                response = self._firestore_request(
+                    "POST", "documents:runQuery", json={"structuredQuery": query}
+                )
+                if response is None:
+                    return []
+                response.raise_for_status()
+                payload = response.json()
+                documents = []
+                for row in payload if isinstance(payload, list) else []:
+                    document = row.get("document", {}) if isinstance(row, dict) else {}
+                    fields = self._decode_fields(document.get("fields", {}))
+                    if fields:
+                        documents.append(fields)
+                return documents
             params: dict[str, object] = {"collection": collection, "ascending": str(ascending).lower()}
             if order_by:
                 params["order_by"] = order_by

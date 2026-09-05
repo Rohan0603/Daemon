@@ -566,10 +566,28 @@ $env:FIREBASE_AUTH_BACKEND_URL = "https://us-central1-your-project.cloudfunction
 #### Local Development (No Backend)
 
 When `firebase.auth_backend_url` is not configured:
-- Cloud sign-in is unavailable.
+- Cloud sign-in is available when `FIREBASE_WEB_API_KEY` is configured; Daemon
+  uses Firebase Identity Toolkit and Firestore REST directly.
+- Without `FIREBASE_WEB_API_KEY`, cloud sign-in is unavailable.
 - Daemon runs in **local-only mode** with offline memory (local JSON only).
 - Autonomous chat and response cache still work.
 - Perfect for testing LLM behavior without cloud persistence.
+
+#### Direct Firebase Client Mode
+
+For development or a trusted desktop install, enable Firebase Email/Password
+authentication in the Firebase Console and set the Web API key in the runtime
+environment. The key is not stored in `daemon_config.json`:
+
+```powershell
+$env:FIREBASE_WEB_API_KEY = "your-firebase-web-api-key"
+py .\daemon.py
+```
+
+Direct mode calls Firebase Identity Toolkit for sign-in/sign-up, Secure Token
+for refresh, and Firestore REST with the user's ID token. Firestore rules must
+enforce `request.auth.uid`. Never use a Firebase Admin SDK service-account JSON
+file in the desktop client.
 
 ---
 

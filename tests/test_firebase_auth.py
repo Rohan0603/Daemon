@@ -268,3 +268,62 @@ def test_no_event_bus_does_not_crash(auth: FirebaseAuth) -> None:
         result = auth.sign_in("a@b.com", "pass123")
     
     assert result == "uid1"
+
+
+def test_direct_firebase_sign_in_uses_identity_toolkit(auth: FirebaseAuth) -> None:
+    auth._auth_backend_url = ""
+    auth._web_api_key = "web-key"
+    mock_resp = MagicMock(status_code=200)
+    mock_resp.json.return_value = {
+        "localId": "direct-uid", "idToken": "direct-id",
+        "refreshToken": "direct-refresh", "expiresIn": "3600",
+        "email": "a@b.com",
+    }
+    with patch("requests.post", return_value=mock_resp) as mock_post:
+        result = auth.sign_in("a@b.com", "pass123")
+
+    assert result == "direct-uid"
+    assert mock_post.call_args.args[0] == (
+        "https://identitytoolkit.googleapis.com/v1/accounts:"
+        "signInWithPassword?key=web-key"
+    )
+    assert mock_post.call_args.kwargs["json"]["returnSecureToken"] is True
+
+
+def test_explicit_api_key_enables_direct_firebase(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("src.firebase_auth.load_config", lambda validate=False: {
+        "firebase": {"project_id": "project-id"},
+    })
+    response = MagicMock(status_code=200)
+    response.json.return_value = {
+        "localId": "explicit-uid",
+        "idToken": "explicit-id",
+        "refreshToken": "explicit-refresh",
+        "expiresIn": "3600",
+    }
+    post = MagicMock(return_value=response)
+    monkeypatch.setattr("src.firebase_auth.requests.post", post)
+    auth = FirebaseAuth(api_key="explicit-key", token_path=tmp_path / "token")
+
+    assert auth.sign_in("user@example.com", "password", remember_me=False) == "explicit-uid"
+    assert "key=explicit-key" in post.call_args.args[0]
+
+
+def test_direct_firebase_refresh_uses_secure_token_endpoint(auth: FirebaseAuth) -> None:
+    auth._auth_backend_url = ""
+    auth._web_api_key = "web-key"
+    auth._refresh_token = "old-refresh"
+    mock_resp = MagicMock(status_code=200)
+    mock_resp.json.return_value = {
+        "user_id": "direct-uid", "id_token": "new-id",
+        "refresh_token": "new-refresh", "expires_in": "3600",
+    }
+    with patch("requests.post", return_value=mock_resp) as mock_post:
+        assert auth.refresh()
+
+    assert mock_post.call_args.args[0] == (
+        "https://securetoken.googleapis.com/v1/token?key=web-key"
+    )
+    assert mock_post.call_args.kwargs["data"] == {
+        "grant_type": "refresh_token", "refresh_token": "old-refresh",
+    }

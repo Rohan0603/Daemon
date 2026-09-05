@@ -1,5 +1,98 @@
 # Daemon — Project Dev Memory
 
+## 2026-09-04 — Phase 4/5 Performance and Release Validation
+
+- Phase 4 benchmark: 400/400 deterministic requests completed; p50/p95/p99
+  latency 1 ms; peak Python allocations 0.762 MB; throughput 19,644/s.
+- Focused Ollama/MCP/settings/PetWindow suite: 62 passed.
+- Phase 5 PyInstaller build completed; `dist/Daemon/Daemon.exe` and Firebase
+  runtime/config assets present. PyInstaller warnings are conditional NumPy
+  imports; no Daemon runtime modules were missing.
+- Firestore rules reviewed: authenticated UID ownership is enforced for user,
+  pet, and diary paths. Emulator execution initially required Java; after JDK
+  installation, `npx firebase-tools@latest` runs the rules-backed emulator.
+- Java 21 was subsequently installed at `C:\Program Files\Java\jdk-21.0.12.1`.
+  Added `firebase.json` to load `firestore.rules`; Firestore Emulator auth/CRUD
+  gate passed with 39 tests.
+- Full regression gate: 1006 passed, 2 skipped in 42.55s; diff check clean.
+
+## 2026-09-05 — Firebase Release Hardening Complete
+
+- Direct Firebase Auth now honors explicit `FirebaseAuth(api_key=...)` callers;
+  Firestore query response parsing avoids duplicate JSON decoding.
+- Focused Firebase suite: 40 passed. Full regression: 1007 passed, 2 skipped
+  in 46.11s. `.agents/` remains intentionally untracked.
+
+## 2026-09-04 — Ollama Startup Noise Cleanup
+
+- EventStreamWorker now starts only for the OpenCode provider, avoiding
+  pointless OpenCode SSE retries when Ollama is active.
+- Scoped the known `pydantic-settings` `IncompleteFieldDefinitionWarning`
+  suppression to FastMCP construction; unrelated warnings remain visible.
+- Focused event/MCP/PetWindow regression suite: 42 passed with no warnings.
+
+## 2026-09-04 — Settings Validation and Thread Shutdown Fixes
+
+- Created missing Ollama status label in `SettingsDialog`; async model
+  validation no longer raises `AttributeError`.
+- Shutdown now joins MCP, refill, summary, code-analysis, primary, and zombie
+  workers before `QApplication.quit()`, preventing Qt thread destruction
+  warnings. Focused UI/lifecycle/Ollama suite: 37 passed.
+
+## 2026-09-04 — User Requests Skip Ollama Tools
+
+- Direct user-to-pet Ollama requests now skip MCP schema discovery and tool
+  payloads; JSON `action` and `visual_state` fields remain available.
+- Autonomous/background Ollama requests retain MCP tools for system operations.
+- Added routing regression coverage. Focused Ollama suite: 20 passed.
+
+## 2026-09-04 — Ollama Latency and Shutdown Cleanup
+
+- Latest log showed roughly 51s from user submission to response; bounded
+  Ollama generation from 1024 to 256 tokens for short structured replies.
+- OllamaManager now unloads the configured model with `keep_alive: 0` on stop,
+  terminates only an `ollama serve` process spawned by Daemon, and preserves an
+  externally managed Ollama server. Focused Ollama suite: 26 passed.
+
+## 2026-09-04 — Ollama Uses Trained Persona
+
+- Removed OpenCode `SKILL.md` loading from `OllamaWorker`; local inference now
+  uses trained model behavior plus runtime context and MCP tool directive only.
+- Removed context wording that depended on a system prompt; OpenCode routing
+  remains unchanged. Focused prompt/context suite: 32 passed.
+- Full 30-tool local-only prompt smoke test returned HTTP 200.
+
+## 2026-09-04 — Ollama MCP Context Overflow
+
+- Fixed Ollama tool-enabled requests failing with HTTP 400 because the full
+  30-tool MCP catalog plus prompt exceeded the default 2048-token context.
+- Ollama worker now sends `options.num_ctx: 8192`; added focused regression
+  coverage. Worker/tool suite: 19 passed.
+- Direct full-catalog smoke test returned HTTP 200 from `daemon-kenny`.
+
+## 2026-09-04 — Direct Firebase Client Mode
+
+- Added direct Firebase Auth via Identity Toolkit and Secure Token REST APIs
+  using runtime-only `FIREBASE_WEB_API_KEY`; backend proxy mode remains preferred
+  when `auth_backend_url` is configured.
+- Added authenticated Firestore REST CRUD/query transport with typed field
+  encoding and token-refresh retry for direct mode.
+- Direct Firebase focused suite: 57 passed.
+
+## 2026-09-04 — Missing Firebase Backend Uses Local-Only Boot
+
+- Fixed `daemon.py` auth gate to skip Firebase token refresh and login dialog
+  when `firebase.auth_backend_url` is blank, matching documented local-only mode.
+- Added `firebase_auth_configured()` predicate and regression coverage for blank,
+  whitespace, and configured backend URLs.
+- Focused config/auth/Firestore suite: 52 passed; changed modules compile cleanly.
+
+## 2026-09-04 — Local Fine-Tuned Ollama Model
+
+- Configured `data/daemon_config.json` to use Ollama at
+  `http://127.0.0.1:11434` with tested model `daemon-kenny`.
+- Focused configuration and Ollama tests: 38 passed.
+
 ## 2026-09-04 — Notebook Empty-Output Handling
 
 - Updated `fine_tuning/notebooks/colab_finetune.ipynb` Cell 4 to skip and report records with empty outputs while still failing on missing fields or invalid types.

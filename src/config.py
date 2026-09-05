@@ -22,6 +22,17 @@ class MissingConfigurationError(Exception):
     pass
 
 
+def firebase_auth_configured(config: dict) -> bool:
+    """Return whether either backend or direct Firebase auth is configured."""
+    firebase = config.get("firebase", {})
+    backend_url = firebase.get("auth_backend_url", "")
+    web_api_key = firebase.get("api_key", "")
+    return any(
+        isinstance(value, str) and bool(value.strip())
+        for value in (backend_url, web_api_key)
+    )
+
+
 # Secrets never come from JSON config. Environment variables are the portable
 # source; Windows Credential Manager is an optional local fallback.
 _SECRET_ENV_MAP = {
@@ -29,6 +40,7 @@ _SECRET_ENV_MAP = {
     ("llm", "zen_api_key"): ("OPENCODE_ZEN_API_KEY", "Daemon/OpenCodeZenApiKey"),
     # Legacy direct-Firebase mode; production uses firebase.auth_backend_url.
     ("ide_bridge", "token"): ("IDE_BRIDGE_TOKEN", "Daemon/IdeBridgeToken"),
+    ("firebase", "api_key"): ("FIREBASE_WEB_API_KEY", "Daemon/FirebaseWebApiKey"),
 }
 
 

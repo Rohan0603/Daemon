@@ -4,8 +4,15 @@ import os
 import re
 import time
 import ctypes
+import warnings
 from typing import Literal
 from PyQt6.QtCore import QThread
+
+try:
+    from pydantic_settings.exceptions import IncompleteFieldDefinitionWarning
+except ImportError:
+    IncompleteFieldDefinitionWarning = None
+
 from mcp.server.fastmcp import FastMCP
 from functools import wraps
 
@@ -188,7 +195,10 @@ class MCPServerThread(QThread):
 
 def _create_fastmcp_app(server_thread):
     """Create the FastMCP app with all tools registered."""
-    app = FastMCP("DaemonMCP", host="127.0.0.1", port=4097)
+    with warnings.catch_warnings():
+        if IncompleteFieldDefinitionWarning is not None:
+            warnings.simplefilter("ignore", IncompleteFieldDefinitionWarning)
+        app = FastMCP("DaemonMCP", host="127.0.0.1", port=4097)
 
     @app.tool()
     def change_visual_state(

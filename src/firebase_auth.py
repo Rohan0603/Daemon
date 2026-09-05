@@ -69,13 +69,11 @@ class FirebaseAuth:
         token_path: Path | None = None,
         event_bus: EventBus | None = None,
     ) -> None:
-        if not project_id:
-            cfg = load_config(validate=False)
-            self._project_id = cfg.get("firebase", {}).get("project_id", FIREBASE_PROJECT_ID)
-        else:
-            self._project_id = project_id
         cfg = load_config(validate=False)
+        firebase_cfg = cfg.get("firebase", {})
+        self._project_id = project_id or firebase_cfg.get("project_id", FIREBASE_PROJECT_ID)
         self._auth_backend_url = cfg.get("firebase", {}).get("auth_backend_url", "").rstrip("/")
+        self._web_api_key = (api_key or firebase_cfg.get("api_key", "")).strip()
         self._token_path = Path(token_path) if token_path else Path(AUTH_TOKEN_PATH)
         self._event_bus = event_bus
 
@@ -107,6 +105,10 @@ class FirebaseAuth:
         return self._auth_backend_url
 
     @property
+    def firebase_api_key(self) -> str:
+        return self._web_api_key
+
+    @property
     def last_error_code(self) -> Optional[str]:
         return self._last_error_code
 
@@ -114,12 +116,57 @@ class FirebaseAuth:
         self, endpoint: str, email: str, password: str, remember_me: bool = True
     ) -> Optional[str]:
         self._last_error_code = None
+        if self._web_api_key and not self._auth_backend_url:
+            return self._direct_auth_request(endpoint, email, password, remember_me)
         if not self._auth_backend_url:
             logger.warning("[FirebaseAuth] auth backend URL is not configured")
             self._last_error_code = "backend_not_configured"
             self._publish_auth_failure("backend_not_configured")
             return None
         return self._backend_auth_request(endpoint, email, password, remember_me)
+
+    def _direct_auth_request(
+        self, endpoint: str, email: str, password: str, remember_me: bool
+    ) -> Optional[str]:
+        operation = "signInWithPassword" if endpoint == "signInWithPassword" else "signUp"
+        try:
+            resp = requests.post(
+                "https://identitytoolkit.googleapis.com/v1/accounts:"
+                f"{operation}?key={self._web_api_key}",
+                json={"email": email, "password": password, "returnSecureToken": True},
+                timeout=15,
+            )
+        except requests.RequestException as exc:
+            logger.warning("[FirebaseAuth] direct Firebase network error: %s", exc)
+            self._last_error_code = "backend_network_error"
+            self._publish_auth_failure("backend_network_error")
+            return None
+        if resp.status_code != 200:
+            try:
+                payload = resp.json()
+                error = payload.get("error", payload) if isinstance(payload, dict) else {}
+                code = error.get("message") if isinstance(error, dict) else None
+            except (ValueError, TypeError):
+                code = None
+            self._last_error_code = code or f"firebase_http_{resp.status_code}"
+            self._publish_auth_failure(self._last_error_code)
+            return None
+        try:
+            data = resp.json()
+            data["localId"] = data["localId"]
+            data["idToken"] = data["idToken"]
+            data["refreshToken"] = data["refreshToken"]
+            data["expiresIn"] = data.get("expiresIn", 3600)
+        except (ValueError, KeyError, TypeError):
+            self._last_error_code = "firebase_invalid_response"
+            self._publish_auth_failure(self._last_error_code)
+            return None
+        self._set_tokens(data)
+        if remember_me:
+            self.save()
+        else:
+            self._token_path.unlink(missing_ok=True)
+        return self._uid
 
     def _backend_auth_request(
         self, endpoint: str, email: str, password: str, remember_me: bool
@@ -176,6 +223,8 @@ class FirebaseAuth:
     def refresh(self) -> bool:
         if not self._refresh_token:
             return False
+        if self._web_api_key and not self._auth_backend_url:
+            return self._direct_refresh()
         if not self._auth_backend_url:
             logger.warning("[FirebaseAuth] auth backend URL is not configured")
             return False
@@ -199,6 +248,32 @@ class FirebaseAuth:
             self._expires_at = time.time() + int(data.get("expires_in", 3600))
         except (ValueError, KeyError, TypeError):
             logger.warning("[FirebaseAuth] auth backend refresh returned invalid token payload")
+            return False
+        self.save()
+        self._publish_token_refreshed()
+        return True
+
+    def _direct_refresh(self) -> bool:
+        try:
+            resp = requests.post(
+                f"https://securetoken.googleapis.com/v1/token?key={self._web_api_key}",
+                data={"grant_type": "refresh_token", "refresh_token": self._refresh_token},
+                timeout=15,
+            )
+        except requests.RequestException as exc:
+            logger.warning("[FirebaseAuth] direct Firebase refresh network error: %s", exc)
+            return False
+        if resp.status_code != 200:
+            logger.warning("[FirebaseAuth] direct Firebase refresh failed: HTTP %s", resp.status_code)
+            return False
+        try:
+            data = resp.json()
+            self._id_token = data["id_token"]
+            self._refresh_token = data.get("refresh_token", self._refresh_token)
+            self._uid = data.get("user_id", self._uid)
+            self._expires_at = time.time() + int(data.get("expires_in", 3600))
+        except (ValueError, KeyError, TypeError):
+            logger.warning("[FirebaseAuth] direct Firebase refresh returned invalid token payload")
             return False
         self.save()
         self._publish_token_refreshed()

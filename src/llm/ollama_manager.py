@@ -14,6 +14,7 @@ OLLAMA_RETRY_INTERVAL_MS = 2000
 OLLAMA_KILL_WAIT_MS = 5000
 OLLAMA_KEEP_ALIVE = "10m"
 OLLAMA_WARM_TIMEOUT_SEC = 30
+OLLAMA_UNLOAD_TIMEOUT_SEC = 5
 
 
 class OllamaManager(QObject):
@@ -30,6 +31,7 @@ class OllamaManager(QObject):
         self._model_name = model_name
         self._ollama_url = ollama_url.strip("/")
         self._process: QProcess | None = None
+        self._owns_process = False
         self._health_timer: QTimer | None = None
         self._retries = 0
         self._warming = False
@@ -52,14 +54,37 @@ class OllamaManager(QObject):
 
     def stop(self) -> None:
         self._stop_health_timer()
-        if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
+        self._unload_model()
+        if (self._owns_process and self._process
+                and self._process.state() != QProcess.ProcessState.NotRunning):
             self._process.terminate()
             if not self._process.waitForFinished(OLLAMA_KILL_WAIT_MS):
                 self._process.kill()
                 self._process.waitForFinished(2000)
         self._process = None
+        self._owns_process = False
         self._ready = False
         self.status_changed.emit("stopped")
+
+    def _unload_model(self) -> None:
+        """Release the model while leaving externally managed Ollama running."""
+        try:
+            resp = requests.post(
+                f"{self._ollama_url}/api/generate",
+                json={
+                    "model": self._model_name,
+                    "prompt": "",
+                    "stream": False,
+                    "keep_alive": 0,
+                },
+                timeout=OLLAMA_UNLOAD_TIMEOUT_SEC,
+            )
+            if resp.status_code != 200:
+                logger.warning("Ollama model unload failed: HTTP %s", resp.status_code)
+            else:
+                logger.info("Ollama model %s unloaded", self._model_name)
+        except requests.RequestException as exc:
+            logger.debug("Ollama model unload skipped: %s", exc)
 
     def _find_ollama(self) -> str | None:
         path = shutil.which("ollama")
@@ -150,6 +175,7 @@ class OllamaManager(QObject):
 
     def _spawn_serve(self, ollama_path: str) -> None:
         self._process = QProcess(self)
+        self._owns_process = True
         self._process.setProgram(ollama_path)
         self._process.setArguments(["serve"])
         self._process.setProcessChannelMode(QProcess.ProcessChannelMode.ForwardedChannels)

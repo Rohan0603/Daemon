@@ -24,6 +24,10 @@ class TestSettingsDialog:
         assert dialog._voice_checkbox.isChecked() is True
         assert dialog._rate_slider.value() == 220
 
+    def test_ollama_status_label_exists(self, app):
+        dialog = SettingsDialog(ollama_status="Status: ready")
+        assert dialog._ollama_status_label.text() == "Status: ready"
+
     def test_slider_ranges(self, app):
         dialog = SettingsDialog()
         assert dialog._size_slider.minimum() == 50

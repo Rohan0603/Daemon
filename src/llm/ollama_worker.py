@@ -5,7 +5,7 @@ import threading
 from typing import Any
 from PyQt6.QtCore import QThread, pyqtSignal
 from src.config import config_get
-from src.llm.system_prompt import build_system_prompt, build_tool_directive
+from src.llm.system_prompt import build_tool_directive
 from src.observability import RequestTiming, record_request_phase, record_llm_fallback
 from src.observability import record_request_cancellation
 from src.log_context import correlation_scope
@@ -75,7 +75,6 @@ class OllamaWorker(QThread):
         self._post_timeout = min(max(timeout, 5), 180)
         if is_autonomous:
             self._post_timeout = min(max(self._post_timeout, 10), 180)
-        self._skill_md = self._load_skill_md()
         self._tools_disabled = False
         self._mcp = None  # DaemonMCPClient, set lazily in _ensure_tools()
         self._tools = None  # LLM tool schema, built lazily
@@ -83,18 +82,6 @@ class OllamaWorker(QThread):
         self._correlation_id = kwargs.pop("correlation_id", "") or (
             self._timing.correlation_id if self._timing else ""
         )
-
-    def _load_skill_md(self) -> str:
-        """Load the canonical Kenny system prompt (single source of truth).
-
-        Delegates to ``src.llm.system_prompt`` which reads the same SKILL.md
-        that opencode serve loads natively. Nothing here is hardcoded — the
-        persona comes from the file, placeholders are filled from Memory.
-        """
-        facts: dict = {}
-        if self.parent() and hasattr(self.parent(), "_memory"):
-            facts = self.parent()._memory.get_all()
-        return build_system_prompt(self._pet_id, facts, compact=True)
 
     def abort(self) -> None:
         self._abort = True
@@ -108,7 +95,6 @@ class OllamaWorker(QThread):
         self._retried = False
         self._mark("queue")
         messages = [
-            {"role": "system", "content": self._skill_md},
             {"role": "user", "content": self._prompt},
         ]
         try:
@@ -188,7 +174,7 @@ class OllamaWorker(QThread):
                 logger.warning("_chat_completion: exceeded max tool iterations (%d)", self.MAX_TOOL_ITERATIONS)
                 return None
 
-            tools_enabled = not self._tools_disabled
+            tools_enabled = self._is_autonomous and not self._tools_disabled
             if tools_enabled:
                 self._ensure_tools()
             payload = {
@@ -196,18 +182,21 @@ class OllamaWorker(QThread):
                 "messages": messages,
                 "stream": False,
                 "keep_alive": "10m",
-                "options": {"num_predict": 1024},
+                "options": {"num_ctx": 8192, "num_predict": 256},
             }
             if tools_enabled:
                 payload["tools"] = self._tools
-                messages[0] = {
+                messages[:] = [message for message in messages if message.get("role") != "system"]
+                messages.insert(0, {
                     "role": "system",
-                    "content": self._skill_md + "\n\n" + build_tool_directive(self._tools),
-                }
+                    "content": build_tool_directive(self._tools),
+                })
             else:
                 payload["format"] = "json"
+                messages[:] = [message for message in messages if message.get("role") != "system"]
 
-            system_size = len(messages[0]["content"]) if messages else 0
+            system_message = next((message for message in messages if message.get("role") == "system"), None)
+            system_size = len(system_message["content"]) if system_message else 0
             user_size = len(messages[-1]["content"]) if messages else 0
             logger.debug("_chat_completion: model=%s tools=%s timeout=%s msg_count=%d system=%d user=%d iter=%d",
                           self._ollama_model, tools_enabled, self._post_timeout,

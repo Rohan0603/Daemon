@@ -159,3 +159,47 @@ def test_add_returns_none_when_no_auth() -> None:
     result = crud.add("c", {"text": "hello"})
     assert result is None
     assert not crud.available
+
+
+def test_direct_get_uses_firestore_rest(auth: MagicMock, monkeypatch) -> None:
+    auth.auth_backend_url = ""
+    auth.firebase_api_key = "web-key"
+    crud = FirebaseCRUD(auth=auth, project_id="test-project")
+    response = MagicMock(status_code=200)
+    response.json.return_value = {"fields": {"count": {"integerValue": "2"}}}
+    request = MagicMock(return_value=response)
+    monkeypatch.setattr(crud._session, "request", request)
+
+    assert crud.get("users/u1", "doc") == {"count": 2}
+    assert request.call_args.args[:2] == (
+        "GET",
+        "https://firestore.googleapis.com/v1/projects/test-project/databases/%28default%29/documents/users/u1/doc",
+    )
+
+
+def test_direct_set_encodes_firestore_fields(auth: MagicMock, monkeypatch) -> None:
+    auth.auth_backend_url = ""
+    auth.firebase_api_key = "web-key"
+    crud = FirebaseCRUD(auth=auth, project_id="test-project")
+    response = MagicMock(status_code=200)
+    request = MagicMock(return_value=response)
+    monkeypatch.setattr(crud._session, "request", request)
+
+    assert crud.set("c", "d", {"enabled": True, "count": 2})
+    assert request.call_args.kwargs["json"] == {
+        "fields": {"enabled": {"booleanValue": True}, "count": {"integerValue": "2"}}
+    }
+
+
+def test_direct_query_uses_run_query(auth: MagicMock, monkeypatch) -> None:
+    auth.auth_backend_url = ""
+    auth.firebase_api_key = "web-key"
+    crud = FirebaseCRUD(auth=auth, project_id="test-project")
+    response = MagicMock(status_code=200)
+    response.json.return_value = [{"document": {"fields": {"text": {"stringValue": "hello"}}}}]
+    request = MagicMock(return_value=response)
+    monkeypatch.setattr(crud._session, "request", request)
+
+    assert crud.query("c", order_by="created_at", limit=3, ascending=False) == [{"text": "hello"}]
+    assert request.call_args.args[1].endswith("/documents:runQuery")
+    assert request.call_args.kwargs["json"]["structuredQuery"]["limit"] == 3

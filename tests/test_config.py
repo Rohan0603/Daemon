@@ -10,6 +10,7 @@ from src.config import (
     unflatten_config,
     validate_config,
     MissingConfigurationError,
+    firebase_auth_configured,
     _secret_value,
 )
 
@@ -24,6 +25,16 @@ def _get_minimal_valid_cfg():
         "mcp": {}, "behavior": {}, "logging": {}, "storage": {},
         "visuals": {}, "triggers": {}
     }
+
+
+@pytest.mark.parametrize("backend_url, expected", [
+    ("", False),
+    ("   ", False),
+    ("https://auth.example.test", True),
+])
+def test_firebase_auth_configured(backend_url, expected):
+    config = {"firebase": {"auth_backend_url": backend_url}}
+    assert firebase_auth_configured(config) is expected
 
 
 @patch("src.config.shutil.copy2")

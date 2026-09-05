@@ -32,7 +32,17 @@ class TestOllamaManager:
 
     def test_stop_cleans_up(self):
         mgr = OllamaManager()
+        with patch("src.llm.ollama_manager.requests.post") as mock_post:
+            mock_post.return_value = MagicMock(status_code=200)
+            mgr.stop()
+        mock_post.assert_called_once()
+
+    @patch("src.llm.ollama_manager.requests.post")
+    def test_stop_does_not_terminate_external_server(self, mock_post):
+        mock_post.return_value = MagicMock(status_code=200)
+        mgr = OllamaManager()
         mgr.stop()
+        assert mgr._owns_process is False
 
     @patch("src.llm.ollama_manager.requests.get")
     def test_readiness_uses_configured_server_and_validates_tags(self, mock_get):
