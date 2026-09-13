@@ -332,7 +332,7 @@ def test_sync_from_local_pushes_memory_facts(tmp_path):
     from src.memory import Memory
 
     mem = Memory(path=str(tmp_path / "mem.json"))
-    mem.remember("user_name", "Rohan")
+    mem.remember("user_habits", "codes at night; drinks coffee")
     mem.remember("pet_quirks", "Collects Hot Wheels")
 
     mock_crud = MagicMock()
@@ -349,15 +349,14 @@ def test_sync_from_local_pushes_memory_facts(tmp_path):
 
     mm.sync_from_local(mem)
 
-    mock_crud.get.assert_any_call("users", "test-uid")
     mock_crud.get.assert_any_call("users/test-uid/pets", "kenny")
 
-    assert mock_crud.set.call_count == 4
+    assert mock_crud.set.call_count == 2
     user_call = mock_crud.set.call_args_list[0]
     pet_call = mock_crud.set.call_args_list[1]
     assert user_call[0][0] == "users"
     assert user_call[0][1] == "test-uid"
-    assert user_call[0][2]["user_name"] == "Rohan"
+    assert user_call[0][2]["user_habits"] == "codes at night; drinks coffee"
     assert user_call[1]["merge"] is True
     assert pet_call[0][0] == "users/test-uid/pets"
     assert pet_call[0][1] == "kenny"
@@ -408,7 +407,7 @@ def test_sync_from_local_silent_on_exception(tmp_path):
     from src.memory import Memory
 
     mem = Memory(path=str(tmp_path / "mem.json"))
-    mem.remember("user_name", "Test User")
+    mem.remember("pet_quirks", "Test quirk")
     mock_crud = MagicMock()
     mock_crud.available = True
     mock_crud.get.return_value = {}
@@ -428,10 +427,19 @@ def test_sync_from_local_silent_on_exception(tmp_path):
 # ── _BRAIN_SCHEMA & apply_brain_update tests ─────────────────────────────────
 
 
+def _flat_brain_schema():
+    from src.brain_schema import BRAIN_SCHEMA
+    flat = {}
+    for tier_specs in BRAIN_SCHEMA.values():
+        flat.update(tier_specs)
+    return flat
+
+
 def test_apply_brain_update_strips_locked_fields():
-    from src.memory_manager import apply_brain_update, _BRAIN_SCHEMA
-    locked_keys = {k for k, v in _BRAIN_SCHEMA.items() if v["locked"]}
-    update = {k: "new value" for k in _BRAIN_SCHEMA}
+    from src.memory_manager import apply_brain_update
+    flat = _flat_brain_schema()
+    locked_keys = {k for k, v in flat.items() if v["locked"]}
+    update = {k: "new value" for k in flat}
     result = apply_brain_update(update)
     for k in locked_keys:
         assert k not in result, f"{k} is locked but appeared in result"
@@ -460,8 +468,9 @@ def test_apply_brain_update_rejects_unknown_field():
 
 
 def test_apply_brain_update_rejects_wrong_type():
-    from src.memory_manager import apply_brain_update, _BRAIN_SCHEMA
-    list_field = next(k for k, v in _BRAIN_SCHEMA.items()
+    from src.memory_manager import apply_brain_update
+    flat = _flat_brain_schema()
+    list_field = next(k for k, v in flat.items()
                       if v["type"] == "list" and not v["locked"])
     result = apply_brain_update({list_field: "not a list"})
     assert list_field not in result

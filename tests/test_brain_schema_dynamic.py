@@ -8,14 +8,17 @@ def test_load_schema_from_json_file(tmp_path):
     schema_data = {
         "version": 1,
         "fields": {
-            "test_field": {"type": "str", "locked": False, "default": "hello"}
+            "test_field": {"type": "str", "locked": False, "default": "hello", "indexed": False}
         }
     }
     schema_file.write_text(json.dumps(schema_data))
     from src.brain_schema import load_brain_schema
     schema = load_brain_schema(schema_path=str(schema_file))
-    assert "test_field" in schema
-    assert schema["test_field"]["default"] == "hello"
+    # load_brain_schema returns tiered structure: {"fields": {tier: {field: spec}}, "tier_order": [...]}
+    assert "fields" in schema
+    assert "identity" in schema["fields"]
+    assert "test_field" in schema["fields"]["identity"]
+    assert schema["fields"]["identity"]["test_field"]["default"] == "hello"
 
 
 def test_locked_field_preserved(tmp_path):
@@ -23,13 +26,14 @@ def test_locked_field_preserved(tmp_path):
     schema_data = {
         "version": 1,
         "fields": {
-            "locked_field": {"type": "str", "locked": True, "default": "x"}
+            "locked_field": {"type": "str", "locked": True, "default": "x", "indexed": False}
         }
     }
     schema_file.write_text(json.dumps(schema_data))
     from src.brain_schema import load_brain_schema
     schema = load_brain_schema(schema_path=str(schema_file))
-    assert schema["locked_field"]["locked"] is True
+    # Unknown fields go to identity tier
+    assert schema["fields"]["identity"]["locked_field"]["locked"] is True
 
 
 def test_missing_schema_file_raises():
@@ -57,13 +61,17 @@ def test_apply_brain_update_respects_loaded_schema(tmp_path):
     schema_data = {
         "version": 1,
         "fields": {
-            "custom_field": {"type": "str", "locked": False, "default": ""}
+            "custom_field": {"type": "str", "locked": False, "default": "", "indexed": False}
         }
     }
     schema_file.write_text(json.dumps(schema_data))
     from src.brain_schema import load_brain_schema, apply_brain_update
-    schema = load_brain_schema(schema_path=str(schema_file))
-    updated = apply_brain_update({"custom_field": "hello"}, schema=schema)
+    loaded = load_brain_schema(schema_path=str(schema_file))
+    # apply_brain_update expects flat schema
+    flat_schema = {}
+    for tier_specs in loaded["fields"].values():
+        flat_schema.update(tier_specs)
+    updated = apply_brain_update({"custom_field": "hello"}, schema=flat_schema)
     assert updated["custom_field"] == "hello"
 
 

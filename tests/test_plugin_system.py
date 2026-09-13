@@ -192,7 +192,7 @@ class TestPluginRegistry:
         import src.brain_schema as _bs
 
         # Save original schema and defaults
-        orig_schema = dict(_bs.BRAIN_SCHEMA)
+        orig_schema = dict(_bs._FLAT_BRAIN_SCHEMA)
         orig_defaults = dict(_bs.DEFAULT_BRAIN)
 
         try:
@@ -207,12 +207,18 @@ class TestPluginRegistry:
             # Merge logic (simulated from daemon.py)
             from src.brain_schema import load_brain_schema
             loaded_schema = load_brain_schema()
-            loaded_schema.update(registry.get_brain_fields())
-            _bs.BRAIN_SCHEMA = loaded_schema
-            _bs.DEFAULT_BRAIN = {k: v["default"] for k, v in loaded_schema.items()}
+            # loaded_schema has "fields" (tiered) and "tier_order"
+            # Flatten for merging
+            flat_loaded = {}
+            for tier_specs in loaded_schema["fields"].values():
+                flat_loaded.update(tier_specs)
+            flat_loaded.update(registry.get_brain_fields())
+            _bs._FLAT_BRAIN_SCHEMA = flat_loaded
+            _bs.BRAIN_SCHEMA = loaded_schema["fields"]
+            _bs.DEFAULT_BRAIN = {k: v["default"] for k, v in flat_loaded.items()}
 
             # Verify custom field exists in BRAIN_SCHEMA and DEFAULT_BRAIN
-            assert "plugin_mood_indicator" in _bs.BRAIN_SCHEMA
+            assert "plugin_mood_indicator" in _bs._FLAT_BRAIN_SCHEMA
             assert _bs.DEFAULT_BRAIN["plugin_mood_indicator"] == "neutral"
 
             # Verify apply_brain_update supports the new field
@@ -223,8 +229,10 @@ class TestPluginRegistry:
 
         finally:
             # Restore original state
-            _bs.BRAIN_SCHEMA = orig_schema
+            _bs._FLAT_BRAIN_SCHEMA = orig_schema
             _bs.DEFAULT_BRAIN = orig_defaults
+            # Rebuild BRAIN_SCHEMA from flat
+            _bs.BRAIN_SCHEMA = _bs.load_brain_schema()["fields"]
 
 
 class TestPluginManager:

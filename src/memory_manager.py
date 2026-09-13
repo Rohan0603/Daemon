@@ -12,6 +12,7 @@ from src.brain_schema import (
     DEFAULT_BRAIN as _DEFAULT_BRAIN,
     USER_LEVEL_KEYS as _USER_LEVEL_KEYS,
     apply_brain_update,
+    _classify_tier,
 )
 from src.firebase_crud import FirebaseCRUD
 from src.memory.embedding_engine import EmbeddingEngine
@@ -85,27 +86,40 @@ class MemoryManager:
         self._batch_dirty = False
 
     def sync_to_local(self, memory: "Memory", brain: dict | None = None) -> None:
+        """Sync brain fields from Firebase to local Memory.
+
+        Supports both hierarchical (v2) tier dict and flat (v1) format.
+        Hierarchical: {"identity": {...}, "profile": {...}, ...}
+        Flat: {"user_name": "...", "user_habits": [...], ...}
+        """
         logger.debug("MemoryManager.sync_to_local called")
         if not self.crud.available:
             logger.debug("  crud unavailable, skipping")
             return
         if brain is None:
             brain = self.load_current_brain()
+        # Normalize to hierarchical format if flat
+        if self._is_flat_brain(brain):
+            brain = self._flat_to_tier(brain)
         now = time.time()
         if now - self._user_data_cache_time > self._USER_DATA_CACHE_TTL:
             self._cached_user_data = self.crud.get("users", self._uid) or {}
             self._user_data_cache_time = now
         user_data = self._cached_user_data
-        merged = dict(brain)
+        # Merge all 5 tiers: identity, profile, personality, relationship, intel
+        merged = {}
+        for tier in ("identity", "profile", "personality", "relationship", "intel"):
+            merged.update(brain.get(tier, {}))
+        # Also overlay user data from Firebase (e.g. user_name, user_profession)
         for key, value in user_data.items():
-            if key in _BRAIN_SCHEMA:
+            if self._get_field_spec(key) is not None:
                 merged[key] = value
         count = 0
         for key, value in merged.items():
-            if key not in _BRAIN_SCHEMA:
+            field_spec = self._get_field_spec(key)
+            if field_spec is None:
                 continue
-            if not value:
-                continue
+            # Handle type conversion
             if isinstance(value, list):
                 val_str = "; ".join(str(v) for v in value if v)
             elif isinstance(value, dict):
@@ -123,6 +137,37 @@ class MemoryManager:
         except Exception:
             pass
 
+    @staticmethod
+    def _is_flat_brain(brain: dict) -> bool:
+        """Check if brain dict uses flat (v1) keys."""
+        return bool(brain) and "." not in str(list(brain.keys())[0])
+
+    @staticmethod
+    def _flat_to_tier(flat_brain: dict) -> dict:
+        """Convert flat (v1) brain dict to hierarchical (v2) tier format."""
+        from src.brain_schema import _classify_tier
+        tier_fields: dict[str, dict] = {
+            "identity": {},
+            "profile": {},
+            "personality": {},
+            "relationship": {},
+            "intel": {},
+        }
+        for key, value in flat_brain.items():
+            tier = _classify_tier(key)
+            if tier is not None:
+                tier_fields[tier][key] = value
+            else:
+                tier_fields.setdefault("identity", {})[key] = value
+        return tier_fields
+
+    def _get_field_spec(self, key: str) -> dict | None:
+        """Find the field spec for a key across all tiers in BRAIN_SCHEMA."""
+        for tier, field_specs in _BRAIN_SCHEMA.items():
+            if key in field_specs:
+                return field_specs[key]
+        return None
+
     def sync_from_local(self, memory: "Memory") -> None:
         if not self.crud.available:
             return
@@ -138,44 +183,69 @@ class MemoryManager:
             return
         self._last_sync_hash = current_hash
 
-        user_facts = {}
-        pet_facts = {}
-        for key, value in facts.items():
-            if key not in _BRAIN_SCHEMA:
-                continue
-            if key in _USER_LEVEL_KEYS:
-                user_facts[key] = value
-            else:
-                pet_facts[key] = value
+        # Separate facts by tier using BRAIN_SCHEMA and USER_LEVEL_KEYS
+        user_facts: dict[str, object] = {}
+        pet_facts: dict[str, object] = {}
 
+        for key, value in facts.items():
+            # Determine tier from BRAIN_SCHEMA by searching through tiers
+            tier = None
+            field_spec = None
+            for t, field_specs in _BRAIN_SCHEMA.items():
+                if key in field_specs:
+                    tier = t
+                    field_spec = field_specs[key]
+                    break
+            if tier is None:
+                continue
+            # Check if it's a profile key that belongs to user_level_keys
+            if tier == "profile" and key in _USER_LEVEL_KEYS:
+                user_facts[key] = value
+            elif tier in ("personality", "relationship"):
+                pet_facts[key] = value
+            # identity and non-indexed relationship fields are skipped for Firebase sync
+            # (they are stored as vector sidecars or local-only)
+
+        # Merge user_facts into users/{uid}
+
+        # Merge user_facts into users/{uid}
         if user_facts:
             existing = self.crud.get("users", self._uid) or {}
             merged = dict(existing)
             for key, value in user_facts.items():
-                existing_val = existing.get(key)
-                if isinstance(existing_val, list):
-                    items = [v.strip() for v in value.split("; ") if v.strip()]
-                    for item in items:
-                        if item not in existing_val and item not in [str(x) for x in existing_val]:
-                            merged.setdefault(key, []).append(item)
-                elif isinstance(existing_val, dict):
-                    merged.setdefault(key, {}).update(value)
-                else:
+                if key not in merged:
                     merged[key] = value
+                else:
+                    existing_val = merged.get(key)
+                    if isinstance(existing_val, list):
+                        items = [v.strip() for v in str(value).split("; ") if v.strip()]
+                        for item in items:
+                            if item not in existing_val and item not in [str(x) for x in existing_val]:
+                                merged.setdefault(key, []).append(item)
+                    elif isinstance(existing_val, dict):
+                        merged.setdefault(key, {}).update(value)
+                    else:
+                        merged[key] = value
             self.crud.set("users", self._uid, merged, merge=True)
-            logger.info("[MemoryManager] sync_from_local: merged %d user fields into users/%s", len(user_facts), self._uid)
+            logger.info("[MemoryManager] sync_from_local: merged %d user fields into users/%s",
+                         len(user_facts), self._uid)
 
+        # Merge pet_facts into brain doc
         if pet_facts:
             existing = self.crud.get(self._brain_collection, self._brain_doc_id) or {}
             merged = dict(existing)
             for key, value in pet_facts.items():
-                existing_val = existing.get(key)
-                if isinstance(existing_val, list):
-                    items = [v.strip() for v in value.split("; ") if v.strip()]
+                if isinstance(value, list):
+                    items = [v.strip() for v in str(value).split("; ") if v.strip()]
                     for item in items:
-                        if item not in existing_val and item not in [str(x) for x in existing_val]:
-                            merged.setdefault(key, []).append(item)
-                elif isinstance(existing_val, dict):
+                        # Check if item already exists
+                        existing_val = merged.get(key, [])
+                        if isinstance(existing_val, list):
+                            if item not in existing_val and item not in [str(x) for x in existing_val]:
+                                merged.setdefault(key, []).append(item)
+                        else:
+                            merged[key] = value
+                elif isinstance(value, dict):
                     merged.setdefault(key, {}).update(value)
                 else:
                     merged[key] = value
@@ -183,19 +253,29 @@ class MemoryManager:
             logger.info("[MemoryManager] sync_from_local: merged %d pet fields into %s/%s",
                          len(pet_facts), self._brain_collection, self._brain_doc_id)
 
-        if not user_facts and not pet_facts:
-            logger.info("[MemoryManager] sync_from_local: no relevant facts to push (all non-schema keys)")
+        # Write vector sidecar records for indexed fields only
         self._write_vector_records(facts)
 
+        if not user_facts and not pet_facts:
+            logger.info("[MemoryManager] sync_from_local: no relevant facts to push (all non-schema keys)")
+
     def _write_vector_records(self, facts: dict) -> None:
-        """Write searchable sidecar documents while retaining structured brain data."""
+        """Write searchable sidecar documents for indexed fields only.
+
+        Only fields with ``indexed: true`` in the schema are written as
+        vector sidecar docs. Identity and high-frequency fields are excluded.
+        """
         engine = getattr(self, "_embedding_engine", None)
         if engine is None:
             engine = self._embedding_engine = EmbeddingEngine()
-        collection = f"{self._brain_collection}/{self._brain_doc_id}/memories"
+        collection = f"{self._brain_collection}/{self._pet_id}/memories"
         for key, value in facts.items():
-            if key not in _BRAIN_SCHEMA:
+            # Determine tier and check indexing flag
+            field_spec = self._get_field_spec(key)
+            if field_spec is None:
                 continue
+            if not field_spec.get("indexed", False):
+                continue  # Skip non-indexed fields (identity, high-frequency)
             content = str(value)
             self.crud.set(collection, f"memory_{key}", {
                 "source": "core_brain",

@@ -837,7 +837,13 @@ py daemon.py --no-auth     # skip Firebase auth login gate
 py daemon.py --pet-id foo  # use pet_id "foo" instead of "kenny"
 ```
 
-Progress is tracked in `memory/project-dev-memory.md`. Update it after every task with commit hash, files changed, and any fixes applied.
+Progress is tracked in `memory/project-dev-memory.md` and `docs/PROGRESS_LEDGER.md`.
+
+**`docs/PROGRESS_LEDGER.md`** is the global project progress ledger — used for all tasks in the project, survives compaction and task re-dispatch.
+
+`memory/project-dev-memory.md` contains the authoritative project state: what's built, what's next, known issues.
+
+After completing any task, update `docs/PROGRESS_LEDGER.md` with the task result.
 
 ## Strict Configuration Validation
 **CRITICAL CONFIG WARNING:** The application operates on strict configuration validation. There is NO `DEFAULT_CONFIG` dictionary in the codebase. If you add a new feature that requires a new configuration key (e.g., `"chase_speed"`), you **must** instruct the user to update their `data/daemon_config.json`, or you must explicitly provide a migration script to inject it. Otherwise, the app will instantly crash with a KeyError on boot.

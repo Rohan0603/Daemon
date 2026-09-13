@@ -2,13 +2,23 @@ from __future__ import annotations
 import pytest
 
 
+def _flat_schema():
+    """Get flat view of BRAIN_SCHEMA across all tiers."""
+    from src.brain_schema import BRAIN_SCHEMA
+    flat = {}
+    for tier_specs in BRAIN_SCHEMA.values():
+        flat.update(tier_specs)
+    return flat
+
+
 class TestApplyBrainUpdate:
     def test_apply_brain_update_strips_locked_fields(self):
         from src.brain_schema import BRAIN_SCHEMA, apply_brain_update
+        flat = _flat_schema()
         update = {"pet_name": "BAD", "mission_goals": ["goal1"]}
         result = apply_brain_update(update)
         assert "pet_name" not in result
-        assert BRAIN_SCHEMA["pet_name"]["locked"] is True
+        assert flat["pet_name"]["locked"] is True
 
     def test_apply_brain_update_appends_to_list_fields(self):
         from src.brain_schema import apply_brain_update
@@ -70,11 +80,12 @@ class TestApplyBrainUpdate:
 class TestBrainSchemaConsistency:
     def test_brain_schema_and_defaults_consistent(self):
         from src.brain_schema import BRAIN_SCHEMA, DEFAULT_BRAIN
+        flat = _flat_schema()
         for key in DEFAULT_BRAIN:
-            assert key in BRAIN_SCHEMA, f"Key {key!r} in DEFAULT_BRAIN but missing from BRAIN_SCHEMA"
-        for key in BRAIN_SCHEMA:
+            assert key in flat, f"Key {key!r} in DEFAULT_BRAIN but missing from BRAIN_SCHEMA"
+        for key in flat:
             assert key in DEFAULT_BRAIN, f"Key {key!r} in BRAIN_SCHEMA but missing from DEFAULT_BRAIN"
-            t = BRAIN_SCHEMA[key]["type"]
+            t = flat[key]["type"]
             if t == "list":
                 assert isinstance(DEFAULT_BRAIN[key], list), (
                     f"Key {key!r}: BRAIN_SCHEMA type {t!r} but DEFAULT_BRAIN value is {type(DEFAULT_BRAIN[key]).__name__}"
@@ -133,7 +144,7 @@ class TestApplyBrainUpdateEdgeCases:
         update = {"progression_flags": {"new_flag": "xyz"}}
         result = apply_brain_update(update)
         assert result["progression_flags"] == {"new_flag": "xyz"}
-        
+
     def test_apply_brain_update_new_persona_fields(self):
         from src.brain_schema import apply_brain_update
         update = {
@@ -154,17 +165,18 @@ class TestApplyBrainUpdateEdgeCases:
 
 class TestBrainSchemaEdgeCases:
     def test_brain_schema_all_locked_strings_correct(self):
-        from src.brain_schema import BRAIN_SCHEMA
-        for key, schema in BRAIN_SCHEMA.items():
+        flat = _flat_schema()
+        for key, schema in flat.items():
             if schema["locked"]:
                 assert schema["type"] in ("string", "str"), (
                     f"Locked field {key!r} has type {schema['type']!r}, expected 'string' or 'str'"
                 )
 
     def test_default_brain_all_unlocked_lists_have_items(self):
-        from src.brain_schema import BRAIN_SCHEMA, DEFAULT_BRAIN
+        from src.brain_schema import DEFAULT_BRAIN
+        flat = _flat_schema()
         empties_allowed = {"intel_archive", "user_preferences", "user_long_term_goals", "user_imposed_rules", "intel_insider_knowledge", "user_current_project"}
-        for key, schema in BRAIN_SCHEMA.items():
+        for key, schema in flat.items():
             if not schema["locked"]:
                 if schema["type"] == "list":
                     assert isinstance(DEFAULT_BRAIN[key], list)
