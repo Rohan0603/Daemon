@@ -30,7 +30,7 @@ jobs:
       - name: Compile the validator
         run: python -m py_compile scripts/validate_governance.py scripts/test_validate_governance.py
       - name: Run offline governance tests
-        run: python -m unittest discover -s scripts -p 'test_*.py' -v
+        run: python -m unittest discover -s scripts -p 'test_validate_governance.py' -v
 
   live-audit:
     name: Project read-only audit
