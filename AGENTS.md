@@ -1,3 +1,18 @@
+# Current GitHub Chief/Worker development governance — Daemon (2026-11-09)
+
+> **Workflow precedence:** This GitHub development-issue tracking and agent-routing section supersedes conflicting earlier *development workflow* instructions below. **Product architecture, safety, testing, provider/creative workflows, source files and project-specific approvals remain fully binding.** Preserve Windows PyQt desktop companion, Graphify, existing skill definitions, memory/project-dev-memory.md, safety and test rules. Internal product Opencode workers are unrelated to GitHub development dispatch.
+
+- GitHub repository Issues plus an authorized GitHub Projects v2 board are intended as the live development task queue. **Project membership/Status/Priority are NOT VERIFIED or configured by this PR**; never infer `Ready`, `In Progress` or `Done` from Issue labels or a migrated file.
+- Primary issue route is exactly one of `chief` or `worker`; `human` can coexist only with `chief`. The non-routing `metadata-bootstrap` flag applies only to `worker` and allows **GitHub metadata setup only**, never product implementation.
+- On first handoff Chief posts `GITHUB METADATA SETUP` with approved Project, fields, milestone/dependencies and verification status. If Chief cannot access Projects, use `METADATA BOOTSTRAP HANDOFF` to a separately owner-invoked Worker, then read-back and return to Chief before any separate `worker + Ready` implementation assignment.
+- **No automatic AI agent dispatch:** no label/Project event, Actions workflow or issue comment triggers a Chief/Worker model. The human starts or schedules agents manually. These restrictions do not alter the product runtime's own internal worker behavior.
+- The portable full protocol is `docs/GITHUB_AGENT_GOVERNANCE.md` and takes precedence over obsolete work-tracker/dispatcher instructions below; keep all other product-specific instructions intact.
+- Default branch: `master`. Do not reconfigure repository settings, branch protections, credentials or live Projects in this code-only migration.
+
+---
+
+## Preserved Daemon project-specific agent instructions
+
 # Daemon Desktop Pet — Agent Instructions
 
 **This file replaces CLAUDE.md and GEMINI.md.** Both AI agents use this single file.
